@@ -84,8 +84,9 @@ status and coinbase maturity. Preparing stores an immutable signed plan with an
 exact quoted fee, without submitting. Approval saves that plan's validated ID
 before any broadcast. The journal persists submission intent and observations;
 restart or a lost response reconciles the same signed bytes. Reveal submission
-waits for commit confirmation. The public Esplora path has no mempool preflight;
-policy rejection pauses publication without fee changes. Approved plans resume
+follows as soon as the commit is observed in the mempool or confirmed. Success
+still requires both transactions to confirm. The public Esplora path has no
+mempool preflight; policy rejection pauses publication without fee changes. Approved plans resume
 while the vault is locked. Offline plan views show saved bytes and explicitly
 unknown current confirmation status. Origin-wide Web Locks serialize chain
 operations across tabs, and an unfinished approved plan blocks new preparation.
@@ -134,7 +135,8 @@ those sizes with `cargo tauri icon assets/urma-wire-icon.png`.
    needs one adequate confirmed spendable output; total balance is insufficient
    to prove that such an output exists.
 3. **Approve fee & publish** approves that exact plan and begins submission.
-   The commit must confirm before its reveal. The frontend reconciles every
+   The commit is submitted first; once observed in the mempool or confirmed,
+   its reveal is submitted in the same pass. The frontend reconciles every
    two seconds and reports both transactions; success requires both confirmed.
    A source error or rejection stops following with its reason. Resolve it and
    choose **Resume publication**; no generic infinite retry or fee bump occurs.

@@ -328,12 +328,14 @@ async fn advance_inner(source: &Source, active: &mut Active) -> Result<Publicati
             source.broadcast(&tx).await?;
             presence = source.presence(txid).await?;
         }
-        let confirmed = matches!(presence, Presence::Confirmed { .. });
+        let missing = matches!(presence, Presence::Missing);
         active.observations.push(presence);
         store::write(ACTIVE, active).await?;
-        if !confirmed {
-            break;
-        } // Never submit reveal until commit is confirmed.
+        if missing {
+            return Err(
+                "Transaction missing after submission; resume the exact approved plan".into(),
+            );
+        }
     }
     if source.hash(anchor.0).await? != anchor.1 {
         return Err("Chain changed during publication reconciliation; resume exact plan".into());

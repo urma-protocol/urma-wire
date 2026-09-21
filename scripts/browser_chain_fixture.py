@@ -34,6 +34,7 @@ def run_chain_fixture(command, js, request, base):
                 if(f.reject) return new Response('fixture policy rejected',{status:400});
                 const id=JSON.parse(await window.wasmBindings.browser_fixture_command('fixture-txid',JSON.stringify({raw:options.body})));
                 f.submissions.push(options.body); f.raws[id]=options.body; f.statuses[id]={confirmed:false};
+                if(f.dropAccepted) { delete f.statuses[id]; f.dropAccepted=false; }
                 if(f.loseReply) { f.loseReply=false; throw new Error('fixture response lost after acceptance'); }
                 return respond(id);
             }
@@ -61,9 +62,13 @@ def run_chain_fixture(command, js, request, base):
     assert js("return chainFixture.submissions.length") == 0
     command("advance_publication", {"id": "wrong", "approve": True}, failure=True)
     command("advance_publication", {"id": quote["id"], "approve": False}, failure=True)
-    js("chainFixture.loseReply=true")
+    js("chainFixture.dropAccepted=true")
     command("advance_publication", {"id": quote["id"], "approve": True}, failure=True)
     assert js("return chainFixture.submissions.length") == 1
+    js("chainFixture.loseReply=true")
+    command("advance_publication", {"id": quote["id"], "approve": True}, failure=True)
+    assert js("return chainFixture.submissions.length") == 2
+    assert js("return chainFixture.submissions[0]===chainFixture.submissions[1]")
     command("quote_publication", args, failure=True)
     command("lock_wallet")
     # Restart the page with durable approval, no session keys and the exact prior bytes.
@@ -76,21 +81,32 @@ def run_chain_fixture(command, js, request, base):
     js("window.chainFixture=arguments[0]", network_state)
     js(install)
     assert not command("identity_status")["unlocked"]
+    js("chainFixture.unavailable=true")
+    command("advance_publication", {"id": quote["id"], "approve": False}, failure=True)
+    assert js("return chainFixture.submissions.length") == 2
+    js("chainFixture.unavailable=false;chainFixture.reject=true")
+    rejected = command("advance_publication", {"id": quote["id"], "approve": False}, failure=True)
+    assert "fixture policy rejected" in rejected
+    assert js("return chainFixture.submissions.length") == 2
+    js("chainFixture.reject=false")
     resumed = command("advance_publication", {"id": quote["id"], "approve": False})
-    assert resumed["mempool"] == 1 and not resumed["complete"]
-    assert js("return chainFixture.submissions.length") == 1
+    assert resumed["mempool"] == 2 and resumed["confirmed"] == 0 and not resumed["complete"]
+    assert resumed["id"] == quote["id"] and resumed["fee"] == quote["fee"] and resumed["approved"]
+    assert js("return chainFixture.submissions.length") == 3
 
-    def confirm():
+    def confirm(first_only=False):
         pending = js("return Object.entries(chainFixture.statuses).filter(([id,s])=>!s.confirmed).map(([id])=>({id,raw:chainFixture.raws[id]}))")
+        if first_only:
+            pending = pending[:1]
         previous = js("return chainFixture.blocks[chainFixture.tip-1].hash")
         block = command("fixture-block", {"previous": previous, "transactions": [item["raw"] for item in pending]})
         js("const b=arguments[0]; chainFixture.blocks.push(b);chainFixture.tip++; for(const id of arguments[1])chainFixture.statuses[id]={confirmed:true,block_height:chainFixture.tip,block_hash:b.hash}", block, [item["id"] for item in pending])
         return block
 
-    confirm()
+    confirm(first_only=True)
     advanced = command("advance_publication", {"id": quote["id"], "approve": False})
-    assert advanced["confirmed"] == 1 and advanced["mempool"] == 1
-    assert js("return chainFixture.submissions.length") == 2
+    assert advanced["confirmed"] == 1 and advanced["mempool"] == 1 and not advanced["complete"]
+    assert js("return chainFixture.submissions.length") == 3
     reveal_block = confirm()
     complete = command("advance_publication", {"id": quote["id"], "approve": False})
     assert complete["complete"] and complete["confirmed"] == 2
