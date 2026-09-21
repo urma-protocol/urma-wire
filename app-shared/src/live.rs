@@ -1,5 +1,6 @@
 use crate::{
     config::Settings,
+    connection::{safe_endpoint, ConnectionHealth},
     live_index::{self, NodeReader},
     live_model::{Feed, Publication},
     Chain, IdentityStatus, Post, WalletSummary, WireWallet,
@@ -33,6 +34,46 @@ fn error(e: impl std::fmt::Display) -> String {
 }
 
 impl Service {
+    /// Checks source height and existing index metadata without starting sync.
+    pub fn connection_health(&self) -> ConnectionHealth {
+        let configured = self.settings.rpc_url.as_deref();
+        let mut health = ConnectionHealth {
+            network: "Litecoin Testnet".into(),
+            source_type: if configured.is_some() {
+                "Configured RPC"
+            } else {
+                "Public source pool"
+            }
+            .into(),
+            endpoint: configured
+                .map(safe_endpoint)
+                .unwrap_or_else(|| "Public pool (provider varies by request)".into()),
+            checked_at_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64),
+            remote_height: None,
+            local_start: None,
+            local_height: None,
+            error: None,
+        };
+        if self.index_path().exists() {
+            match Index::load(&self.index_path()) {
+                Ok(index) => {
+                    health.local_start = Some(index.start);
+                    health.local_height = index.blocks.last().map(|block| block.height);
+                }
+                Err(_) => health.error = Some("Local index unavailable".into()),
+            }
+        }
+        match self.settings.connect().and_then(|node| node.tip_height()) {
+            Ok(height) => health.remote_height = Some(height),
+            Err(_) => {
+                health.error = Some("Chain source unavailable or configuration invalid".into())
+            }
+        }
+        health
+    }
+
     pub fn open(directory: &Path, settings: Settings) -> Result<Self, String> {
         std::fs::create_dir_all(directory).map_err(error)?;
         let lock = File::options()
