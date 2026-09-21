@@ -72,7 +72,7 @@ pub fn ConnectionPage() -> impl IntoView {
                     None => view! { <div class="settings-group"><h3 class="group-title">"Never checked"</h3><p>"Refresh to check the chain source."</p></div> }.into_any(),
                 }
             }}
-            <p class="connection-hint">"Checking does not index new blocks. To continue catch-up, open the " <a href="/">"Feed"</a> " and refresh it."</p>
+            <p class="connection-hint">"Checking does not index new blocks. Open the " <a href="/">"Feed"</a> " to refresh indexed posts."</p>
         </section>
     }
 }
