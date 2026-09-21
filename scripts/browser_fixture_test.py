@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import sys
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +58,7 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
             "goog:chromeOptions": {"binary": "/usr/bin/chromium", "args": ["--headless=new", "--no-sandbox", "--disable-dev-shm-usage", f"--user-data-dir={profile}"]}}}})["sessionId"]
         base = "/session/" + session
         request(base + "/timeouts", {"script": 150000, "pageLoad": 30000})
+        request(base + "/goog/cdp/execute", {"cmd": "Page.addScriptToEvaluateOnNewDocument", "params": {"source": "const fixtureFetch=window.fetch; window.fixtureNetworkFetch=fixtureFetch; window.fetch=(input,options)=>{ const url=new URL(typeof input==='string'?input:input.url,location.href); if(url.origin!==location.origin)return Promise.reject(new Error('Fixture prohibits live chain requests')); return fixtureFetch(input,options); };"}})
 
         def js(script, *args):
             return request(base + "/execute/sync", {"script": script, "args": list(args)})
@@ -79,6 +81,12 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
 
         request(base + "/url", {"url": origin})
         wait_loaded()
+        if "--public-probe" in sys.argv:
+            js("window.blockedFixtureFetch=window.fetch;window.fetch=window.fixtureNetworkFetch")
+            probe_url = next((arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--public-source=")), "https://litecoinspace.org/testnet/api")
+            probe = command("fixture-source-probe", {"url": probe_url})
+            print("PASS: read-only direct browser public genesis/tip/block integrity probe", probe)
+            js("window.fetch=window.blockedFixtureFetch")
         assert command("identity_status")["source"] == "none"
         command("import_identity", {"vaultBytes": VAULT, "password": "wrong"}, failure=True)
         assert not command("identity_status")["vault_available"]
@@ -92,6 +100,9 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
         assert not command("identity_status")["unlocked"]
         command("unlock_wallet", {"password": PASSWORD, "useUnlockFile": False})
         assert command("fixture-sign") == signature
+        if "--chain" in sys.argv:
+            from browser_chain_fixture import run_chain_fixture
+            run_chain_fixture(command, js, request, base)
         # Stop the actual origin server; do not toggle the browser offline flag.
         server.shutdown()
         server.server_close()
@@ -99,12 +110,18 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
         wait_loaded()
         locked = command("identity_status")
         assert locked["vault_available"] and not locked["unlocked"]
+        if "--chain" in sys.argv:
+            cached = command("get_feed", {"chain": "ltc"})
+            assert len(cached["posts"]) == 1 and not cached["complete_to_tip"]
+            saved = command("publication_status")
+            assert saved["approved"] and "unknown" in saved["message"] and not saved["complete"]
         command("fixture-sign", failure=True)
         command("unlock_wallet", {"password": PASSWORD, "useUnlockFile": False})
         assert command("fixture-sign") == signature
         # The only identity record must be the original ciphertext byte array.
         persisted = request(base + "/execute/async", {"script": "const done=arguments[0]; const r=indexedDB.open('urma-wire',1); r.onsuccess=()=>{const db=r.result; const q=db.transaction('private').objectStore('private').getAll();q.onsuccess=()=>{done(q.result);db.close();};};", "args": []})
-        assert persisted == [json.dumps(VAULT, separators=(",", ":"))]
+        assert json.dumps(VAULT, separators=(",", ":")) in persisted
+        assert all(PASSWORD not in value for value in persisted)
         assert PASSWORD not in js("return JSON.stringify(localStorage)+JSON.stringify(sessionStorage)")
         print("PASS: real WASM vault import/unlock/sign/lock; rejected wrong password/overwrite; origin stopped deep-link reload; ciphertext durable; session locked after reload; no password persisted")
     finally:

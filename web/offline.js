@@ -4,6 +4,10 @@ if (!(window.__TAURI__ || window.__TAURI_INTERNALS__)) {
     status.setAttribute('role', 'status');
     status.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:1000;background:#17221b;color:#fff;padding:8px 16px;font:12px sans-serif';
     const text = document.createElement('span');
+    let ready = false;
+    let chainStatus = 'Chain operations require a reachable public source.';
+    const render = () => { text.textContent = (ready ? 'Application cached for offline use. ' : 'Downloading application for offline use… ') + chainStatus + ' Keep your encrypted vault backup.'; };
+    window.addEventListener('urma:chain-status', event => { chainStatus = String(event.detail); render(); });
     text.textContent = 'Downloading application for offline use… Keep your encrypted vault backup.';
     status.append(text);
     const persist = document.createElement('button');
@@ -22,7 +26,7 @@ if (!(window.__TAURI__ || window.__TAURI_INTERNALS__)) {
         if (!worker) return;
         const channel = new MessageChannel();
         channel.port1.onmessage = event => {
-            if (event.data.complete) text.textContent = 'Application cached for offline identity access. Chain sync/publication unavailable in this build. Keep your encrypted vault backup.';
+            if (event.data.complete) { ready = true; render(); }
             channel.port1.close();
         };
         worker.postMessage('offline-status', [channel.port2]);

@@ -6,6 +6,7 @@ pub mod post_detail;
 pub mod profile;
 pub mod settings;
 pub use identity::IdentityPage;
+mod source_settings;
 
 pub use compose::ComposePage;
 pub use feed::FeedPage;
