@@ -346,6 +346,7 @@ impl Service {
             && !report
                 .blocked_reason
                 .starts_with("awaiting one confirmation")
+            && report.blocked_reason != "awaiting confirmations for commit and reveal"
         {
             return Err(format!("{}. Publication paused; approved fees unchanged. Resume explicitly after resolving it.", report.blocked_reason));
         }
