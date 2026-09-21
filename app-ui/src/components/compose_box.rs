@@ -73,6 +73,7 @@ pub fn ComposeBox(
             </div>
             {move || error.get().map(|message| view! { <div class="alert alert-error">{message}</div> })}
         </div>
+        <PublicationPanel />
     }
 }
 

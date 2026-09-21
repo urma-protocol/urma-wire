@@ -1,8 +1,5 @@
 use super::feed_topics::FeedTopics;
-use crate::{
-    components::{ComposeBox, PostCard},
-    state::AppState,
-};
+use crate::{components::PostCard, state::AppState};
 use leptos::prelude::*;
 use wire_app_shared::live_model::{matches_topic, matches_topic_filters};
 
@@ -46,13 +43,10 @@ pub fn FeedPage() -> impl IntoView {
                 </div>
             </div>
 
-            <div class="feed-compose-wrapper">
-                <ComposeBox />
-            </div>
-
             <div class="posts-stream">
                 <FeedTopics chain=state.active_chain wire_filter=wire_filter hashtag_filter=hashtag_filter followed=followed only_followed=only_followed />
                 <div class="stream-toolbar"><h2>"Latest records"</h2>
+                    <a class="btn btn-primary btn-sm" href="/compose">"Write a post"</a>
                     <button class="btn btn-secondary btn-sm" disabled=is_loading on:click=move |_| state.load_feed()>
                         {move || if is_loading() { "Syncing…" } else { "Refresh feed" }}
                     </button>

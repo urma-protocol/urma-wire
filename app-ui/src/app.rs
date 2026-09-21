@@ -25,7 +25,6 @@ pub fn App() -> impl IntoView {
                 <Navbar />
                 <main class="main-content">
                     <div id="network-content">
-                    <crate::components::compose_box::PublicationPanel />
                     <Routes fallback=|| view! {
                         <div class="empty-state not-found">
                             <span class="empty-icon">"🔍"</span>
