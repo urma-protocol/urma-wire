@@ -125,7 +125,12 @@ pub fn SettingsPage() -> impl IntoView {
                                 <div class="wallet-grid">
                                     <div class="grid-stat">
                                         <span class="stat-label">"Confirmed Balance"</span>
-                                        <span class="stat-value">{summary.confirmed_balance_sats} " litoshi"</span>
+                                        <span class="stat-value">{format!(
+                                            "{}.{:08} {}",
+                                            summary.confirmed_balance_sats / 100_000_000,
+                                            summary.confirmed_balance_sats % 100_000_000,
+                                            summary.chain.code().to_ascii_uppercase(),
+                                        )}</span>
                                     </div>
                                     <div class="grid-stat">
                                         <span class="stat-label">"Funding policy"</span>

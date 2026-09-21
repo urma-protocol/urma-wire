@@ -8,9 +8,10 @@ from the neighboring `../urma` checkout for both native and browser builds.
 
 ## Run locally
 
-The Feed displays confirmed posts and topic filters. Use **Write a post** to
-open the composer; quote approval and publication progress stay with the
-composer (including replies), rather than appearing above every page.
+Feed and Publish reuse the same compact composer and session post draft.
+Wire/hashtag fields expand on demand; exact quote approval remains required.
+Feed refreshes confirmed posts on entry. Completed publication panels disappear;
+the Publish page retains its additional explanatory information.
 
 With Rust's `wasm32-unknown-unknown` target, Trunk, Cargo Tauri and the platform's
 Tauri native dependencies already installed:

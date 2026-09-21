@@ -9,7 +9,11 @@ pub fn ComposeBox(
     #[prop(optional)] on_published: Option<Callback<Txid>>,
 ) -> impl IntoView {
     let state = expect_context::<AppState>();
-    let text = RwSignal::new(String::new());
+    let text = if target_txid.is_some() {
+        RwSignal::new(String::new())
+    } else {
+        state.post_draft
+    };
     let wire = RwSignal::new(String::new());
     let hashtags = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
@@ -55,18 +59,19 @@ pub fn ComposeBox(
     };
     let _ = on_published;
     view! {
-        <div class="compose-card">
-            <div class="compose-header"><strong>{if target_txid.is_some() { "Write a reply" } else { "Put it on record" }}</strong><span class="chain-badge-small">"PUBLIC"</span></div>
-            <textarea class="compose-textarea" rows="4" aria-label="Post text" placeholder="What’s worth putting on the wire?"
+        <div class="compose-card compact-composer">
+            <textarea class="compose-textarea" rows="2" aria-label="Post text" placeholder="What’s on your mind?"
                 prop:value=move || text.get() on:input=move |ev| text.set(event_target_value(&ev)) />
-            <div class="topic-fields">
+            <details class="compose-topics">
+                <summary>"Wire & hashtags"</summary>
+                <div class="topic-fields">
                 <label>"Wire (optional)"<input class="input" placeholder="/rosint" prop:value=move || wire.get() on:input=move |ev| wire.set(event_target_value(&ev)) /></label>
                 <label>"Hashtags (optional)"<input class="input" placeholder="#investigation #documents" prop:value=move || hashtags.get() on:input=move |ev| hashtags.set(event_target_value(&ev)) /></label>
-            </div>
-            <p class="action-desc">"Open labels, no registration or affiliation. Up to 8 hashtags; 1–32 lowercase letters, digits, - or _. Labels are lowercased and duplicate hashtags removed before review."</p>
+                </div>
+            </details>
             <div class="compose-footer">
-                <span class="byte-meter">{move || text.read().len()} " text bytes · 32 KiB total including labels"</span>
-                <button class="btn btn-primary" on:click=prepare
+                <span class="byte-meter">{move || text.read().len()} "/" {max_bytes} " bytes"</span>
+                <button class="btn btn-primary btn-sm" on:click=prepare
                     disabled=move || { busy.get() || state.following.get() || text.read().trim().is_empty() || text.read().len() > max_bytes }>
                     {move || if busy.get() { "Preparing exact quote…" } else { "Review & publish" }}
                 </button>
@@ -81,7 +86,7 @@ pub fn ComposeBox(
 pub fn PublicationPanel() -> impl IntoView {
     let state = expect_context::<AppState>();
     view! {
-        {move || state.publication.get().map(|publication| {
+        {move || state.publication.get().filter(|publication| !publication.complete).map(|publication| {
             let id = publication.id.clone();
             let approve = !publication.approved;
             view! {

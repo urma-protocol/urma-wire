@@ -107,6 +107,11 @@ button,a,input,textarea,summary { -webkit-tap-highlight-color:transparent; }
 .compose-header strong { font-size:15px; font-weight:550; }
 .compose-textarea,.import-textarea { width:100%; background:var(--bg-inset); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px; padding:16px; resize:vertical; }
 .compose-textarea { min-height:140px; font-size:16px; line-height:1.6; }
+.compact-composer { padding:12px; margin-bottom:16px; }
+.compact-composer .compose-textarea { min-height:64px; padding:8px; font-size:15px; border-color:transparent; background:transparent; }
+.compact-composer .compose-footer { margin-top:8px; padding-top:0; }
+.compose-topics { font-size:12px; color:var(--text-muted); }
+.compose-topics summary { cursor:pointer; padding:4px 0; }
 .compose-textarea::placeholder,.import-textarea::placeholder { color:var(--text-dim); }
 .compose-textarea:focus,.import-textarea:focus { border-color:var(--color-accent); outline:none; box-shadow:0 0 0 1px var(--color-accent); }
 .byte-meter { color:var(--text-dim); font:11px var(--font-mono); }
