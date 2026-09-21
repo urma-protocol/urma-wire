@@ -5,6 +5,9 @@ edition = "2021"
 publish = false
 description = "URMA Wire Leptos CSR user interface"
 
+[features]
+browser-fixture-test = ["dep:bitcoin"]
+
 [dependencies]
 wire-app-shared = { path = "../app-shared" }
 leptos = { version = "0.7", features = ["csr"] }
@@ -26,3 +29,9 @@ web-sys = { version = "0.3", features = [
 ] }
 wasm-bindgen-futures = "0.4"
 gloo-timers = { version = "0.3", features = ["futures"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+urma-identity = "0.2.0"
+getrandom = { version = "0.2", features = ["js"] }
+zeroize = "1"
+bitcoin = { version = "0.32", optional = true }

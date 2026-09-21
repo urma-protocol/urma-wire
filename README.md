@@ -23,8 +23,55 @@ automatically or needed for this release.
 
 For frontend-only builds: `trunk build --release`. If the surrounding shell sets
 `NO_COLOR=1`, use `NO_COLOR=true trunk build --release` (Trunk expects a boolean).
-The browser build alone has no wallet/node bridge; run the native shell for
-actual operations. No node or miner is started by the app.
+The browser build supports local encrypted identity import, session unlock and
+explicit Lock using the same published URMA vault library as native Wire.
+Verified chain sync, balances and publication still require the native shell;
+browser identity access is not a complete browser publisher. No node or miner is
+started by the app.
+
+## Browser offline identity access
+
+Serve the complete `trunk build --release` output at an origin's root over HTTPS
+(localhost is accepted for development). Python 3 is required by the Trunk
+post-build manifest hook. It includes every emitted file, including hashed WASM,
+JavaScript snippets, CSS and images. The service worker verifies every file's
+SHA-256 before marking its version complete. Only then does the application show
+its offline-ready identity message. Interrupted or changed downloads cannot
+replace the previous complete version. Updates activate when older tabs close;
+previous complete caches are retained. Deep-link reload uses the cached shell
+even if the hosting server is unavailable. There are no remote startup fonts.
+
+The imported URMA vault bytes persist in IndexedDB, separate from public asset
+caches. Import verifies the password and refuses to overwrite an existing vault,
+including concurrent imports from different tabs. Keys are held only in WASM
+session memory and dropped on Lock/reload; neither the service worker nor browser
+storage holds the password or unlocked keys. Each tab has its own locked session.
+The storage button requests persistent storage and reports a denial honestly.
+Keep the original encrypted vault backup: browser data can still be deleted by
+the user, browser policy or storage eviction. No persistent auto-unlock exists.
+
+Browser chain commands fail explicitly; they never synthesize a balance, bypass
+proof checks, or send keys to a server. Completing browser publication needs an
+async chain-source interface using browser fetch to selectable CORS-enabled
+sources, genesis/record/author proof verification, an IndexedDB-backed verified
+index with rollback checkpoints, and transactional saved-plan/approval/journal
+storage plus cross-tab funding exclusion. Current native runtime operations use
+synchronous RPC and filesystem persistence. Those must be adapted while retaining
+exact fee approval and commit-before-reveal confirmation; no backend proxy or
+custodial service is implied by this browser identity foundation.
+
+Focused nonvisual browser fixture check, using installed Chromium/chromedriver
+and a disposable profile (no installation, live chain source or user vault):
+
+```sh
+NO_COLOR=true trunk build --features browser-fixture-test --offline
+python3 scripts/browser_fixture_test.py
+```
+
+The optional fixture feature exports a local test harness; omit it from normal
+builds. It checks the committed public vault, password failure, signature
+verification, explicit Lock, duplicate import, actual origin-server shutdown and
+deep-link reload, retained ciphertext and locked reload. It takes no screenshots.
 
 ## Branding
 
