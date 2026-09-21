@@ -126,9 +126,12 @@ async fn advance_publication(
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            let data_dir = app.path().app_data_dir()?;
+            #[cfg(mobile)]
+            let settings = wire_app_shared::config::Settings::mobile(&data_dir);
+            #[cfg(not(mobile))]
             let settings = wire_app_shared::config::Settings::load()?;
-            let service = Service::open(&app.path().app_data_dir()?, settings)
-                .map_err(std::io::Error::other)?;
+            let service = Service::open(&data_dir, settings).map_err(std::io::Error::other)?;
             app.manage(AppData(Arc::new(Mutex::new(service))));
             Ok(())
         })
