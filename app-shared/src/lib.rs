@@ -3,6 +3,8 @@
 
 pub mod avatar;
 pub mod codec;
+pub mod identity;
+pub use identity::IdentityStatus;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod config;
 #[cfg(not(target_arch = "wasm32"))]

@@ -3,7 +3,7 @@ use tauri::{Manager, State};
 use wire_app_shared::{
     live::Service,
     live_model::{Feed, Publication},
-    Post, WalletSummary,
+    IdentityStatus, Post, WalletSummary,
 };
 
 struct AppData(Arc<Mutex<Service>>);
@@ -64,6 +64,23 @@ async fn get_wallet_summary(
 ) -> Result<WalletSummary, String> {
     testnet(&chain)?;
     work(&state, |service| service.wallet()).await
+}
+
+#[tauri::command]
+async fn identity_status(state: State<'_, AppData>) -> Result<IdentityStatus, String> {
+    work(&state, |service| service.identity_status()).await
+}
+
+#[tauri::command]
+async fn import_identity(
+    vault_bytes: Vec<u8>,
+    password: String,
+    state: State<'_, AppData>,
+) -> Result<IdentityStatus, String> {
+    work(&state, move |service| {
+        service.import_identity(vault_bytes, password)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -140,6 +157,8 @@ pub fn run() {
             get_post,
             get_replies,
             get_wallet_summary,
+            identity_status,
+            import_identity,
             unlock_wallet,
             lock_wallet,
             quote_publication,

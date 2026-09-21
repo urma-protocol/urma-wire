@@ -36,8 +36,10 @@ those sizes with `cargo tauri icon assets/urma-wire-icon.png`.
 
 ## Testnet flow
 
-1. Settings → unlock the existing active URMA identity with its vault password,
-   or explicitly choose **Use configured unlock file**. No identity is created.
+1. Identity → explicitly import an encrypted URMA vault or unlock the configured
+   active URMA identity with its vault password. Desktop also offers **Use
+   configured unlock file** when present. No identity is created. Wallet shows
+   network funding separately from the identity session.
 2. Write a post/reply → **Review & publish** prepares and saves signed bytes,
    without broadcast. Optional wire and hashtag inputs are structured protocol
    fields. The review displays the exact frozen text, wire, hashtags, reply target,
@@ -69,6 +71,13 @@ silently redirects credentials to a public endpoint. Genesis is checked.
 Settings are loaded at startup; restart after changing configuration.
 
 Default vault/unlock paths match the CLI. Passwords are never saved by Wire.
+The Identity page copies a validated encrypted vault into app-data `identity.urma`,
+with the URMA 0.2 limit of 4532 bytes. Import requires its password, validates its
+active author before writing, and never overwrites an existing imported vault or
+the CLI vault. The imported copy takes precedence for future unlocks. Its keys
+stay in the running session until Lock or process exit; reloading the frontend
+only reads public session status and never automatically unlocks. A source or
+balance failure does not lock the identity or change its author.
 State is under Tauri's platform app-data directory for `org.urma.wire`:
 `plans/<plan-id>/plan.json`, exact approval, progress journal, `active.json`,
 `ltc-testnet-index.json` and `ltc-testnet-start.json`. Existing prototype

@@ -6,7 +6,7 @@ use thaw::{ConfigProvider, Theme};
 
 use crate::{
     components::Navbar,
-    pages::{ComposePage, FeedPage, PostDetailPage, ProfilePage, SettingsPage},
+    pages::{ComposePage, FeedPage, IdentityPage, PostDetailPage, ProfilePage, SettingsPage},
     platform::default_bridge,
     state::AppState,
 };
@@ -38,6 +38,8 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/profile/:author") view=ProfilePage />
                         <Route path=path!("/compose") view=ComposePage />
                         <Route path=path!("/settings") view=SettingsPage />
+                        <Route path=path!("/wallet") view=SettingsPage />
+                        <Route path=path!("/identity") view=IdentityPage />
                     </Routes>
                     </div>
                 </main>
