@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
+#[path = "browser.rs"]
+mod browser;
+
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +27,10 @@ pub struct TauriPlatformBridge;
 
 impl PlatformBridge for TauriPlatformBridge {
     fn platform_type(&self) -> PlatformType {
+        #[cfg(target_arch = "wasm32")]
+        if !is_native() {
+            return PlatformType::Web;
+        }
         #[cfg(target_os = "android")]
         {
             PlatformType::Mobile
@@ -34,6 +42,10 @@ impl PlatformBridge for TauriPlatformBridge {
     }
 
     fn platform_name(&self) -> &'static str {
+        #[cfg(target_arch = "wasm32")]
+        if !is_native() {
+            return "Browser · local encrypted identity";
+        }
         #[cfg(target_os = "android")]
         {
             "Tauri 2 Android"
@@ -45,6 +57,10 @@ impl PlatformBridge for TauriPlatformBridge {
     }
 
     fn storage_name(&self) -> &'static str {
+        #[cfg(target_arch = "wasm32")]
+        if !is_native() {
+            return "Encrypted browser storage · chain operations unavailable";
+        }
         "Persistent Disk Index (>= 1 Confirmed Only)"
     }
 
@@ -75,6 +91,14 @@ export function copy_text(text) {
 "#)]
 extern "C" {
     fn copy_text(text: &str);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(
+    inline_js = "export function is_native() { return !!(window.__TAURI__ || window.__TAURI_INTERNALS__); }"
+)]
+extern "C" {
+    fn is_native() -> bool;
 }
 
 pub fn copy_to_clipboard(text: &str) {
@@ -122,6 +146,10 @@ pub async fn tauri_call<T: serde::de::DeserializeOwned>(
 ) -> Result<T, String> {
     #[cfg(target_arch = "wasm32")]
     {
+        if !is_native() {
+            return serde_json::from_value(browser::dispatch(cmd, args).await?)
+                .map_err(|e| format!("Browser response: {e}"));
+        }
         let args_str = args.to_string();
         match invoke_tauri_raw(cmd, &args_str).await {
             Ok(js_val) => {

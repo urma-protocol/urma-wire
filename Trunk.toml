@@ -9,3 +9,8 @@ watch = ["app-shared", "app-ui", "styles.css", "index.html", "assets"]
 address = "127.0.0.1"
 port = 8080
 open = false
+
+[[hooks]]
+stage = "post_build"
+command = "python3"
+command_arguments = ["scripts/offline_manifest.py"]

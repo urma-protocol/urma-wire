@@ -6,6 +6,10 @@
 !/Trunk.toml
 !/index.html
 !/styles.css
+!/scripts/*.py
+!/scripts/*.js
+!/web/*.js
+!/web/*.md
 !/assets/*.svg
 !/assets/*.png
 !/app-*/Cargo.toml
