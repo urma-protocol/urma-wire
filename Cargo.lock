@@ -5264,8 +5264,6 @@ dependencies = [
 [[package]]
 name = "urma-chain"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2786c2e8d0c0862318a29deb3300f412ff5c63beda32edf477a1f633aca54bae"
 dependencies = [
  "bitcoin",
  "hex",
@@ -5275,8 +5273,6 @@ dependencies = [
 [[package]]
 name = "urma-core"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91cc131d81514c5393d70306048abbeb36e9b7c680c4544ef1779d0e816ae49e"
 dependencies = [
  "aes",
  "bitcoin",
@@ -5292,8 +5288,6 @@ dependencies = [
 [[package]]
 name = "urma-identity"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6f4f849e86bf7726e83b146241f6bae70af79b31db3a35a67fc4818cfed9b89"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -5309,8 +5303,6 @@ dependencies = [
 [[package]]
 name = "urma-io"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48cbcad928bf83c1ffaf3ae6fde6ede653ba590651e99a6439f7809665ec75ce"
 dependencies = [
  "libc",
  "sha2",
@@ -5321,8 +5313,6 @@ dependencies = [
 [[package]]
 name = "urma-profiles"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2302174b92f17c04d8d14ef2d0131d9280145844411a16b9e8d0c709c29e047"
 dependencies = [
  "bitcoin",
  "rand",
@@ -5334,8 +5324,6 @@ dependencies = [
 [[package]]
 name = "urma-runtime"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c06d90b483a82544e8fe1a513080e4f75481d75bb587982e02c75e1e3400080"
 dependencies = [
  "bitcoin",
  "bitcoincore-rpc",
@@ -5359,8 +5347,6 @@ dependencies = [
 [[package]]
 name = "urma-wallet"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a62a18ac47fd2fd78f27e6044bfa00fb5249db9032ee29f44304934c6600c9cb"
 dependencies = [
  "bech32",
  "bitcoin",
@@ -5373,8 +5359,6 @@ dependencies = [
 [[package]]
 name = "urma-wire"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88cf22bb6bfc2dc5d0e2e1a30e188bd135904cde505596cf1f52906f096997ac"
 dependencies = [
  "bitcoin",
  "hex",
@@ -5405,8 +5389,6 @@ dependencies = [
 [[package]]
 name = "urma-workflows"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a4aeed69ae285aa44bb8001d2591d021c817b4bfdfc89c842befe957af3a70c"
 dependencies = [
  "rand",
  "urma-core",

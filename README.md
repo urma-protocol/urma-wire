@@ -2,8 +2,9 @@
 
 Tauri 2 desktop shell with a Leptos/WASM frontend. The current end-to-end
 milestone is **public text posts and replies on Litecoin Testnet**. URMA
-manifest dependencies use crates.io version 0.2.0, including the structured
-wire/hashtag extension. No local override is required.
+manifest dependencies retain version 0.2.0, including the structured
+wire/hashtag extension. The committed workspace patch table resolves URMA crates
+from the neighboring `../urma` checkout for both native and browser builds.
 
 ## Run locally
 
@@ -14,12 +15,12 @@ Tauri native dependencies already installed:
 NO_COLOR=true cargo tauri dev
 ```
 
+Keep the `urma-wire-app` and `urma` repositories beside each other. The sibling
+core checkout must include the WASM portability changes (commit `b7ab455` or a
+later compatible revision). Cargo, Trunk and Tauri use the committed patches
+without a private `.cargo/config.toml` or extra command-line arguments. Separate
+app worktrees need the same sibling layout or explicit Cargo path overrides.
 The running app must be restarted by its operator to load new native code.
-For development against unpublished library changes only,
-`cargo --config .cargo/local-urma.toml ...` opts into the neighboring `../urma`
-workspace. For Tauri/Trunk subprocesses, merge that patch table into an ignored
-`.cargo/config.toml`; do not overwrite an existing config. No override is enabled
-automatically or needed for this release.
 
 For frontend-only builds: `trunk build --release`. If the surrounding shell sets
 `NO_COLOR=1`, use `NO_COLOR=true trunk build --release` (Trunk expects a boolean).
@@ -37,10 +38,9 @@ supported by the shared Bitcoin block decoder (`unsupported segwit version: 8`).
 Both public sources listed below expose this block format. Wire stops before
 checkpointing such a block; it does not skip verification or claim the feed is
 current. Live sync and inclusion-verified funding/publication need the shared
-Litecoin decoder fix before this can be called ready for public use. This branch
-also requires the pending URMA WASM filesystem portability changes; published
-0.2.0 alone does not yet compile the new browser runtime dependency. Development
-checks use explicit local Cargo patches; no local override is enabled by default.
+Litecoin decoder fix before this can be called ready for public use. Published
+0.2.0 alone does not yet compile the new browser runtime dependency; the committed
+local patches supply the integrated WASM filesystem portability changes.
 
 Serve the complete `trunk build --release` output at an origin's root over HTTPS
 (localhost is accepted for development). Python 3 is required by the Trunk
