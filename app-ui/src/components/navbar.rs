@@ -1,4 +1,3 @@
-use crate::state::AppState;
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
 use thaw::{Menu, MenuItem, MenuPosition, MenuTrigger};
@@ -33,12 +32,7 @@ pub fn Navbar() -> impl IntoView {
         Effect::new(move |_| start_logo_animation());
         on_cleanup(stop_logo_animation);
     }
-    let state = expect_context::<AppState>();
     let location = use_location();
-    let profile_href = move || match state.wallet_summary.get() {
-        Some(summary) => format!("/profile/{}", summary.author_pubkey),
-        None => "/settings".to_string(),
-    };
     view! {
         <header class="app-header">
             <a href="/" class="brand-logo" aria-label="URMA Wire home">
@@ -52,10 +46,10 @@ pub fn Navbar() -> impl IntoView {
                 <a href="/compose" class=move || if location.pathname.get() == "/compose" { "nav-link active" } else { "nav-link" }>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 4 5 5-11 11H4v-5ZM12 7l5 5"/></svg><span>"Publish"</span>
                 </a>
-                <a href=profile_href class=move || if location.pathname.get().starts_with("/profile/") { "nav-link active" } else { "nav-link" }>
+                <a href="/identity" class=move || if location.pathname.get() == "/identity" { "nav-link active" } else { "nav-link" }>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg><span>"Identity"</span>
                 </a>
-                <a href="/settings" class=move || if location.pathname.get() == "/settings" { "nav-link active" } else { "nav-link" }>
+                <a href="/wallet" class=move || if matches!(location.pathname.get().as_str(), "/wallet" | "/settings") { "nav-link active" } else { "nav-link" }>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8H4V5l14-2v5M4 8v12h16V8ZM20 12h-6v4h6"/></svg><span>"Wallet"</span>
                 </a>
             </nav>
