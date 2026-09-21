@@ -52,7 +52,7 @@ def run_chain_fixture(command, js, request, base):
     wallet = command("get_wallet_summary", {"chain": "ltc"})
     assert wallet["confirmed_balance_sats"] == 100_000_000
     first = command("get_feed", {"chain": "ltc"})
-    assert first["start"] == 100 and first["tip"] == 199 and not first["complete_to_tip"]
+    assert first["start"] == 100 and first["tip"] == 199 and not first["complete_to_tip"], first
     second = command("get_feed", {"chain": "ltc"})
     assert second["tip"] == 200 and second["complete_to_tip"]
     args = {"chain": "ltc", "text": "browser fixture post", "wire": "rosint", "hashtags": ["investigation"]}

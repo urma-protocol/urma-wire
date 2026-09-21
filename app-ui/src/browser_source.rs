@@ -1,5 +1,5 @@
 //! Browser-native Esplora transport. A command sticks to one genesis-checked source.
-use bitcoin::{consensus::deserialize, Block, BlockHash, Transaction, Txid};
+use bitcoin::{Block, BlockHash, Transaction, Txid};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use urma_chain::observation::Chain;
@@ -120,14 +120,14 @@ impl Source {
             .request(&format!("/block/{expected}/raw"), "", true)
             .await?
             .ok_or("Block not available")?;
-        let block = deserialize(&hex::decode(raw).map_err(error)?).map_err(error)?;
-        urma_chain::validation::validate_block_integrity(&block, expected).map_err(error)?;
-        Ok(block)
+        urma_chain::decode::esplora_block(&hex::decode(raw).map_err(error)?, CHAIN, expected)
+            .map_err(error)
     }
     pub async fn transaction(&self, txid: Txid) -> Result<Transaction, String> {
         let raw = self.text(&format!("/tx/{txid}/hex")).await?;
-        let transaction: Transaction =
-            deserialize(&hex::decode(raw.trim()).map_err(error)?).map_err(error)?;
+        let transaction =
+            urma_chain::decode::transaction(&hex::decode(raw.trim()).map_err(error)?, CHAIN)
+                .map_err(error)?;
         if transaction.compute_txid() != txid {
             return Err("Source transaction hash mismatch".into());
         }

@@ -14,6 +14,9 @@ import time
 import sys
 import urllib.request
 
+if "--public-probe" in sys.argv and "--chain" in sys.argv:
+    raise SystemExit("Run --public-probe and --chain separately: each needs its own browser state.")
+
 ROOT = Path(__file__).resolve().parents[1]
 PASSWORD = "URMA public test password 2026"
 VAULT = list((ROOT / "app-shared/tests/fixtures/valid.vault").read_bytes())

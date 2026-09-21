@@ -16,7 +16,7 @@ NO_COLOR=true cargo tauri dev
 ```
 
 Keep the `urma-wire-app` and `urma` repositories beside each other. The sibling
-core checkout must include the WASM portability changes (commit `b7ab455` or a
+core checkout must include the Litecoin decoder changes (commit `f1547e9` or a
 later compatible revision). Cargo, Trunk and Tauri use the committed patches
 without a private `.cargo/config.toml` or extra command-line arguments. Separate
 app worktrees need the same sibling layout or explicit Cargo path overrides.
@@ -33,14 +33,15 @@ or miner is started by the app.
 ## Browser offline operation
 
 Development status: the browser engine passes synthetic-chain publication,
-restart and offline tests, but current live Litecoin MWEB blocks are not yet
-supported by the shared Bitcoin block decoder (`unsupported segwit version: 8`).
-Both public sources listed below expose this block format. Wire stops before
-checkpointing such a block; it does not skip verification or claim the feed is
-current. Live sync and inclusion-verified funding/publication need the shared
-Litecoin decoder fix before this can be called ready for public use. Published
-0.2.0 alone does not yet compile the new browser runtime dependency; the committed
-local patches supply the integrated WASM filesystem portability changes.
+restart and offline tests. A direct browser read of Litecoin Testnet block
+4892707 passed transparent transaction Merkle and witness commitment verification
+with the shared Litecoin decoder. Esplora's transparent block encoding is handled
+explicitly, separately from full node serialization. The result is a transparent
+read projection; it is not a full MWEB consensus verifier. Confidential MWEB
+transactions remain unsupported, and extension contents are not authenticated by
+this reader. This read-only check is not evidence of a live browser publication.
+Published 0.2.0 lacks these changes; committed local patches supply the integrated
+WASM portability and Litecoin decoding code.
 
 Serve the complete `trunk build --release` output at an origin's root over HTTPS
 (localhost is accepted for development). Python 3 is required by the Trunk
@@ -72,7 +73,7 @@ and endpoint availability can still prevent a connection.
 IndexedDB stores the recent-history starting height, contiguous block-hash
 checkpoints and verified records. Refresh resumes from the saved checkpoint,
 rolls back changed hashes, and saves each verified block before advancing, at
-most 100 blocks per refresh. Block Merkle roots, witness commitments and URMA
+most 100 blocks per refresh. Transparent block Merkle roots, witness commitments and URMA
 author proofs are checked with the shared library. Cached history remains
 readable offline with a stale-source notice; it is not marked caught up. This
 uses public-provider chain observations, not an independently validating node or
@@ -107,7 +108,9 @@ cover balances, bounded sync, exact approval, accepted-but-lost broadcast replie
 restart with a locked vault, commit-before-reveal, reorg rollback, corrupt block
 rejection, operation locking, and offline cached history/plans. No live broadcast
 is used. Optional `--public-probe` only fetches a public genesis, tip and block to
-check actual browser CORS and block decoding. These checks take no screenshots.
+check actual browser CORS and block decoding. Run it separately from `--chain`,
+so real-provider observations never mix with synthetic browser state. These
+checks take no screenshots.
 
 ## Branding
 
