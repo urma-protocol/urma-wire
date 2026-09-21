@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
 use urma_identity::vault::{EncryptedVault, UnlockCredential, UnlockedVault};
 use wasm_bindgen::prelude::*;
+use wire_app_shared::connection::{safe_endpoint, ConnectionHealth};
 use zeroize::Zeroizing;
 
 thread_local! { static SESSION: RefCell<Option<UnlockedVault>> = const { RefCell::new(None) }; }
@@ -129,6 +130,44 @@ async fn chain_command(cmd: &str, args: &Value) -> Result<Value, String> {
         return Ok(Value::Null);
     }
     let _guard = store::Guard::acquire().await?;
+    if cmd == "get_connection_health" {
+        let url = store::source().await?;
+        let mut health = ConnectionHealth {
+            network: "Litecoin Testnet".into(),
+            source_type: if url == store::DEFAULT_SOURCE {
+                "Default public Esplora API"
+            } else {
+                "Configured browser Esplora API"
+            }
+            .into(),
+            endpoint: safe_endpoint(&url),
+            checked_at_ms: js_sys::Date::now() as u64,
+            remote_height: None,
+            local_start: None,
+            local_height: None,
+            error: None,
+        };
+        match chain::cached().await {
+            Ok(Some(index)) => {
+                health.local_start = Some(index.start);
+                health.local_height = index.blocks.last().map(|block| block.height);
+            }
+            Ok(None) => {}
+            Err(_) => health.error = Some("Local index unavailable".into()),
+        }
+        let probe = match Source::connect(url).await {
+            Ok(source) => source.tip().await,
+            Err(error) => Err(error),
+        };
+        match probe {
+            Ok((height, _)) => health.remote_height = Some(height),
+            Err(_) => {
+                health.error =
+                    Some("Chain source unavailable, rejected, or blocked by browser/CORS".into())
+            }
+        }
+        return serde_json::to_value(health).map_err(|e| e.to_string());
+    }
     if cmd == "set_chain_source" {
         let url = args["url"]
             .as_str()

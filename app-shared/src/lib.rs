@@ -3,6 +3,7 @@
 
 pub mod avatar;
 pub mod codec;
+pub mod connection;
 pub mod identity;
 pub use identity::IdentityStatus;
 #[cfg(not(target_arch = "wasm32"))]

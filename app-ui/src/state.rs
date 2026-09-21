@@ -2,9 +2,23 @@ use crate::platform::tauri_call;
 use leptos::prelude::*;
 use serde_json::json;
 use wire_app_shared::{
+    connection::ConnectionHealth,
     live_model::{Feed, Publication},
     AuthorId, Chain, IdentityStatus, Post, WalletSummary,
 };
+
+fn check_time_ms() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now() as u64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64)
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct AppState {
@@ -22,6 +36,9 @@ pub struct AppState {
     pub following: RwSignal<bool>,
     pub pause_requested: RwSignal<bool>,
     pub publication_error: RwSignal<Option<String>>,
+    pub connection_health: RwSignal<Option<ConnectionHealth>>,
+    pub connection_last_success_ms: RwSignal<Option<u64>>,
+    pub is_checking_connection: RwSignal<bool>,
 }
 
 impl AppState {
@@ -41,6 +58,9 @@ impl AppState {
             following: RwSignal::new(false),
             pause_requested: RwSignal::new(false),
             publication_error: RwSignal::new(None),
+            connection_health: RwSignal::new(None),
+            connection_last_success_ms: RwSignal::new(None),
+            is_checking_connection: RwSignal::new(false),
         };
         state.load_identity();
         state.load_feed();
@@ -57,7 +77,63 @@ impl AppState {
         self.active_chain.set(chain);
         self.feed.set(Vec::new());
         self.wallet_summary.set(None);
+        self.connection_health.set(None);
+        self.connection_last_success_ms.set(None);
         self.refresh_all();
+    }
+
+    pub fn check_connection(&self) {
+        if self.is_checking_connection.get_untracked() {
+            return;
+        }
+        let state = *self;
+        let chain = state.active_chain.get_untracked();
+        state.is_checking_connection.set(true);
+        leptos::task::spawn_local(async move {
+            match tauri_call::<ConnectionHealth>(
+                "get_connection_health",
+                &json!({ "chain": chain.code() }),
+            )
+            .await
+            {
+                Ok(mut health) => {
+                    if health.remote_height.is_some() {
+                        state
+                            .connection_last_success_ms
+                            .set(Some(health.checked_at_ms));
+                    } else if health.remote_height.is_none() {
+                        if let Some(previous) = state.connection_health.get_untracked() {
+                            if previous.endpoint == health.endpoint
+                                && previous.source_type == health.source_type
+                            {
+                                health.remote_height = previous.remote_height;
+                            }
+                        }
+                    }
+                    state.connection_health.set(Some(health));
+                }
+                Err(_) => {
+                    let mut health =
+                        state
+                            .connection_health
+                            .get_untracked()
+                            .unwrap_or(ConnectionHealth {
+                                network: chain.network_name().into(),
+                                source_type: "Unknown".into(),
+                                endpoint: "Endpoint hidden".into(),
+                                checked_at_ms: 0,
+                                remote_height: None,
+                                local_start: None,
+                                local_height: None,
+                                error: None,
+                            });
+                    health.checked_at_ms = check_time_ms();
+                    health.error = Some("Connection check could not complete".into());
+                    state.connection_health.set(Some(health));
+                }
+            }
+            state.is_checking_connection.set(false);
+        });
     }
 
     pub fn load_identity(&self) {

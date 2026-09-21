@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 use wire_app_shared::{
+    connection::ConnectionHealth,
     live::Service,
     live_model::{Feed, Publication},
     IdentityStatus, Post, WalletSummary,
@@ -35,6 +36,15 @@ fn testnet(chain: &str) -> Result<(), String> {
 async fn get_feed(chain: String, state: State<'_, AppData>) -> Result<Feed, String> {
     testnet(&chain)?;
     work(&state, |service| service.sync()).await
+}
+
+#[tauri::command]
+async fn get_connection_health(
+    chain: String,
+    state: State<'_, AppData>,
+) -> Result<ConnectionHealth, String> {
+    testnet(&chain)?;
+    work(&state, |service| Ok(service.connection_health())).await
 }
 
 #[tauri::command]
@@ -154,6 +164,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_feed,
+            get_connection_health,
             get_post,
             get_replies,
             get_wallet_summary,
