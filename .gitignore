@@ -2,9 +2,12 @@
 !*/
 !/Cargo.toml
 !/Cargo.lock
+!/README.md
 !/Trunk.toml
 !/index.html
 !/styles.css
+!/assets/*.svg
+!/assets/*.png
 !/app-*/Cargo.toml
 !/app-*/src/**/*.rs
 !/app-*/tests/**/*.rs
@@ -20,6 +23,8 @@
 !/src-tauri/icons/**/*.xml
 **/.*
 !/.gitignore
+!/.cargo/
+!/.cargo/local-urma.toml
 /target/
 /dist/
 /src-tauri/gen/

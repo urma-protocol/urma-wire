@@ -3,6 +3,13 @@
 
 pub mod avatar;
 pub mod codec;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod config;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod live;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod live_index;
+pub mod live_model;
 pub mod model;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod persistent_store;

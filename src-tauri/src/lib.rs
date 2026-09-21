@@ -1,146 +1,147 @@
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
-use urma_identity::vault::{EncryptedVault, UnlockCredential};
 use wire_app_shared::{
-    Chain, LedgerClient, PersistentWireStore, Post, PublicationQuote, Txid, WalletSummary,
-    WireStore, WireWallet,
+    live::Service,
+    live_model::{Feed, Publication},
+    Post, WalletSummary,
 };
-use zeroize::Zeroizing;
 
-struct AppData {
-    store: Arc<Mutex<PersistentWireStore>>,
-    wallet: Arc<Mutex<Option<WireWallet>>>,
+struct AppData(Arc<Mutex<Service>>);
+
+async fn work<T: Send + 'static>(
+    state: &AppData,
+    task: impl FnOnce(&mut Service) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let service = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut service = service
+            .lock()
+            .map_err(|_| "Wire state unavailable".to_string())?;
+        task(&mut service)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn testnet(chain: &str) -> Result<(), String> {
+    if chain == "ltc" {
+        Ok(())
+    } else {
+        Err("This Wire V0 flow supports Litecoin Testnet only".into())
+    }
 }
 
 #[tauri::command]
-fn get_feed(chain: String, limit: usize, state: State<'_, AppData>) -> Result<Vec<Post>, String> {
-    let chain_enum = match chain.to_lowercase().as_str() {
-        "litecoin" | "ltc" => Chain::Litecoin,
-        _ => Chain::Bitcoin,
-    };
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    store.get_feed(chain_enum, limit).map_err(|e| e.to_string())
+async fn get_feed(chain: String, state: State<'_, AppData>) -> Result<Feed, String> {
+    testnet(&chain)?;
+    work(&state, |service| service.sync()).await
 }
 
 #[tauri::command]
-fn get_post(
+async fn get_post(
     chain: String,
     txid: String,
     state: State<'_, AppData>,
 ) -> Result<Option<Post>, String> {
-    let chain_enum = match chain.to_lowercase().as_str() {
-        "litecoin" | "ltc" => Chain::Litecoin,
-        _ => Chain::Bitcoin,
-    };
-    let parsed_txid = Txid::from_display_hex(&txid).map_err(|e| e.to_string())?;
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    store
-        .get_post(chain_enum, &parsed_txid)
-        .map_err(|e| e.to_string())
+    testnet(&chain)?;
+    work(&state, move |service| service.post(&txid)).await
 }
 
 #[tauri::command]
-fn get_wallet_summary(chain: String, state: State<'_, AppData>) -> Result<WalletSummary, String> {
-    let chain_enum = match chain.to_lowercase().as_str() {
-        "litecoin" | "ltc" => Chain::Litecoin,
-        _ => Chain::Bitcoin,
-    };
-    let wallet = state.wallet.lock().map_err(|e| e.to_string())?;
-    let wallet = wallet.as_ref().ok_or("URMA identity vault is locked")?;
-    let address = wallet
-        .get_receive_address(chain_enum)
-        .map_err(|e| e.to_string())?;
-
-    let (confirmed, unconfirmed) =
-        LedgerClient::get_balance(chain_enum, &address).unwrap_or((0, 0));
-    let utxos = LedgerClient::get_utxos(chain_enum, &address).unwrap_or_default();
-    let tip = LedgerClient::get_tip_height(chain_enum).unwrap_or(0);
-
-    wallet
-        .summary(chain_enum, confirmed, unconfirmed, utxos.len(), tip)
-        .map_err(|e| e.to_string())
+async fn get_replies(
+    chain: String,
+    txid: String,
+    state: State<'_, AppData>,
+) -> Result<Vec<Post>, String> {
+    testnet(&chain)?;
+    work(&state, move |service| service.replies(&txid)).await
 }
 
 #[tauri::command]
-fn unlock_wallet(
-    vault_path: PathBuf,
+async fn get_wallet_summary(
+    chain: String,
+    state: State<'_, AppData>,
+) -> Result<WalletSummary, String> {
+    testnet(&chain)?;
+    work(&state, |service| service.wallet()).await
+}
+
+#[tauri::command]
+async fn unlock_wallet(
     password: String,
+    use_unlock_file: bool,
     state: State<'_, AppData>,
 ) -> Result<(), String> {
-    let password = Zeroizing::new(password);
-    let bytes =
-        urma_io::read_bounded(&vault_path, EncryptedVault::MAX_BYTES).map_err(|e| e.to_string())?;
-    let opened = WireWallet::unlock(&bytes, UnlockCredential::Password(&password))
-        .map_err(|e| e.to_string())?;
-    let mut wallet = state.wallet.lock().map_err(|e| e.to_string())?;
-    *wallet = Some(opened);
-    Ok(())
+    work(&state, move |service| {
+        service.unlock(password, use_unlock_file)
+    })
+    .await
 }
 
 #[tauri::command]
-fn lock_wallet(state: State<'_, AppData>) -> Result<(), String> {
-    let mut wallet = state.wallet.lock().map_err(|e| e.to_string())?;
-    *wallet = None;
-    Ok(())
+async fn lock_wallet(state: State<'_, AppData>) -> Result<(), String> {
+    work(&state, |service| {
+        service.lock();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-fn quote_publication(
+async fn quote_publication(
     chain: String,
     text: String,
-    fee_rate: Option<u64>,
+    target: Option<String>,
+    wire: Option<String>,
+    hashtags: Option<Vec<String>>,
     state: State<'_, AppData>,
-) -> Result<PublicationQuote, String> {
-    let chain_enum = match chain.to_lowercase().as_str() {
-        "litecoin" | "ltc" => Chain::Litecoin,
-        _ => Chain::Bitcoin,
-    };
-    let wallet = state.wallet.lock().map_err(|e| e.to_string())?;
-    let wallet = wallet.as_ref().ok_or("URMA identity vault is locked")?;
-    let address = wallet
-        .get_receive_address(chain_enum)
-        .map_err(|e| e.to_string())?;
-    let (confirmed, _) = LedgerClient::get_balance(chain_enum, &address).unwrap_or((0, 0));
-    let rate = fee_rate.unwrap_or(1);
-    let signer = wallet.signer().map_err(|e| e.to_string())?;
-    LedgerClient::quote_publication(chain_enum, &text, rate, confirmed, &signer)
-        .map_err(|e| e.to_string())
+) -> Result<Publication, String> {
+    testnet(&chain)?;
+    work(&state, move |service| {
+        service.prepare_topics(
+            text,
+            target,
+            wire.unwrap_or_default(),
+            hashtags.unwrap_or_default(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-fn get_runtime_info() -> serde_json::Value {
-    serde_json::json!({
-        "platform": "Tauri 2 Native",
-        "storage": "Persistent Disk Index (>= 1 Confirmed Only)",
-        "protocol": "URMA V0 libraries",
-        "chain_context": "Litecoin Testnet & Bitcoin Testnet4 (Strictly Isolated)",
-    })
+async fn publication_status(state: State<'_, AppData>) -> Result<Option<Publication>, String> {
+    work(&state, |service| service.status()).await
+}
+
+#[tauri::command]
+async fn advance_publication(
+    id: String,
+    approve: bool,
+    state: State<'_, AppData>,
+) -> Result<Publication, String> {
+    work(&state, move |service| service.advance(&id, approve)).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            let app_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&app_dir)?;
-            let store_path = app_dir.join("wire_store.json");
-            let store = PersistentWireStore::open_or_create(&store_path)?;
-
-            app.manage(AppData {
-                store: Arc::new(Mutex::new(store)),
-                wallet: Arc::new(Mutex::new(None)),
-            });
+            let settings = wire_app_shared::config::Settings::load()?;
+            let service = Service::open(&app.path().app_data_dir()?, settings)
+                .map_err(std::io::Error::other)?;
+            app.manage(AppData(Arc::new(Mutex::new(service))));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_feed,
             get_post,
+            get_replies,
             get_wallet_summary,
             unlock_wallet,
             lock_wallet,
             quote_publication,
-            get_runtime_info
+            publication_status,
+            advance_publication
         ])
         .run(tauri::generate_context!())
         .expect("error while running URMA Wire application");

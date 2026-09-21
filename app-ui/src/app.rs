@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, Title};
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::path;
+use thaw::{ConfigProvider, Theme};
 
 use crate::{
     components::Navbar,
@@ -18,10 +19,13 @@ pub fn App() -> impl IntoView {
 
     view! {
         <Title text="URMA Wire — Social journalism" />
+        <ConfigProvider theme=RwSignal::new(Theme::dark())>
         <Router>
             <div class="app-layout">
                 <Navbar />
                 <main class="main-content">
+                    <div id="network-content">
+                    <crate::components::compose_box::PublicationPanel />
                     <Routes fallback=|| view! {
                         <div class="empty-state not-found">
                             <span class="empty-icon">"🔍"</span>
@@ -35,14 +39,16 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/compose") view=ComposePage />
                         <Route path=path!("/settings") view=SettingsPage />
                     </Routes>
+                    </div>
                 </main>
                 <footer class="app-footer">
                     <div class="footer-content">
-                        <span>"URMA Wire V0 · Protocol CC0-1.0 · Application 0BSD"</span>
-                        <span class="footer-authority">"URMA V0 protocol"</span>
+                        <span>"URMA Wire" <span class="footer-separator">" / "</span> "Public words. Verified origin."</span>
+                        <span class="footer-authority">"V0 · Litecoin Testnet"</span>
                     </div>
                 </footer>
             </div>
         </Router>
+        </ConfigProvider>
     }
 }

@@ -138,6 +138,8 @@ fn test_store_chain_isolation_and_mempool_rejection() {
         author: AuthorId::from_bytes([0xaa; 32]),
         chain: Chain::Bitcoin,
         text: "Bitcoin testnet post".into(),
+        wire: String::new(),
+        hashtags: Vec::new(),
         status: ConfirmedStatus {
             block_height: 150_000,
             block_hash: "hash_btc_1".into(),
@@ -151,6 +153,8 @@ fn test_store_chain_isolation_and_mempool_rejection() {
         author: AuthorId::from_bytes([0xbb; 32]),
         chain: Chain::Litecoin,
         text: "Litecoin testnet post".into(),
+        wire: String::new(),
+        hashtags: Vec::new(),
         status: ConfirmedStatus {
             block_height: 4_800_000,
             block_hash: "hash_ltc_1".into(),
@@ -177,6 +181,8 @@ fn test_store_chain_isolation_and_mempool_rejection() {
         author: AuthorId::from_bytes([0x88; 32]),
         chain: Chain::Bitcoin,
         text: "Mempool post".into(),
+        wire: String::new(),
+        hashtags: Vec::new(),
         status: ConfirmedStatus {
             block_height: 150_100,
             block_hash: "mempool".into(),
@@ -201,6 +207,8 @@ fn test_store_reorg_rollback() {
         author,
         chain: Chain::Bitcoin,
         text: "Base post".into(),
+        wire: String::new(),
+        hashtags: Vec::new(),
         status: ConfirmedStatus {
             block_height: 150_000,
             block_hash: "hash_base".into(),
@@ -217,6 +225,8 @@ fn test_store_reorg_rollback() {
         author,
         chain: Chain::Bitcoin,
         text: "Post on reorg fork".into(),
+        wire: String::new(),
+        hashtags: Vec::new(),
         status: ConfirmedStatus {
             block_height: 150_010,
             block_hash: "hash_fork".into(),
@@ -256,6 +266,8 @@ fn test_persistent_wire_store_disk_roundtrip_and_reorg() {
             author,
             chain: Chain::Litecoin,
             text: "test unconfirmed".into(),
+            wire: String::new(),
+            hashtags: Vec::new(),
             status: ConfirmedStatus {
                 block_height: 1000,
                 block_hash: "hash_0".into(),
@@ -275,6 +287,8 @@ fn test_persistent_wire_store_disk_roundtrip_and_reorg() {
             author,
             chain: Chain::Litecoin,
             text: "test".into(),
+            wire: String::new(),
+            hashtags: Vec::new(),
             status: ConfirmedStatus {
                 block_height: 1000,
                 block_hash: "hash_1000".into(),
@@ -290,6 +304,8 @@ fn test_persistent_wire_store_disk_roundtrip_and_reorg() {
             author,
             chain: Chain::Litecoin,
             text: "orphan branch".into(),
+            wire: String::new(),
+            hashtags: Vec::new(),
             status: ConfirmedStatus {
                 block_height: 1005,
                 block_hash: "hash_1005".into(),

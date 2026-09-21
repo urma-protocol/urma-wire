@@ -14,6 +14,40 @@ pub fn SettingsPage() -> impl IntoView {
     let status_msg = move || state.status_message.get();
 
     let copy_feedback = RwSignal::new(Option::<String>::None);
+    let password = RwSignal::new(String::new());
+    let unlocking = RwSignal::new(false);
+    let unlock = move |use_file: bool| {
+        unlocking.set(true);
+        let credential = password.get();
+        password.set(String::new());
+        leptos::task::spawn_local(async move {
+            let result = crate::platform::tauri_call::<()>(
+                "unlock_wallet",
+                &serde_json::json!({
+                    "password": credential, "useUnlockFile": use_file
+                }),
+            )
+            .await;
+            match result {
+                Ok(()) => state.load_wallet(),
+                Err(error) => state.status_message.set(Some(error)),
+            }
+            unlocking.set(false);
+        });
+    };
+    let lock = move |_| {
+        leptos::task::spawn_local(async move {
+            match crate::platform::tauri_call::<()>("lock_wallet", &serde_json::json!({})).await {
+                Ok(()) => {
+                    state.wallet_summary.set(None);
+                    state.status_message.set(Some(
+                        "Identity locked. Already approved signed plans remain resumable.".into(),
+                    ));
+                }
+                Err(error) => state.status_message.set(Some(error)),
+            }
+        });
+    };
 
     let on_toggle_autoload = move |_| {
         state.autoload_images.update(|val| *val = !*val);
@@ -32,7 +66,7 @@ pub fn SettingsPage() -> impl IntoView {
 
     view! {
         <section class="page-container settings-page">
-            <h1 class="page-title">"Wallet & Network Settings — URMA Wire"</h1>
+            <div><span class="eyebrow">"YOUR KEYS. YOUR CONTROL."</span><h1 class="page-title">"Identity & " <span class="accent-text">"wallet."</span></h1></div>
             <p class="page-subtitle">
                 "Your selected URMA identity signs posts and pays their fees. Its funding address and balance are public."
             </p>
@@ -49,9 +83,9 @@ pub fn SettingsPage() -> impl IntoView {
 
             // Active Network Selection
             <div class="settings-group">
-                <h3 class="group-title">"Active Blockchain Context (Strictly Testnet)"</h3>
+                <h3 class="group-title">"Network"</h3>
                 <p class="group-desc">
-                    "URMA Wire is strictly chain-local and testnet-only in this phase. Bitcoin and Litecoin environments are isolated."
+                    "This V0 flow uses Litecoin Testnet. The selected node's genesis is checked before operations."
                 </p>
 
                 <div class="radio-options">
@@ -64,7 +98,7 @@ pub fn SettingsPage() -> impl IntoView {
                         />
                         <div class="radio-content">
                             <strong>"Litecoin Testnet"</strong>
-                            <span>"Active testnet faucet & Esplora API (litecoinspace.org) · Low testnet fees."</span>
+                            <span>"Uses the URMA node configuration; public sources when no local RPC is configured."</span>
                         </div>
                     </label>
 
@@ -73,11 +107,12 @@ pub fn SettingsPage() -> impl IntoView {
                             type="radio"
                             name="chain"
                             checked=move || current_chain() == Chain::Bitcoin
+                            disabled=true
                             on:change=move |_| state.set_chain(Chain::Bitcoin)
                         />
                         <div class="radio-content">
                             <strong>"Bitcoin Testnet4"</strong>
-                            <span>"Mempool Testnet4 API (mempool.space/testnet4) · BIP 94 standard testnet."</span>
+                            <span>"Not connected in this application milestone."</span>
                         </div>
                     </label>
                 </div>
@@ -85,6 +120,15 @@ pub fn SettingsPage() -> impl IntoView {
 
             // Funding Wallet & Key Derivation
             <div class="settings-group">
+                <h3>"Unlock existing URMA identity"</h3>
+                <p>"Uses the vault configured for URMA. No new identity is created."</p>
+                <input type="password" aria-label="Vault password" autocomplete="off" placeholder="Vault password"
+                    prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) />
+                <button class="btn btn-primary" disabled=move || unlocking.get()
+                    on:click=move |_| unlock(false)>"Unlock with password"</button>
+                <button class="btn btn-secondary" disabled=move || unlocking.get()
+                    on:click=move |_| unlock(true)>"Use configured unlock file"</button>
+                <button class="btn btn-secondary" on:click=lock>"Lock identity"</button>
                 <div class="group-header-row">
                     <h3 class="group-title">"Funding Wallet & Author Identity"</h3>
                     <button
@@ -123,11 +167,11 @@ pub fn SettingsPage() -> impl IntoView {
                                 <div class="wallet-grid">
                                     <div class="grid-stat">
                                         <span class="stat-label">"Confirmed Balance"</span>
-                                        <span class="stat-value">{summary.confirmed_balance_sats} " sats/lits"</span>
+                                        <span class="stat-value">{summary.confirmed_balance_sats} " litoshi"</span>
                                     </div>
                                     <div class="grid-stat">
-                                        <span class="stat-label">"Unconfirmed"</span>
-                                        <span class="stat-value">{summary.unconfirmed_balance_sats} " sats/lits"</span>
+                                        <span class="stat-label">"Funding policy"</span>
+                                        <span class="stat-value">"Confirmed spendable outputs only"</span>
                                     </div>
                                     <div class="grid-stat">
                                         <span class="stat-label">"Spendable UTXOs"</span>
@@ -149,7 +193,7 @@ pub fn SettingsPage() -> impl IntoView {
                 }}
 
                 <p class="action-desc">
-                    "The portable URMA identity vault signs and funds public operations. Vault unlock and identity selection are not available in this screen yet. Private Archive recovery secrets are separate."
+                    "The active identity in the existing vault signs and funds publication. A sufficient total balance does not guarantee a single usable funding output. Private Archive recovery secrets are separate."
                 </p>
             </div>
 

@@ -199,6 +199,8 @@ pub enum RecordKind {
     Reply = 4,
     Profile = 5,
     Avatar = 6,
+    WirePost = 10,
+    WireReply = 11,
 }
 
 impl RecordKind {
@@ -208,6 +210,8 @@ impl RecordKind {
             4 => Ok(Self::Reply),
             5 => Ok(Self::Profile),
             6 => Ok(Self::Avatar),
+            10 => Ok(Self::WirePost),
+            11 => Ok(Self::WireReply),
             other => Err(WireError::UnsupportedKind(other)),
         }
     }
@@ -233,13 +237,17 @@ impl ConfirmedStatus {
     }
 }
 
-/// A confirmed public plain post (URMA Kind 02).
+/// A confirmed post or reply projected into the feed, including structured metadata.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Post {
     pub txid: Txid,
     pub author: AuthorId,
     pub chain: Chain,
     pub text: String,
+    #[serde(default)]
+    pub wire: String,
+    #[serde(default)]
+    pub hashtags: Vec<String>,
     pub status: ConfirmedStatus,
     pub reply_count: usize,
 }

@@ -96,6 +96,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "approx"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -440,6 +449,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
+name = "by_address"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64fa3c856b712db6612c019f14756e64e4bcea13337a6b33b696333a9eaa2d06"
+
+[[package]]
 name = "bytemuck"
 version = "1.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -577,8 +592,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link 0.2.1",
 ]
 
@@ -1283,6 +1300,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1630,6 +1657,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "gloo-utils"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1937,6 +1976,21 @@ dependencies = [
  "byteorder",
  "png 0.17.16",
 ]
+
+[[package]]
+name = "icondata_ai"
+version = "0.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9bf3a9c196a6a169f790639ecc8fdd4396660b1d53b905230bf0b364776a56fc"
+dependencies = [
+ "icondata_core",
+]
+
+[[package]]
+name = "icondata_core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c97be924215abd5e630d84e95a47c710138a6559b4c55039f4f33aa897fa859"
 
 [[package]]
 name = "icu_collections"
@@ -2995,6 +3049,36 @@ name = "or_poisoned"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c04f5d74368e4d0dfe06c45c8627c81bd7c317d52762d118fb9b3076f6420fd"
+
+[[package]]
+name = "palette"
+version = "0.7.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddeed8580d347d2abf3dcf06a5f0b3dc020258338526b277847cd4248a70fc64"
+dependencies = [
+ "approx",
+ "palette_derive",
+ "palette_math",
+ "phf",
+]
+
+[[package]]
+name = "palette_derive"
+version = "0.7.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88537020289b719d81be994ccf1bbf4990f477e2f69ee52fe3e45f43a02e56be"
+dependencies = [
+ "by_address",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "palette_math"
+version = "0.7.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e6eb142958d64335fb0e345c5b9ead2ecd6fc438c307e9d7d3c4fd428dbaf12"
 
 [[package]]
 name = "pango"
@@ -4626,6 +4710,69 @@ dependencies = [
 ]
 
 [[package]]
+name = "thaw"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "654cf56fe252b8b6f61af4ba47732f6f943ec5aa2df8f18dd07518d577c1d547"
+dependencies = [
+ "cfg-if",
+ "chrono",
+ "icondata_ai",
+ "icondata_core",
+ "leptos",
+ "num-traits",
+ "palette",
+ "send_wrapper",
+ "slotmap",
+ "thaw_components",
+ "thaw_macro",
+ "thaw_utils",
+ "uuid",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "thaw_components"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8963ad3a3d5bf47a64abe12d1deaa4760774751f5953335fe0806fe35645fe3a"
+dependencies = [
+ "cfg-if",
+ "leptos",
+ "send_wrapper",
+ "thaw_utils",
+ "uuid",
+ "web-sys",
+]
+
+[[package]]
+name = "thaw_macro"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5af50a5123e480e7ee8961e6456f63530816875d0a19cb73060b8e61dd2a95fb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "thaw_utils"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3a80028493030263acd93d3e21e57a2dd8dd6772c7439de02c4636c63bb1b6b"
+dependencies = [
+ "cfg-if",
+ "chrono",
+ "leptos",
+ "reactive_stores",
+ "send_wrapper",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5114,9 +5261,9 @@ dependencies = [
 
 [[package]]
 name = "urma-chain"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0a1278ac4972bba16171050a7533c1968349a54ed88bc6ff5ac0099d4dd7f29"
+checksum = "2786c2e8d0c0862318a29deb3300f412ff5c63beda32edf477a1f633aca54bae"
 dependencies = [
  "bitcoin",
  "hex",
@@ -5125,9 +5272,9 @@ dependencies = [
 
 [[package]]
 name = "urma-core"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3a0cdcfbba2e9d5da34cfdd841b5f6586e4903dd6b538e65cdf3e45a8af58c0"
+checksum = "91cc131d81514c5393d70306048abbeb36e9b7c680c4544ef1779d0e816ae49e"
 dependencies = [
  "aes",
  "bitcoin",
@@ -5142,9 +5289,9 @@ dependencies = [
 
 [[package]]
 name = "urma-identity"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "996ad04337c3f758ce7a5a427e1c33228b161aa5962ca3bf32a53ef732ee0445"
+checksum = "a6f4f849e86bf7726e83b146241f6bae70af79b31db3a35a67fc4818cfed9b89"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -5159,9 +5306,9 @@ dependencies = [
 
 [[package]]
 name = "urma-io"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d2e039c629730747bc528e8922c8f70d468829099a999d0118771f6b9c4ad18"
+checksum = "48cbcad928bf83c1ffaf3ae6fde6ede653ba590651e99a6439f7809665ec75ce"
 dependencies = [
  "libc",
  "sha2",
@@ -5170,10 +5317,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "urma-runtime"
-version = "0.1.0"
+name = "urma-profiles"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75b01172f1efe115716470c2d0479bd6e744b89f045d87310fab30de00d3a019"
+checksum = "a2302174b92f17c04d8d14ef2d0131d9280145844411a16b9e8d0c709c29e047"
+dependencies = [
+ "bitcoin",
+ "rand",
+ "urma-chain",
+ "urma-core",
+ "urma-identity",
+]
+
+[[package]]
+name = "urma-runtime"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c06d90b483a82544e8fe1a513080e4f75481d75bb587982e02c75e1e3400080"
 dependencies = [
  "bitcoin",
  "bitcoincore-rpc",
@@ -5196,9 +5356,9 @@ dependencies = [
 
 [[package]]
 name = "urma-wallet"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27af8e24ee912ad21298ddc75c05df6c019b1f00e633c5ea1fcc24c21a2b8e79"
+checksum = "a62a18ac47fd2fd78f27e6044bfa00fb5249db9032ee29f44304934c6600c9cb"
 dependencies = [
  "bech32",
  "bitcoin",
@@ -5206,6 +5366,24 @@ dependencies = [
  "urma-chain",
  "urma-core",
  "urma-identity",
+]
+
+[[package]]
+name = "urma-wire"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88cf22bb6bfc2dc5d0e2e1a30e188bd135904cde505596cf1f52906f096997ac"
+dependencies = [
+ "bitcoin",
+ "hex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "urma-chain",
+ "urma-core",
+ "urma-io",
+ "urma-profiles",
 ]
 
 [[package]]
@@ -5219,6 +5397,20 @@ dependencies = [
  "urma-identity",
  "urma-io",
  "wire-app-shared",
+ "zeroize",
+]
+
+[[package]]
+name = "urma-workflows"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a4aeed69ae285aa44bb8001d2591d021c817b4bfdfc89c842befe957af3a70c"
+dependencies = [
+ "rand",
+ "urma-core",
+ "urma-identity",
+ "urma-io",
+ "urma-runtime",
  "zeroize",
 ]
 
@@ -5894,6 +6086,7 @@ name = "wire-app-shared"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "fs2",
  "hex",
  "minreq",
  "rand",
@@ -5908,6 +6101,9 @@ dependencies = [
  "urma-io",
  "urma-runtime",
  "urma-wallet",
+ "urma-wire",
+ "urma-workflows",
+ "zeroize",
 ]
 
 [[package]]
@@ -5915,11 +6111,13 @@ name = "wire-app-ui"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "gloo-timers",
  "leptos",
  "leptos_meta",
  "leptos_router",
  "serde",
  "serde_json",
+ "thaw",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

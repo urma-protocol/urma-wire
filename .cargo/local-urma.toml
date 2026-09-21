@@ -1,0 +1,12 @@
+[patch.crates-io]
+urma-core = { path = "../urma/urma-core" }
+urma-chain = { path = "../urma/urma-chain" }
+urma-identity = { path = "../urma/urma-identity" }
+urma-wallet = { path = "../urma/urma-wallet" }
+urma-io = { path = "../urma/urma-io" }
+urma-workflows = { path = "../urma/urma-workflows" }
+urma-profiles = { path = "../urma/urma-profiles" }
+urma-runtime = { path = "../urma/urma-runtime" }
+urma-wire = { path = "../urma/urma-wire" }
+urma-files = { path = "../urma/urma-files" }
+urma-git = { path = "../urma/urma-git" }

@@ -1,5 +1,6 @@
 pub mod compose;
 pub mod feed;
+mod feed_topics;
 pub mod post_detail;
 pub mod profile;
 pub mod settings;

@@ -1,96 +1,88 @@
 use crate::state::AppState;
 use leptos::prelude::*;
-use wire_app_shared::Chain;
+use leptos_router::hooks::use_location;
+use thaw::{Menu, MenuItem, MenuPosition, MenuTrigger};
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(inline_js = r#"
+let timer, replay, sequence = 0;
+export function stop_logo_animation() {
+    clearInterval(timer);
+    if (replay) window.removeEventListener("urma:logo-animate", replay);
+}
+export function start_logo_animation() {
+    stop_logo_animation();
+    replay = () => {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const logo = document.getElementById("wire-brand-mark");
+        if (logo) logo.src = "/assets/urma-wire.svg?play=" + (++sequence);
+    };
+    window.addEventListener("urma:logo-animate", replay);
+    timer = setInterval(replay, 300000);
+}
+"#)]
+extern "C" {
+    fn start_logo_animation();
+    fn stop_logo_animation();
+}
 
 #[component]
 pub fn Navbar() -> impl IntoView {
+    #[cfg(target_arch = "wasm32")]
+    {
+        Effect::new(move |_| start_logo_animation());
+        on_cleanup(stop_logo_animation);
+    }
     let state = expect_context::<AppState>();
-
-    let current_chain = move || state.active_chain.get();
-
-    let on_select_btc = move |_| state.set_chain(Chain::Bitcoin);
-    let on_select_ltc = move |_| state.set_chain(Chain::Litecoin);
-
-    let chain_info = move || match state.wallet_summary.get() {
-        Some(summary) => {
-            if summary.tip_height > 0 {
-                format!(
-                    "{} · Tip #{} · {} sats/lits",
-                    summary.network_name, summary.tip_height, summary.confirmed_balance_sats
-                )
-            } else {
-                format!("{} · Confirmed Only", summary.network_name)
-            }
-        }
-        None => match current_chain() {
-            Chain::Bitcoin => "Bitcoin Testnet4 · Confirmed Only".to_string(),
-            Chain::Litecoin => "Litecoin Testnet · Confirmed Only".to_string(),
-        },
-    };
-
+    let location = use_location();
     let profile_href = move || match state.wallet_summary.get() {
         Some(summary) => format!("/profile/{}", summary.author_pubkey),
         None => "/settings".to_string(),
     };
-
     view! {
         <header class="app-header">
-            <div class="header-left">
-                <a href="/" class="brand-logo">
-                    <span class="logo-badge">"URMA"</span>
-                    <span class="logo-text">"Wire"</span>
+            <a href="/" class="brand-logo" aria-label="URMA Wire home">
+                <img id="wire-brand-mark" class="brand-mark" src="/assets/urma-wire.svg" alt="" width="64" height="64" />
+                <span class="logo-text">"Wire"</span>
+            </a>
+            <nav class="header-nav" aria-label="Main navigation">
+                <a href="/" class=move || if location.pathname.get() == "/" { "nav-link active" } else { "nav-link" }>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h4"/></svg><span>"Feed"</span>
                 </a>
-                <div class="chain-selector">
-                    <button
-                        class=move || {
-                            if current_chain() == Chain::Bitcoin {
-                                "chain-btn active"
-                            } else {
-                                "chain-btn"
-                            }
-                        }
-                        on:click=on_select_btc
-                    >
-                        "Bitcoin Testnet4"
-                    </button>
-                    <button
-                        class=move || {
-                            if current_chain() == Chain::Litecoin {
-                                "chain-btn active"
-                            } else {
-                                "chain-btn"
-                            }
-                        }
-                        on:click=on_select_ltc
-                    >
-                        "Litecoin Testnet"
-                    </button>
-                </div>
-            </div>
-
-            <div class="header-status">
-                <span class="status-dot"></span>
-                <span class="status-text">{chain_info}</span>
-            </div>
-
-            <nav class="header-nav">
-                <a href="/" class="nav-link">
-                    <span class="nav-icon">"📰"</span>
-                    <span class="nav-label">"Feed"</span>
+                <a href="/compose" class=move || if location.pathname.get() == "/compose" { "nav-link active" } else { "nav-link" }>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 4 5 5-11 11H4v-5ZM12 7l5 5"/></svg><span>"Publish"</span>
                 </a>
-                <a href="/compose" class="nav-link">
-                    <span class="nav-icon">"✏️"</span>
-                    <span class="nav-label">"Publish"</span>
+                <a href=profile_href class=move || if location.pathname.get().starts_with("/profile/") { "nav-link active" } else { "nav-link" }>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg><span>"Identity"</span>
                 </a>
-                <a href=profile_href class="nav-link">
-                    <span class="nav-icon">"👤"</span>
-                    <span class="nav-label">"Identity"</span>
-                </a>
-                <a href="/settings" class="nav-link">
-                    <span class="nav-icon">"⚙️"</span>
-                    <span class="nav-label">"Wallet"</span>
+                <a href="/settings" class=move || if location.pathname.get() == "/settings" { "nav-link active" } else { "nav-link" }>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8H4V5l14-2v5M4 8v12h16V8ZM20 12h-6v4h6"/></svg><span>"Wallet"</span>
                 </a>
             </nav>
+            <div class="sidebar-note"><span class="eyebrow">"YOUR IDENTITY. YOUR WORDS."</span><p>"Signed by you."<br/>"Recorded on-chain."</p></div>
+            <div class="network-switcher">
+                <Menu class="network-menu" position=MenuPosition::TopStart on_select=|_| {}>
+                    <MenuTrigger slot>
+                        <button type="button" class="network-trigger" aria-label="Select network">
+                            <img class="network-logo" src="/assets/litecoin.svg" alt="" width="16" height="16"/>
+                            <span>"Litecoin"<small>"Testnet"</small></span>
+                            <span class="switcher-chevron" aria-hidden="true">"⌃"</span>
+                        </button>
+                    </MenuTrigger>
+                    <MenuItem value="ltc-testnet">
+                        <img class="network-logo" src="/assets/litecoin.svg" alt="" width="16" height="16"/>"Litecoin"<small>"Testnet"</small>
+                    </MenuItem>
+                    <MenuItem value="ltc-mainnet" disabled=true>
+                        <img class="network-logo" src="/assets/litecoin.svg" alt="" width="16" height="16"/>"Litecoin"<small>"Mainnet"</small>
+                    </MenuItem>
+                    <MenuItem value="btc-testnet4" disabled=true>
+                        <img class="network-logo" src="/assets/bitcoin.svg" alt="" width="16" height="16"/>"Bitcoin"<small>"Testnet4"</small>
+                    </MenuItem>
+                    <MenuItem value="btc-mainnet" disabled=true>
+                        <img class="network-logo" src="/assets/bitcoin.svg" alt="" width="16" height="16"/>"Bitcoin"<small>"Mainnet"</small>
+                    </MenuItem>
+                </Menu>
+            </div>
         </header>
     }
 }

@@ -21,11 +21,15 @@ pub fn PostDetailPage() -> impl IntoView {
 
     let post = RwSignal::new(Option::<Post>::None);
     let is_loading = RwSignal::new(true);
+    let replies = RwSignal::new(Vec::<Post>::new());
+    let load_error = RwSignal::new(Option::<String>::None);
 
     Effect::new(move |_| {
         let chain = state.active_chain.get();
         if let Some(txid) = parsed_txid() {
             is_loading.set(true);
+            load_error.set(None);
+            replies.set(Vec::new());
             leptos::task::spawn_local(async move {
                 match tauri_call::<Option<Post>>(
                     "get_post",
@@ -37,7 +41,21 @@ pub fn PostDetailPage() -> impl IntoView {
                 .await
                 {
                     Ok(p) => post.set(p),
-                    Err(_) => post.set(None),
+                    Err(error) => {
+                        post.set(None);
+                        load_error.set(Some(error));
+                    }
+                }
+                match tauri_call::<Vec<Post>>(
+                    "get_replies",
+                    &serde_json::json!({
+                        "chain": chain.code(), "txid": txid.to_display_hex()
+                    }),
+                )
+                .await
+                {
+                    Ok(items) => replies.set(items),
+                    Err(error) => load_error.set(Some(error)),
                 }
                 is_loading.set(false);
             });
@@ -49,6 +67,7 @@ pub fn PostDetailPage() -> impl IntoView {
 
     view! {
         <section class="page-container post-detail-page">
+            {move || load_error.get().map(|error| view! { <div class="alert alert-error">{error}</div> })}
             <div class="page-nav-back">
                 <a href="/" class="back-link">"← Back to feed"</a>
             </div>
@@ -74,11 +93,9 @@ pub fn PostDetailPage() -> impl IntoView {
 
                                     <div class="replies-section">
                                         <h3 class="section-title">
-                                            "Confirmed Replies (0)"
+                                            "Confirmed Replies (" {move || replies.read().len()} ")"
                                         </h3>
-                                        <p class="empty-replies">
-                                            "No confirmed replies for this post yet."
-                                        </p>
+                                        {move || replies.get().into_iter().map(|reply| view! { <PostCard post=reply /> }).collect_view()}
                                     </div>
                                 </div>
                             }.into_any()
@@ -92,7 +109,7 @@ pub fn PostDetailPage() -> impl IntoView {
                                     <h3>"Public record not found"</h3>
                                     <p>
                                         "Transaction with TxID " <code>{raw}</code>
-                                        " does not exist or is not confirmed on "
+                                        " is not in the currently indexed confirmed history of "
                                         <strong>{chain}</strong> "."
                                     </p>
                                     <a href="/" class="btn btn-secondary">"Return to feed"</a>

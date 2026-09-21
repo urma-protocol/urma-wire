@@ -25,7 +25,7 @@ pub fn PostCard(post: Post) -> impl IntoView {
                     <div class="author-meta">
                         <span class="author-name">{display_name}</span>
                         <span class="author-fingerprint" title=format!("BIP 340 x-only public key: {author_hex}")>
-                            "🔑 " {author_fingerprint}
+                            {author_fingerprint}
                         </span>
                     </div>
                 </a>
@@ -36,6 +36,7 @@ pub fn PostCard(post: Post) -> impl IntoView {
             </div>
 
             <div class="post-content">
+                <p class="topic-labels">{(!post.wire.is_empty()).then(|| format!("/{}", post.wire))} " " {post.hashtags.iter().map(|tag| format!("#{tag}")).collect::<Vec<_>>().join(" ")}</p>
                 <p class="post-text">{post.text.clone()}</p>
             </div>
 
@@ -46,7 +47,7 @@ pub fn PostCard(post: Post) -> impl IntoView {
 
                 <div class="post-actions">
                     <a href=post_url class="reply-btn">
-                        "💬 " {reply_count} " " {if reply_count == 1 { "reply" } else { "replies" }}
+                        {reply_count} " " {if reply_count == 1 { "reply" } else { "replies" }} " ↗"
                     </a>
                 </div>
             </div>

@@ -1,24 +1,47 @@
+use super::feed_topics::FeedTopics;
 use crate::{
     components::{ComposeBox, PostCard},
     state::AppState,
 };
 use leptos::prelude::*;
+use wire_app_shared::live_model::{matches_topic, matches_topic_filters};
 
 #[component]
 pub fn FeedPage() -> impl IntoView {
     let state = expect_context::<AppState>();
 
-    let posts = move || state.feed.get();
+    let wire_filter = RwSignal::new(String::new());
+    let hashtag_filter = RwSignal::new(String::new());
+    let followed = RwSignal::new(Vec::<String>::new());
+    let only_followed = RwSignal::new(false);
+    let posts = move || {
+        state
+            .feed
+            .get()
+            .into_iter()
+            .filter(|post| {
+                if only_followed.get() {
+                    followed
+                        .get()
+                        .iter()
+                        .any(|label| matches_topic(post, label))
+                } else {
+                    matches_topic_filters(post, &wire_filter.get(), &hashtag_filter.get())
+                }
+            })
+            .take(100)
+            .collect::<Vec<_>>()
+    };
     let is_loading = move || state.is_loading_feed.get();
-    let chain_name = move || state.active_chain.get().network_name();
 
     view! {
         <section class="page-container feed-page">
             <div class="feed-header">
                 <div>
-                    <h1 class="page-title">"Public Feed — " {chain_name}</h1>
+                    <span class="eyebrow">"PUBLIC WORDS. VERIFIED ORIGIN."</span>
+                    <h1 class="page-title">"On the " <span class="accent-text">"wire."</span></h1>
                     <p class="page-subtitle">
-                        "Press records and public interest reports authenticated directly with author BIP 340 Taproot keys."
+                        "A public record, signed by its author. Read what’s been confirmed."
                     </p>
                 </div>
             </div>
@@ -28,6 +51,13 @@ pub fn FeedPage() -> impl IntoView {
             </div>
 
             <div class="posts-stream">
+                <FeedTopics chain=state.active_chain wire_filter=wire_filter hashtag_filter=hashtag_filter followed=followed only_followed=only_followed />
+                <div class="stream-toolbar"><h2>"Latest records"</h2>
+                    <button class="btn btn-secondary btn-sm" disabled=is_loading on:click=move |_| state.load_feed()>
+                        {move || if is_loading() { "Syncing…" } else { "Refresh feed" }}
+                    </button>
+                </div>
+                <p class="sync-status" role="status">{move || state.feed_status.get()}</p>
                 {move || {
                     if is_loading() {
                         view! {
@@ -40,10 +70,10 @@ pub fn FeedPage() -> impl IntoView {
                         if list.is_empty() {
                             view! {
                                 <div class="empty-state">
-                                    <span class="empty-icon">"📭"</span>
-                                    <h3>"No confirmed records on this chain"</h3>
+                                    <svg class="empty-mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M8 22 32 8l24 14-24 14ZM8 33l24 14 24-14M8 44l24 14 24-14"/></svg>
+                                    <h3>"The wire is quiet."</h3>
                                     <p>
-                                        "Empty confirmed feed. Posts become visible only after their first on-chain confirmation (D-017)."
+                                        "No matching records in the indexed history. Try the global feed or refresh for newly confirmed records."
                                     </p>
                                 </div>
                             }.into_any()
