@@ -2,7 +2,7 @@ use crate::{
     config::Settings,
     live_index::{self, NodeReader},
     live_model::{Feed, Publication},
-    Chain, Post, WalletSummary, WireWallet,
+    Chain, IdentityStatus, Post, WalletSummary, WireWallet,
 };
 use fs2::FileExt;
 use std::{
@@ -53,6 +53,7 @@ impl Service {
     }
 
     pub fn unlock(&mut self, password: String, use_unlock_file: bool) -> Result<(), String> {
+        let supplied_password = Zeroizing::new(password);
         let settings = &self.settings;
         let password = if use_unlock_file {
             urma_workflows::vault::read_secret(
@@ -60,15 +61,84 @@ impl Service {
             )
             .map_err(error)?
         } else {
-            Zeroizing::new(password)
+            supplied_password
         };
         let vault = urma_workflows::vault::load(
-            settings.vault.as_ref().ok_or("Missing vault path")?,
+            &self
+                .identity_path()
+                .ok_or("Import an encrypted URMA vault first")?,
             UnlockCredential::Password(&password),
         )
         .map_err(error)?;
-        self.wallet = Some(WireWallet::from_vault(vault));
+        let wallet = WireWallet::from_vault(vault);
+        wallet.author_id().map_err(error)?;
+        self.wallet = Some(wallet);
         Ok(())
+    }
+
+    fn identity_path(&self) -> Option<PathBuf> {
+        let imported = self.directory.join("identity.urma");
+        if imported.exists() {
+            Some(imported)
+        } else {
+            self.settings.vault.clone()
+        }
+    }
+
+    /// Reads session metadata only: never connects to a source or unlocks a vault.
+    pub fn identity_status(&self) -> Result<IdentityStatus, String> {
+        let imported = self.directory.join("identity.urma").exists();
+        let vault_available = self.identity_path().is_some_and(|path| path.is_file());
+        let author = self
+            .wallet
+            .as_ref()
+            .map(WireWallet::author_id)
+            .transpose()
+            .map_err(error)?;
+        Ok(IdentityStatus {
+            unlocked: self.wallet.is_some(),
+            vault_available,
+            source: if imported {
+                "imported"
+            } else if vault_available {
+                "configured"
+            } else {
+                "none"
+            }
+            .into(),
+            author_pubkey: author.as_ref().map(|author| author.to_hex()),
+            author_fingerprint: author.as_ref().map(|author| author.fingerprint()),
+            configured_unlock_available: self
+                .settings
+                .unlock_file
+                .as_ref()
+                .is_some_and(|path| path.is_file()),
+        })
+    }
+
+    /// Import is deliberately create-only. The configured CLI vault is never changed.
+    pub fn import_identity(
+        &mut self,
+        bytes: Vec<u8>,
+        password: String,
+    ) -> Result<IdentityStatus, String> {
+        let password = Zeroizing::new(password);
+        if bytes.len() > urma_identity::vault::EncryptedVault::MAX_BYTES {
+            return Err("Encrypted URMA vault exceeds the size limit".into());
+        }
+        let path = self.directory.join("identity.urma");
+        if path.try_exists().map_err(error)? {
+            return Err(
+                "An imported identity already exists. Unlock it; importing cannot overwrite it."
+                    .into(),
+            );
+        }
+        let wallet = WireWallet::unlock(&bytes, UnlockCredential::Password(&password))
+            .map_err(|_| "Cannot decrypt this URMA vault with the supplied password".to_string())?;
+        wallet.author_id().map_err(error)?;
+        urma_io::write_new(&path, &bytes).map_err(error)?;
+        self.wallet = Some(wallet);
+        self.identity_status()
     }
 
     pub fn lock(&mut self) {
@@ -79,7 +149,7 @@ impl Service {
         let wallet = self
             .wallet
             .as_ref()
-            .ok_or("Identity vault is locked. Unlock it in Settings.")?;
+            .ok_or("Identity vault is locked. Unlock it in Identity.")?;
         let node = self.settings.connect().map_err(error)?;
         let outputs = node
             .available_utxos(&wallet.signer().map_err(error)?)
@@ -193,7 +263,7 @@ impl Service {
         let signer = self
             .wallet
             .as_ref()
-            .ok_or("Unlock your identity in Settings first")?
+            .ok_or("Unlock your identity in Identity first")?
             .signer()
             .map_err(error)?;
         let record = match target {

@@ -3,7 +3,7 @@ use leptos::prelude::*;
 use serde_json::json;
 use wire_app_shared::{
     live_model::{Feed, Publication},
-    AuthorId, Chain, Post, WalletSummary,
+    AuthorId, Chain, IdentityStatus, Post, WalletSummary,
 };
 
 #[derive(Clone, Copy)]
@@ -11,6 +11,8 @@ pub struct AppState {
     pub active_chain: RwSignal<Chain>,
     pub autoload_images: RwSignal<bool>,
     pub wallet_summary: RwSignal<Option<WalletSummary>>,
+    pub identity: RwSignal<Option<IdentityStatus>>,
+    pub identity_error: RwSignal<Option<String>>,
     pub feed: RwSignal<Vec<Post>>,
     pub is_loading_feed: RwSignal<bool>,
     pub is_loading_wallet: RwSignal<bool>,
@@ -28,6 +30,8 @@ impl AppState {
             active_chain: RwSignal::new(Chain::Litecoin),
             autoload_images: RwSignal::new(true),
             wallet_summary: RwSignal::new(None),
+            identity: RwSignal::new(None),
+            identity_error: RwSignal::new(None),
             feed: RwSignal::new(Vec::new()),
             is_loading_feed: RwSignal::new(false),
             is_loading_wallet: RwSignal::new(false),
@@ -38,6 +42,7 @@ impl AppState {
             pause_requested: RwSignal::new(false),
             publication_error: RwSignal::new(None),
         };
+        state.load_identity();
         state.load_feed();
         leptos::task::spawn_local(async move {
             match tauri_call::<Option<Publication>>("publication_status", &json!({})).await {
@@ -53,6 +58,25 @@ impl AppState {
         self.feed.set(Vec::new());
         self.wallet_summary.set(None);
         self.refresh_all();
+    }
+
+    pub fn load_identity(&self) {
+        let state = *self;
+        leptos::task::spawn_local(async move {
+            match tauri_call::<IdentityStatus>("identity_status", &json!({})).await {
+                Ok(status) => {
+                    let unlocked = status.unlocked;
+                    state.identity.set(Some(status));
+                    state.identity_error.set(None);
+                    if unlocked {
+                        state.load_wallet();
+                    } else {
+                        state.wallet_summary.set(None);
+                    }
+                }
+                Err(error) => state.identity_error.set(Some(error)),
+            }
+        });
     }
 
     pub fn refresh_all(&self) {
@@ -97,13 +121,26 @@ impl AppState {
         let state = *self;
         let chain = state.active_chain.get_untracked();
         state.is_loading_wallet.set(true);
+        let author = state
+            .identity
+            .get_untracked()
+            .and_then(|status| status.author_pubkey);
         leptos::task::spawn_local(async move {
-            match tauri_call::<WalletSummary>(
+            let result = tauri_call::<WalletSummary>(
                 "get_wallet_summary",
                 &json!({ "chain": chain.code() }),
             )
-            .await
+            .await;
+            if state
+                .identity
+                .get_untracked()
+                .and_then(|status| status.author_pubkey)
+                != author
             {
+                state.is_loading_wallet.set(false);
+                return;
+            }
+            match result {
                 Ok(result) => {
                     state.wallet_summary.set(Some(result));
                     state.status_message.set(None);
@@ -155,9 +192,10 @@ impl AppState {
     }
 
     pub fn author_id(&self) -> Option<AuthorId> {
-        self.wallet_summary
+        self.identity
             .get()
-            .and_then(|w| AuthorId::from_hex(&w.author_pubkey).ok())
+            .and_then(|status| status.author_pubkey)
+            .and_then(|author| AuthorId::from_hex(&author).ok())
     }
 }
 
