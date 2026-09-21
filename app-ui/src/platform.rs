@@ -3,6 +3,21 @@ use std::sync::Arc;
 #[cfg(target_arch = "wasm32")]
 #[path = "browser.rs"]
 mod browser;
+#[cfg(target_arch = "wasm32")]
+#[path = "browser_chain.rs"]
+mod browser_chain;
+#[cfg(all(target_arch = "wasm32", feature = "browser-fixture-test"))]
+#[path = "browser_fixture.rs"]
+mod browser_fixture;
+#[cfg(target_arch = "wasm32")]
+#[path = "browser_publish.rs"]
+mod browser_publish;
+#[cfg(target_arch = "wasm32")]
+#[path = "browser_source.rs"]
+mod browser_source;
+#[cfg(target_arch = "wasm32")]
+#[path = "browser_store.rs"]
+mod browser_store;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -59,7 +74,7 @@ impl PlatformBridge for TauriPlatformBridge {
     fn storage_name(&self) -> &'static str {
         #[cfg(target_arch = "wasm32")]
         if !is_native() {
-            return "Encrypted browser storage · chain operations unavailable";
+            return "Browser persistent verified index · confirmed records";
         }
         "Persistent Disk Index (>= 1 Confirmed Only)"
     }

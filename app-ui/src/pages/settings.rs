@@ -220,6 +220,7 @@ pub fn SettingsPage() -> impl IntoView {
             </div>
 
             // Runtime Platform & Indexer
+            <super::source_settings::BrowserSourceSettings />
             <div class="settings-group">
                 <h3 class="group-title">"Runtime Platform & Local Indexer"</h3>
                 <div class="runtime-info-table">

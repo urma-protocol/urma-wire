@@ -23,20 +23,31 @@ automatically or needed for this release.
 
 For frontend-only builds: `trunk build --release`. If the surrounding shell sets
 `NO_COLOR=1`, use `NO_COLOR=true trunk build --release` (Trunk expects a boolean).
-The browser build supports local encrypted identity import, session unlock and
-explicit Lock using the same published URMA vault library as native Wire.
-Verified chain sync, balances and publication still require the native shell;
-browser identity access is not a complete browser publisher. No node or miner is
-started by the app.
+The browser build supports encrypted identity import, session unlock, explicit
+Lock, verified recent-history sync, confirmed spendable balances and exact-fee
+publication through direct public Esplora requests. It uses the same URMA vault,
+record proof, wallet signing and immutable-plan validation as native Wire. No node
+or miner is started by the app.
 
-## Browser offline identity access
+## Browser offline operation
+
+Development status: the browser engine passes synthetic-chain publication,
+restart and offline tests, but current live Litecoin MWEB blocks are not yet
+supported by the shared Bitcoin block decoder (`unsupported segwit version: 8`).
+Both public sources listed below expose this block format. Wire stops before
+checkpointing such a block; it does not skip verification or claim the feed is
+current. Live sync and inclusion-verified funding/publication need the shared
+Litecoin decoder fix before this can be called ready for public use. This branch
+also requires the pending URMA WASM filesystem portability changes; published
+0.2.0 alone does not yet compile the new browser runtime dependency. Development
+checks use explicit local Cargo patches; no local override is enabled by default.
 
 Serve the complete `trunk build --release` output at an origin's root over HTTPS
 (localhost is accepted for development). Python 3 is required by the Trunk
 post-build manifest hook. It includes every emitted file, including hashed WASM,
 JavaScript snippets, CSS and images. The service worker verifies every file's
 SHA-256 before marking its version complete. Only then does the application show
-its offline-ready identity message. Interrupted or changed downloads cannot
+its offline-ready message. Interrupted or changed downloads cannot
 replace the previous complete version. Updates activate when older tabs close;
 previous complete caches are retained. Deep-link reload uses the cached shell
 even if the hosting server is unavailable. There are no remote startup fonts.
@@ -50,28 +61,53 @@ The storage button requests persistent storage and reports a denial honestly.
 Keep the original encrypted vault backup: browser data can still be deleted by
 the user, browser policy or storage eviction. No persistent auto-unlock exists.
 
-Browser chain commands fail explicitly; they never synthesize a balance, bypass
-proof checks, or send keys to a server. Completing browser publication needs an
-async chain-source interface using browser fetch to selectable CORS-enabled
-sources, genesis/record/author proof verification, an IndexedDB-backed verified
-index with rollback checkpoints, and transactional saved-plan/approval/journal
-storage plus cross-tab funding exclusion. Current native runtime operations use
-synchronous RPC and filesystem persistence. Those must be adapted while retaining
-exact fee approval and commit-before-reveal confirmation; no backend proxy or
-custodial service is implied by this browser identity foundation.
+Settings selects a public Litecoin Testnet Esplora API URL. The default is
+`https://litecoinspace.org/testnet/api`; an alternative is
+`https://testnetscan.com/ltc-testnet/api`. Sources must support HTTPS and CORS.
+Wire checks genesis before using a source and never silently replaces a configured
+source. Fetch uses no cookies or backend proxy. Unreachable sources, CORS denial,
+rejections and malformed proofs produce explicit errors. Browser privacy policy
+and endpoint availability can still prevent a connection.
+
+IndexedDB stores the recent-history starting height, contiguous block-hash
+checkpoints and verified records. Refresh resumes from the saved checkpoint,
+rolls back changed hashes, and saves each verified block before advancing, at
+most 100 blocks per refresh. Block Merkle roots, witness commitments and URMA
+author proofs are checked with the shared library. Cached history remains
+readable offline with a stale-source notice; it is not marked caught up. This
+uses public-provider chain observations, not an independently validating node or
+full-chain history. No offline transaction confirmation is claimed.
+
+Funding checks exact raw transaction amounts/scripts, block inclusion, unspent
+status and coinbase maturity. Preparing stores an immutable signed plan with an
+exact quoted fee, without submitting. Approval saves that plan's validated ID
+before any broadcast. The journal persists submission intent and observations;
+restart or a lost response reconciles the same signed bytes. Reveal submission
+waits for commit confirmation. The public Esplora path has no mempool preflight;
+policy rejection pauses publication without fee changes. Approved plans resume
+while the vault is locked. Offline plan views show saved bytes and explicitly
+unknown current confirmation status. Origin-wide Web Locks serialize chain
+operations across tabs, and an unfinished approved plan blocks new preparation.
+Browsers without Web Locks fail safely for these operations.
 
 Focused nonvisual browser fixture check, using installed Chromium/chromedriver
 and a disposable profile (no installation, live chain source or user vault):
 
 ```sh
 NO_COLOR=true trunk build --features browser-fixture-test --offline
-python3 scripts/browser_fixture_test.py
+python3 scripts/browser_fixture_test.py --chain
+node scripts/offline_worker_test.js
 ```
 
 The optional fixture feature exports a local test harness; omit it from normal
 builds. It checks the committed public vault, password failure, signature
 verification, explicit Lock, duplicate import, actual origin-server shutdown and
-deep-link reload, retained ciphertext and locked reload. It takes no screenshots.
+deep-link reload, retained ciphertext and locked reload. Mocked Esplora checks
+cover balances, bounded sync, exact approval, accepted-but-lost broadcast replies,
+restart with a locked vault, commit-before-reveal, reorg rollback, corrupt block
+rejection, operation locking, and offline cached history/plans. No live broadcast
+is used. Optional `--public-probe` only fetches a public genesis, tip and block to
+check actual browser CORS and block decoding. These checks take no screenshots.
 
 ## Branding
 
