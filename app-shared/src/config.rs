@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use urma_chain::observation::Chain;
 use urma_runtime::{
     error::Error,
@@ -16,6 +16,16 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// Mobile has no CLI home directory, node cookie, or configured unlock file.
+    /// The encrypted vault is kept in the app's private data directory; an
+    /// unconfigured node uses the public Litecoin Testnet source pool.
+    pub fn mobile(app_data_dir: &Path) -> Self {
+        Self {
+            vault: Some(app_data_dir.join("identity.urma")),
+            ..Self::default()
+        }
+    }
+
     pub fn load() -> Result<Self, Error> {
         let home = home()?;
         let path = std::env::var_os("URMA_CONFIG")
