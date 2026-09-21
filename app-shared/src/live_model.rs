@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Publication {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub avatar: Option<Vec<u8>>,
     pub id: String,
     pub txid: String,
     pub text: String,
@@ -23,6 +27,8 @@ pub struct Publication {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Feed {
+    #[serde(default)]
+    pub identities: std::collections::BTreeMap<String, crate::public_identity::PublicIdentity>,
     pub posts: Vec<Post>,
     pub start: u64,
     pub tip: u64,

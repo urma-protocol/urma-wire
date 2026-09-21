@@ -41,7 +41,7 @@ pub fn ProfilePage() -> impl IntoView {
                 match parsed_author() {
                     Some(author) => {
                         let posts = author_posts();
-                        let display_name = author.short_display();
+                        let display_name = state.display_name(author);
                         let full_hex = author.to_hex();
                         let fingerprint = author.fingerprint();
                         let chain_name = state.active_chain.get().network_name();
@@ -61,7 +61,7 @@ pub fn ProfilePage() -> impl IntoView {
                                         </div>
                                         <div class="profile-avatar-status">
                                             <span class="badge badge-neutral">
-                                                "Generative identicon (Taproot author public key)"
+                                                {if state.public_identities.with(|identities| identities.get(&author.to_hex()).is_some_and(|identity| identity.avatar.is_some())) { "Confirmed pixel-art avatar" } else { "Local fallback identicon" }}
                                             </span>
                                         </div>
                                     </div>

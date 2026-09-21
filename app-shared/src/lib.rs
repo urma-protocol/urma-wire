@@ -13,9 +13,14 @@ pub mod live;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod live_index;
 pub mod live_model;
+pub mod markdown;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod media;
 pub mod model;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod persistent_store;
+pub mod public_identity;
+pub mod publication_record;
 pub mod source;
 pub mod store;
 pub mod traits;

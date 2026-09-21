@@ -92,8 +92,14 @@ pub fn PublicationPanel() -> impl IntoView {
             view! {
                 <section class="compose-card publication-card">
                     <div class="compose-header"><strong>{if publication.complete { "On the record" } else { "Your publication" }}</strong><span class="chain-badge-small">"LTC TESTNET"</span></div>
-                    <p class="publication-text">{publication.text}</p>
-                    <p class="topic-labels">{if publication.wire.is_empty() { "No wire".into() } else { format!("/{}", publication.wire) }} " " {publication.hashtags.iter().map(|tag| format!("#{tag}")).collect::<Vec<_>>().join(" ")}</p>
+                    <p><strong>{match publication.kind.as_str() { "profile" => "Nickname update · kind 05", "avatar" => "Avatar update · kind 06", _ => "Post / reply" }}</strong></p>
+                    <p class="publication-text">{publication.text.clone()}</p>
+                    {(publication.kind == "profile").then(|| view! { <p>{publication.text.len()} " exact UTF-8 bytes. Nicknames are not unique."</p><details><summary>"Exact text (escaped)"</summary><code>{serde_json::to_string(&publication.text).unwrap_or_default()}</code></details> })}
+                    {publication.avatar.as_ref().and_then(|bytes| <&[u8; 512]>::try_from(bytes.as_slice()).ok()).map(|pixels| view! {
+                        <div inner_html=wire_app_shared::render_avatar_svg(pixels, 128) />
+                        <p>"Frozen avatar preview · 512 pixel bytes / 520 bytes total"</p>
+                    })}
+                    {(publication.kind != "profile" && publication.kind != "avatar").then(|| view! { <p class="topic-labels">{if publication.wire.is_empty() { "No wire".into() } else { format!("/{}", publication.wire) }} " " {publication.hashtags.iter().map(|tag| format!("#{tag}")).collect::<Vec<_>>().join(" ")}</p> })}
                     {publication.target.map(|target| view! { <p>"Reply to: " <code>{target}</code></p> })}
                     <div class="publication-costs">
                         <div><span>"Network fee"</span><strong class="accent-text">{publication.fee}<small>" litoshi"</small></strong></div>
@@ -105,7 +111,7 @@ pub fn PublicationPanel() -> impl IntoView {
                     <p class="action-desc">{publication.message}</p>
                     <details class="transaction-details"><summary>"Transaction details"</summary><code>{publication.txid}</code></details>
                     {(!publication.complete).then(|| view! {
-                        <p class="action-desc">"Approval publishes this exact text, wire and hashtags and spends the fee above. Changes in the composer require a new review."</p>
+                        <p class="action-desc">"Approval publishes the exact record shown above and spends this fee. Editing requires a new review."</p>
                         <div class="publication-actions">
                         <button class="btn btn-primary" disabled=move || state.following.get()
                             on:click=move |_| state.follow(id.clone(), approve)>

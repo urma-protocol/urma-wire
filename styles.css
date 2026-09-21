@@ -226,3 +226,16 @@ input[type=radio],input[type=checkbox] { accent-color:var(--color-accent); margi
 .topic-labels { color:var(--accent,#b8ff00); display:flex; flex-wrap:wrap; gap:8px; overflow-wrap:anywhere; }
 .topic-filter { display:flex; flex-wrap:wrap; align-items:end; gap:8px; flex:1; min-width:220px; }
 .topic-filter label { flex-basis:100%; }
+/* User-authored fixed-palette profile editor. */
+.avatar-palette { display:flex; flex-wrap:wrap; gap:6px; margin:16px 0; }
+.avatar-swatch { width:28px; height:28px; border:2px solid transparent; border-radius:4px; cursor:pointer; }
+.avatar-swatch[aria-pressed="true"] { outline:2px solid var(--accent, #ff8a3d); outline-offset:2px; }
+.avatar-editor-layout { display:flex; flex-wrap:wrap; gap:24px; margin:16px 0; }
+.avatar-canvas { display:grid; grid-template-columns:repeat(32, 1fr); width:min(100%, 320px); aspect-ratio:1; touch-action:none; user-select:none; border:1px solid #666; }
+.avatar-pixel { padding:0; margin:0; border:0; border-radius:0; min-width:0; aspect-ratio:1; cursor:crosshair; }
+.avatar-pixel:focus-visible { outline:1px solid #ff8a3d; z-index:1; }
+.publication-text { white-space:pre-wrap; overflow-wrap:anywhere; }
+.external-image { display:block; margin:12px 0; }
+.external-image img { display:block; max-width:100%; max-height:480px; object-fit:contain; }
+.media-placeholder { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:.85rem; padding:8px 0; }
+.markdown-content { white-space:pre-wrap; overflow-wrap:anywhere; }

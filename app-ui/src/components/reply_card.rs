@@ -7,7 +7,8 @@ pub fn ReplyCard(reply: Reply) -> impl IntoView {
     let author = reply.author;
     let author_hex = author.to_hex();
     let author_fingerprint = author.fingerprint();
-    let display_name = author.short_display();
+    let state = expect_context::<crate::state::AppState>();
+    let display_name = move || state.display_name(author);
 
     let txid_disp = reply.txid.to_display_hex();
     let txid_short = reply.txid.short_display();
@@ -34,7 +35,7 @@ pub fn ReplyCard(reply: Reply) -> impl IntoView {
             </div>
 
             <div class="post-content">
-                <p class="post-text">{reply.text.clone()}</p>
+                <super::markdown::Markdown text=reply.text.clone() />
             </div>
 
             <div class="post-footer">

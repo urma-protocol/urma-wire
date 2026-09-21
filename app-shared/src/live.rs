@@ -11,8 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use urma_chain::observation::Chain as Network;
-use urma_core::topics::Topics;
-use urma_core::{envelope, format::PublicRecord};
+use urma_core::envelope;
 use urma_identity::{identity::IdentitySigner, vault::UnlockCredential};
 use urma_runtime::{
     node::{Node, Presence},
@@ -288,11 +287,19 @@ impl Service {
         wire: String,
         hashtags: Vec<String>,
     ) -> Result<Publication, String> {
-        if text.trim().is_empty() {
-            return Err("Write a post or reply first".into());
-        }
-        let topics = Topics { wire, hashtags };
-        topics.validate().map_err(error)?;
+        self.prepare_record("post", text, target, wire, hashtags, None)
+    }
+
+    pub fn prepare_record(
+        &self,
+        kind: &str,
+        text: String,
+        target: Option<String>,
+        wire: String,
+        hashtags: Vec<String>,
+        avatar: Option<Vec<u8>>,
+    ) -> Result<Publication, String> {
+        let record = crate::publication_record::build(kind, text, target, wire, hashtags, avatar)?;
         let node = self.settings.connect().map_err(error)?;
         if let Some((plan, directory)) = self.active()? {
             if directory.join("approved").exists() && !observe(&node, &plan, &directory)?.complete {
@@ -307,23 +314,6 @@ impl Service {
             .ok_or("Unlock your identity in Identity first")?
             .signer()
             .map_err(error)?;
-        let record = match target {
-            Some(target) if !topics.wire.is_empty() || !topics.hashtags.is_empty() => {
-                PublicRecord::WireReply {
-                    target: target.parse().map_err(error)?,
-                    topics,
-                    text,
-                }
-            }
-            None if !topics.wire.is_empty() || !topics.hashtags.is_empty() => {
-                PublicRecord::WirePost { topics, text }
-            }
-            Some(target) => PublicRecord::Reply {
-                target: target.parse().map_err(error)?,
-                text,
-            },
-            None => PublicRecord::Post(text),
-        };
         let fee = urma_runtime::publication::quote_record(
             &record.encode().map_err(error)?,
             signer.public_key().inner.x_only_public_key().0,
@@ -405,20 +395,14 @@ fn observe(node: &Node, plan: &PublicationPlan, directory: &Path) -> Result<Publ
         bitcoin::consensus::deserialize(&hex::decode(&pair.reveal).map_err(error)?)
             .map_err(error)?;
     let envelope = envelope::verify_reveal(&reveal, &commit).map_err(error)?;
-    let (text, target, wire, hashtags) =
-        match PublicRecord::decode(&envelope.record).map_err(error)? {
-            PublicRecord::Post(text) => (text, None, String::new(), Vec::new()),
-            PublicRecord::Reply { text, target } => {
-                (text, Some(target.to_string()), String::new(), Vec::new())
-            }
-            PublicRecord::WirePost { text, topics } => (text, None, topics.wire, topics.hashtags),
-            PublicRecord::WireReply {
-                text,
-                target,
-                topics,
-            } => (text, Some(target.to_string()), topics.wire, topics.hashtags),
-            _ => return Err("Unsupported Wire publication".into()),
-        };
+    let crate::publication_record::Review {
+        kind,
+        text,
+        target,
+        wire,
+        hashtags,
+        avatar,
+    } = crate::publication_record::review(&envelope.record)?;
     let mut confirmed = 0;
     let mut mempool = 0;
     for txid in [commit.compute_txid(), reveal.compute_txid()] {
@@ -437,12 +421,14 @@ fn observe(node: &Node, plan: &PublicationPlan, directory: &Path) -> Result<Publ
     let message = if confirmed == 2 {
         "Confirmed on Litecoin Testnet"
     } else if !approved {
-        "Prepared. Review the exact text and fee before approving."
+        "Prepared. Review the exact record and fee before approving."
     } else {
         "Waiting for blockchain confirmation; publication continues while following."
     };
     let funding = pair.funding.prevout().map_err(error)?.1.value.to_sat();
     Ok(Publication {
+        kind,
+        avatar,
         id: plan.id().map_err(error)?,
         txid: plan.root_txid.clone(),
         text,

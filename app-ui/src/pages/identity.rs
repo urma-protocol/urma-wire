@@ -141,6 +141,7 @@ pub fn IdentityPage() -> impl IntoView {
                 <button class="btn btn-primary" disabled=move || busy.get() || state.identity.get().is_some_and(|status| status.source == "imported")
                     on:click=move |_| run("import")>"Import & unlock vault"</button>
             </div>
+            <crate::components::profile_editor::ProfileEditor />
         </section>
     }
 }

@@ -24,11 +24,17 @@ fn check_time_ms() -> u64 {
 pub struct AppState {
     pub active_chain: RwSignal<Chain>,
     pub autoload_images: RwSignal<bool>,
+    pub media_epoch: RwSignal<u64>,
+    pub media_inflight: RwSignal<usize>,
+    pub media_bytes: RwSignal<usize>,
     pub wallet_summary: RwSignal<Option<WalletSummary>>,
     pub identity: RwSignal<Option<IdentityStatus>>,
     pub identity_error: RwSignal<Option<String>>,
     pub feed: RwSignal<Vec<Post>>,
     pub post_draft: RwSignal<String>,
+    pub public_identities: RwSignal<
+        std::collections::BTreeMap<String, wire_app_shared::public_identity::PublicIdentity>,
+    >,
     pub is_loading_feed: RwSignal<bool>,
     pub is_loading_wallet: RwSignal<bool>,
     pub status_message: RwSignal<Option<String>>,
@@ -44,17 +50,22 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
+        let image_preference = crate::components::markdown::load_autoload();
         let state = Self {
             active_chain: RwSignal::new(Chain::Litecoin),
-            autoload_images: RwSignal::new(true),
+            autoload_images: RwSignal::new(image_preference.clone().unwrap_or(false)),
+            media_epoch: RwSignal::new(0),
+            media_inflight: RwSignal::new(0),
+            media_bytes: RwSignal::new(0),
             wallet_summary: RwSignal::new(None),
             identity: RwSignal::new(None),
             identity_error: RwSignal::new(None),
             feed: RwSignal::new(Vec::new()),
             post_draft: RwSignal::new(String::new()),
+            public_identities: RwSignal::new(Default::default()),
             is_loading_feed: RwSignal::new(false),
             is_loading_wallet: RwSignal::new(false),
-            status_message: RwSignal::new(None),
+            status_message: RwSignal::new(image_preference.err()),
             feed_status: RwSignal::new(String::new()),
             publication: RwSignal::new(None),
             following: RwSignal::new(false),
@@ -78,6 +89,7 @@ impl AppState {
     pub fn set_chain(&self, chain: Chain) {
         self.active_chain.set(chain);
         self.feed.set(Vec::new());
+        self.public_identities.set(Default::default());
         self.wallet_summary.set(None);
         self.connection_health.set(None);
         self.connection_last_success_ms.set(None);
@@ -172,6 +184,11 @@ impl AppState {
         leptos::task::spawn_local(async move {
             match tauri_call::<Feed>("get_feed", &json!({ "chain": chain.code() })).await {
                 Ok(result) => {
+                    if state.active_chain.get_untracked() != chain {
+                        state.is_loading_feed.set(false);
+                        return;
+                    }
+                    state.public_identities.set(result.identities);
                     state.feed.set(result.posts);
                     state.feed_status.set(format!(
                         "Verified history from block {} through {}. {}",
@@ -274,6 +291,18 @@ impl AppState {
             .get()
             .and_then(|status| status.author_pubkey)
             .and_then(|author| AuthorId::from_hex(&author).ok())
+    }
+
+    pub fn display_name(&self, author: AuthorId) -> String {
+        self.public_identities
+            .with(|identities| {
+                identities
+                    .get(&author.to_hex())
+                    .and_then(|identity| identity.nickname.as_ref())
+                    .filter(|name| !name.is_empty())
+                    .cloned()
+            })
+            .unwrap_or_else(|| author.fingerprint())
     }
 }
 

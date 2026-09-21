@@ -8,7 +8,7 @@ pub fn SettingsPage() -> impl IntoView {
     let platform = use_platform_bridge();
 
     let current_chain = move || state.active_chain.get();
-    let autoload = move || state.autoload_images.get();
+    let autoload = move || !state.autoload_images.get();
     let wallet_summary = move || state.wallet_summary.get();
     let is_loading_wallet = move || state.is_loading_wallet.get();
     let status_msg = move || state.status_message.get();
@@ -16,7 +16,11 @@ pub fn SettingsPage() -> impl IntoView {
     let copy_feedback = RwSignal::new(Option::<String>::None);
 
     let on_toggle_autoload = move |_| {
-        state.autoload_images.update(|val| *val = !*val);
+        let enabled = !state.autoload_images.get_untracked();
+        match crate::components::markdown::save_autoload(enabled) {
+            Ok(()) => state.autoload_images.set(enabled),
+            Err(error) => state.status_message.set(Some(error)),
+        }
     };
 
     let on_refresh_wallet = move |_| {
@@ -175,13 +179,18 @@ pub fn SettingsPage() -> impl IntoView {
                         checked=autoload
                         on:change=on_toggle_autoload
                     />
-                    <span class="toggle-text">"Autoload external Markdown images"</span>
+                    <span class="toggle-text">"Don't autoload external images"</span>
                 </label>
 
                 <div class="privacy-notice">
                     <strong>"External media privacy: "</strong>
                     "Downloading external images exposes your connection IP address and request metadata to the host server. Disabling autoload prevents automatic metadata leakage."
                 </div>
+                <p class="action-desc">"Desktop supports checked PNG/JPEG fetching. Browser fetching is disabled because destination checks cannot be enforced. Displayed media is temporary; Wire keeps no media cache."</p>
+                <button class="btn btn-secondary" on:click=move |_| {
+                    state.media_epoch.update(|epoch| *epoch += 1);
+                    state.media_bytes.set(0);
+                }>"Clear displayed media"</button>
             </div>
 
             // Runtime Platform & Indexer

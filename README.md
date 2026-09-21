@@ -180,8 +180,65 @@ First sync starts 100 blocks before the current tip and remembers that height.
 Each refresh processes at most 100 blocks, with the indexed range and remaining
 catch-up shown explicitly. This is a recent-history feed, not full-chain search.
 The library verifies record/author proofs and rolls back orphaned index entries.
-Posts and replies are rendered as inert text. Profile editing, avatar publication,
-Markdown/external media fetching and Bitcoin UI integration remain separate work.
+Posts and replies support an inert Markdown subset (text/code/paragraphs and
+external image references); HTML is displayed as text. Bitcoin UI integration
+remains separate work.
+
+## Public profiles and pixel-art avatars
+
+Identity includes a nickname editor and a user-authored 32×32 drawing editor,
+using exactly the reference 16-color palette. Click/tap paints pixels; mouse
+dragging paints continuously. The preview and signed review use the same inert
+renderer. Nicknames preserve submitted UTF-8 exactly, including empty names;
+names are not unique. Empty/missing names fall back to the key fingerprint.
+
+Nickname (kind 05) and avatar (kind 06) updates each use the existing atomic
+quote → exact fee approval → commit/reveal → resume flow. The avatar is 512
+row-major pixel bytes, high nibble first, in a 520-byte URMA record; transaction
+overhead is additional. Review decodes the saved signed reveal, including its
+frozen avatar pixels, rather than reading the current editor. Both native and
+browser publishing use the same record construction and review code.
+
+Profiles and avatars are resolved independently from the selected network's
+verified confirmed index, ordered by block height and transaction position.
+Every feed refresh rebuilds this disposable state, including after reorgs, and
+cards/replies/profile pages use it with fingerprint/identicon fallbacks. This
+inherits the current bounded history range: older identity updates outside that
+range are unavailable. **Load confirmed profile** copies the indexed state into
+the editor; drafts remain local and are not saved across page changes.
+
+## External images
+
+`![alt](https://host/image.png)` uses native checked HTTP/HTTPS fetching, including
+public IP hosts. DNS answers must all be public unicast; each redirect destination
+is resolved and checked separately. Connections are pinned to those addresses,
+environment proxies are disabled, and at most one redirect is followed. HTTP has
+a 5-second connect and 15-second request timeout; OS DNS resolution is separate
+and can outlast that timeout. No cookies, credentials or referring post URL are
+sent. Fetching still exposes the user's network address and request metadata.
+
+Only PNG (`image/png`) and JPEG (`image/jpeg`) are enabled. MIME, signature and
+decode must agree. Limits are 4 MiB downloaded, 4096 pixels per dimension,
+4,194,304 pixels total, 32 MiB decoder allocation and 20 MiB re-encoded PNG.
+Limits also apply while reading image dimensions. Rendering re-encodes inert
+pixels and discards source metadata/animation; SVG and arbitrary embeds are
+unsupported. At most two image references per post and two concurrent requests
+are enabled; displayed data URLs plus estimated RGBA pixels share a 64 MiB
+budget (not a process-wide memory guarantee).
+
+Autoload defaults on. Wallet's **Don't autoload external images** persists in
+WebView localStorage; disabled images show an explicit **Load image** control.
+Preference failures are reported and a failed initial read disables autoload.
+The browser build explicitly disables image fetching because browsers cannot
+enforce DNS pinning and redirect checks; HTTPS pages additionally explain HTTP
+mixed-content refusal. It uses no media proxy. Profile/avatar publication and
+pixel rendering still work in both runtimes.
+
+Wire retains no HTTP, disk or application media cache (cache TTL and capacity
+are zero). Only currently displayed images live in memory. **Refresh image**
+discards its display and requests the current resource again; **Clear displayed
+media** removes displayed data and invalidates in-flight results. Hosts can change
+or remove images; Wire does not claim historical preservation.
 
 ## Wires, hashtags and local follows
 
@@ -235,4 +292,10 @@ Tests use temporary files, public fixture identities and a loopback RPC mock;
 they do not start a blockchain node or broadcast to a live network. They cover
 exact approval, post/reply preparation, confirmation stages, read-only status,
 restart, unchanged retransmission, rejection/source failure and feed projection.
+Focused profile/media checks are `cargo test -p wire-app-shared --test live
+--test public_identity --test media --locked`: exact profile/avatar approval and
+resume, fixed bytes/palette, colliding names/latest ordering/rollback projection,
+destination/redirect bounds, MIME/signature/decode/size failures and inert browser
+capability errors. These are local fixtures, not live media-host acceptance or
+visual UI validation.
 They do not establish live acceptance of this desktop application.
