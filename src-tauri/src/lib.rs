@@ -118,6 +118,8 @@ async fn lock_wallet(state: State<'_, AppData>) -> Result<(), String> {
 async fn quote_publication(
     chain: String,
     text: String,
+    kind: Option<String>,
+    avatar: Option<Vec<u8>>,
     target: Option<String>,
     wire: Option<String>,
     hashtags: Option<Vec<String>>,
@@ -125,11 +127,13 @@ async fn quote_publication(
 ) -> Result<Publication, String> {
     testnet(&chain)?;
     work(&state, move |service| {
-        service.prepare_topics(
+        service.prepare_record(
+            kind.as_deref().unwrap_or("post"),
             text,
             target,
             wire.unwrap_or_default(),
             hashtags.unwrap_or_default(),
+            avatar,
         )
     })
     .await
@@ -174,8 +178,18 @@ pub fn run() {
             lock_wallet,
             quote_publication,
             publication_status,
-            advance_publication
+            advance_publication,
+            fetch_external_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running URMA Wire application");
+}
+
+#[tauri::command]
+async fn fetch_external_image(
+    url: String,
+) -> Result<wire_app_shared::markdown::FetchedImage, String> {
+    tauri::async_runtime::spawn_blocking(move || wire_app_shared::media::fetch(&url))
+        .await
+        .map_err(|_| "Image task could not complete".to_string())?
 }

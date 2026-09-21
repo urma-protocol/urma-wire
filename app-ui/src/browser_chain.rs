@@ -188,6 +188,14 @@ pub fn project(index: &Index, complete: bool, reply_target: Option<&str>) -> Res
     }
     posts.reverse();
     Ok(Feed {
+        identities: wire_app_shared::public_identity::resolve(index.entries.iter().map(|entry| {
+            (
+                entry.height,
+                entry.position,
+                entry.author.as_str(),
+                entry.record.as_str(),
+            )
+        }))?,
         posts,
         start: index.start,
         tip,

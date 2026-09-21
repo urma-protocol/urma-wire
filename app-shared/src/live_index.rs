@@ -87,6 +87,14 @@ pub fn project(index: &Index, complete_to_tip: bool) -> Result<Feed, String> {
     }
     posts.reverse();
     Ok(Feed {
+        identities: crate::public_identity::resolve(index.entries.iter().map(|entry| {
+            (
+                entry.height,
+                entry.position,
+                entry.author.as_str(),
+                entry.record.as_str(),
+            )
+        }))?,
         posts,
         start: index.start,
         tip,

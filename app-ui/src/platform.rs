@@ -80,6 +80,11 @@ impl PlatformBridge for TauriPlatformBridge {
     }
 
     fn can_autoload_images(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        {
+            return is_native();
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         true
     }
 

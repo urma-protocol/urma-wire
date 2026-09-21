@@ -5,15 +5,21 @@ use wire_app_shared::{config::Settings, live::Service, live_index};
 
 #[test]
 fn exact_approval_restart_and_confirmation_use_saved_bytes() {
-    publication_roundtrip(false);
+    publication_roundtrip("post", false);
 }
 
 #[test]
 fn structured_metadata_survives_exact_approval_restart_and_confirmation() {
-    publication_roundtrip(true);
+    publication_roundtrip("post", true);
 }
 
-fn publication_roundtrip(structured: bool) {
+#[test]
+fn profile_and_avatar_use_exact_approval_restart_and_confirmation() {
+    publication_roundtrip("profile", false);
+    publication_roundtrip("avatar", false);
+}
+
+fn publication_roundtrip(kind: &str, structured: bool) {
     let dir = tempfile::tempdir().unwrap();
     let phrase = IdentityPhrase::parse(&format!("{}art", "abandon ".repeat(23))).unwrap();
     let keys = Keyring::create(&phrase, "public test fixture").unwrap();
@@ -42,7 +48,25 @@ fn publication_roundtrip(structured: bool) {
     service
         .unlock("public-fixture-password".into(), false)
         .unwrap();
-    let quote = if structured {
+    let content = if kind == "avatar" {
+        ""
+    } else if kind == "profile" {
+        "  昵称\0e\u{301}\r\n"
+    } else {
+        "hello"
+    };
+    let quote = if kind != "post" {
+        service
+            .prepare_record(
+                kind,
+                content.into(),
+                None,
+                String::new(),
+                vec![],
+                (kind == "avatar").then(|| vec![0x12; 512]),
+            )
+            .unwrap()
+    } else if structured {
         service
             .prepare_topics(
                 "hello".into(),
@@ -56,7 +80,9 @@ fn publication_roundtrip(structured: bool) {
     };
     assert_eq!(quote.wire, if structured { "rosint" } else { "" });
     assert_eq!(quote.hashtags.len(), usize::from(structured));
-    assert_eq!(quote.text, "hello");
+    assert_eq!(quote.text, content);
+    assert_eq!(quote.kind, kind);
+    assert_eq!(quote.avatar, (kind == "avatar").then(|| vec![0x12; 512]));
     assert_eq!(quote.selected_funding - quote.returned, quote.fee);
     assert!(!quote.approved);
     assert!(mock.state.lock().unwrap().submissions.is_empty());
@@ -64,25 +90,26 @@ fn publication_roundtrip(structured: bool) {
     assert!(service.advance(&quote.id, false).is_err());
     assert!(mock.state.lock().unwrap().submissions.is_empty());
     let first = service.advance(&quote.id, true).unwrap();
-    assert_eq!((first.confirmed, first.mempool), (0, 1));
+    assert_eq!((first.confirmed, first.mempool), (0, 2));
     assert!(!first.complete);
     assert!(service.prepare("another".into(), None).is_err());
     drop(service);
     let mut service = Service::open(&app, settings()).unwrap();
     assert!(service.status().unwrap().unwrap().approved);
     let resumed = service.status().unwrap().unwrap();
+    assert_eq!(resumed.kind, quote.kind);
+    assert_eq!(resumed.text, quote.text);
+    assert_eq!(resumed.avatar, quote.avatar);
     assert_eq!(
         (resumed.wire, resumed.hashtags),
         (quote.wire.clone(), quote.hashtags.clone())
     );
     service.advance(&quote.id, false).unwrap();
-    assert_eq!(mock.state.lock().unwrap().submissions.len(), 1);
+    assert_eq!(mock.state.lock().unwrap().submissions.len(), 2);
     mock.confirm_all();
     let second = service.advance(&quote.id, false).unwrap();
-    assert_eq!((second.confirmed, second.mempool), (1, 1));
-    assert!(!second.complete);
-    mock.confirm_all();
-    assert!(service.advance(&quote.id, false).unwrap().complete);
+    assert_eq!((second.confirmed, second.mempool), (2, 0));
+    assert!(second.complete);
     let raws = mock.state.lock().unwrap().submissions.clone();
     mock.state.lock().unwrap().unavailable = true;
     assert!(service.status().is_err());

@@ -6,7 +6,7 @@ use super::{
 use bitcoin::{consensus::deserialize, ScriptBuf, Transaction, Txid};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use urma_core::{envelope, format::PublicRecord, topics::Topics};
+use urma_core::envelope;
 use urma_runtime::{plan::PublicationPlan, publication};
 use urma_wallet::{
     funding::Funding,
@@ -154,34 +154,24 @@ pub async fn prepare(source: &Source, args: &Value) -> Result<Publication, Strin
         }
     }
     let text = args["text"].as_str().ok_or("Missing post text")?.to_owned();
-    if text.trim().is_empty() {
-        return Err("Write a post or reply first".into());
-    }
     let target = args["target"].as_str().map(str::to_owned);
-    let topics = Topics {
-        wire: args["wire"].as_str().unwrap_or("").into(),
-        hashtags: serde_json::from_value(
+    let record = wire_app_shared::publication_record::build(
+        args["kind"].as_str().unwrap_or("post"),
+        text,
+        target,
+        args["wire"].as_str().unwrap_or("").into(),
+        serde_json::from_value(
             args.get("hashtags")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!([])),
         )
         .map_err(error)?,
-    };
-    topics.validate().map_err(error)?;
-    let structured = !topics.wire.is_empty() || !topics.hashtags.is_empty();
-    let record = match (target, structured) {
-        (Some(target), true) => PublicRecord::WireReply {
-            target: target.parse().map_err(error)?,
-            topics,
-            text,
-        },
-        (None, true) => PublicRecord::WirePost { topics, text },
-        (Some(target), false) => PublicRecord::Reply {
-            target: target.parse().map_err(error)?,
-            text,
-        },
-        (None, false) => PublicRecord::Post(text),
-    }
+        args.get("avatar")
+            .filter(|value| !value.is_null())
+            .map(|value| serde_json::from_value(value.clone()))
+            .transpose()
+            .map_err(error)?,
+    )?
     .encode()
     .map_err(error)?;
     let epoch = browser::session_epoch();
@@ -270,23 +260,17 @@ fn projection(active: &Active, confirmed: usize, mempool: usize) -> Result<Publi
     let commit = transaction(&pair.commit)?;
     let reveal = transaction(&pair.reveal)?;
     let parsed = envelope::verify_reveal(&reveal, &commit).map_err(error)?;
-    let (text, target, wire, hashtags) =
-        match PublicRecord::decode(&parsed.record).map_err(error)? {
-            PublicRecord::Post(text) => (text, None, String::new(), vec![]),
-            PublicRecord::Reply { text, target } => {
-                (text, Some(target.to_string()), String::new(), vec![])
-            }
-            PublicRecord::WirePost { text, topics } => (text, None, topics.wire, topics.hashtags),
-            PublicRecord::WireReply {
-                text,
-                target,
-                topics,
-            } => (text, Some(target.to_string()), topics.wire, topics.hashtags),
-            _ => return Err("Unsupported Wire publication".into()),
-        };
+    let wire_app_shared::publication_record::Review {
+        kind,
+        text,
+        target,
+        wire,
+        hashtags,
+        avatar,
+    } = wire_app_shared::publication_record::review(&parsed.record)?;
     let funding = pair.funding.prevout().map_err(error)?.1.value.to_sat();
-    Ok(Publication {id: active.plan.id().map_err(error)?, txid: active.plan.root_txid.clone(), text, wire, hashtags, target, fee: active.plan.total_fee, selected_funding: funding, returned: funding.checked_sub(active.plan.total_fee).ok_or("Invalid plan fee")?, approved: active.approved.is_some(), confirmed, mempool, complete: confirmed == 2,
-        message: if confirmed == 2 {"Confirmed on Litecoin Testnet"} else if active.approved.is_none() {"Prepared. Review the exact text and fee before approving."} else {"Waiting for blockchain confirmation; Esplora provides no mempool preflight. Exact signed bytes and fee remain unchanged."}.into()})
+    Ok(Publication {kind, avatar, id: active.plan.id().map_err(error)?, txid: active.plan.root_txid.clone(), text, wire, hashtags, target, fee: active.plan.total_fee, selected_funding: funding, returned: funding.checked_sub(active.plan.total_fee).ok_or("Invalid plan fee")?, approved: active.approved.is_some(), confirmed, mempool, complete: confirmed == 2,
+        message: if confirmed == 2 {"Confirmed on Litecoin Testnet"} else if active.approved.is_none() {"Prepared. Review the exact record and fee before approving."} else {"Waiting for blockchain confirmation; Esplora provides no mempool preflight. Exact signed bytes and fee remain unchanged."}.into()})
 }
 
 pub async fn advance(source: &Source, id: &str, approve: bool) -> Result<Publication, String> {

@@ -7,7 +7,8 @@ pub fn PostCard(post: Post) -> impl IntoView {
     let author = post.author;
     let author_hex = author.to_hex();
     let author_fingerprint = author.fingerprint();
-    let display_name = author.short_display();
+    let state = expect_context::<crate::state::AppState>();
+    let display_name = move || state.display_name(author);
 
     let txid_disp = post.txid.to_display_hex();
     let txid_short = post.txid.short_display();
@@ -37,7 +38,7 @@ pub fn PostCard(post: Post) -> impl IntoView {
 
             <div class="post-content">
                 <p class="topic-labels">{(!post.wire.is_empty()).then(|| format!("/{}", post.wire))} " " {post.hashtags.iter().map(|tag| format!("#{tag}")).collect::<Vec<_>>().join(" ")}</p>
-                <p class="post-text">{post.text.clone()}</p>
+                <super::markdown::Markdown text=post.text.clone() />
             </div>
 
             <div class="post-footer">
