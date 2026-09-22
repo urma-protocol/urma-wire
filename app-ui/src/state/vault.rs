@@ -14,6 +14,7 @@ pub struct Vault {
     pub password: RwSignal<String>,
     pub busy: RwSignal<bool>,
     pub message: RwSignal<Said>,
+    state: AppState,
 }
 
 #[derive(Clone, Copy)]
@@ -30,6 +31,7 @@ impl Vault {
             password: RwSignal::new(String::new()),
             busy: RwSignal::new(false),
             message: RwSignal::new(Said::Nothing),
+            state: expect_context::<AppState>(),
         }
     }
 
@@ -37,7 +39,7 @@ impl Vault {
         if self.busy.get_untracked() {
             return;
         }
-        let state = expect_context::<AppState>();
+        let state = self.state;
         let vault = *self;
         vault.busy.set(true);
         vault.message.set(Said::Nothing);
