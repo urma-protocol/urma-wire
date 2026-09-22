@@ -217,8 +217,10 @@ a 5-second connect and 15-second request timeout; OS DNS resolution is separate
 and can outlast that timeout. No cookies, credentials or referring post URL are
 sent. Fetching still exposes the user's network address and request metadata.
 
-Only PNG (`image/png`) and JPEG (`image/jpeg`) are enabled. MIME, signature and
-decode must agree. Limits are 4 MiB downloaded, 4096 pixels per dimension,
+PNG, JPEG, WebP, GIF, BMP, ICO, TIFF and AVIF are enabled. The response must
+declare an `image/*` type, but the decoder is chosen from the signature, so a
+host that transcodes or mislabels its body cannot select the codec. Limits are
+4 MiB downloaded, 4096 pixels per dimension,
 4,194,304 pixels total, 32 MiB decoder allocation and 20 MiB re-encoded PNG.
 Limits also apply while reading image dimensions. Rendering re-encodes inert
 pixels and discards source metadata/animation; SVG and arbitrary embeds are

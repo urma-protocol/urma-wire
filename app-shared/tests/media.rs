@@ -145,17 +145,21 @@ mod transport {
     }
 
     #[test]
-    fn only_matching_decodable_bounded_png_and_jpeg_are_rendered() {
+    fn only_decodable_bounded_raster_images_are_rendered() {
         let bytes = png(2, 2);
         assert!(decode_image("image/png", &bytes).is_ok());
-        let mut jpeg = Cursor::new(Vec::new());
-        image::RgbImage::new(2, 2)
-            .write_to(&mut jpeg, ImageFormat::Jpeg)
-            .unwrap();
-        assert!(decode_image("image/jpeg", jpeg.get_ref()).is_ok());
-        assert!(decode_image("image/jpeg", &bytes)
-            .unwrap_err()
-            .contains("signature"));
+        for format in [ImageFormat::Jpeg, ImageFormat::WebP, ImageFormat::Gif] {
+            let mut encoded = Cursor::new(Vec::new());
+            image::RgbImage::new(2, 2)
+                .write_to(&mut encoded, format)
+                .unwrap();
+            assert!(
+                decode_image("image/png", encoded.get_ref()).is_ok(),
+                "{format:?} decodes from its signature regardless of declared type"
+            );
+        }
+        // A transcoding host may mislabel the body; the signature picks the decoder.
+        assert!(decode_image("image/jpeg", &bytes).is_ok());
         assert!(decode_image("image/svg+xml", b"<svg/>").is_err());
         assert!(decode_image("text/html", &bytes).is_err());
         assert!(decode_image("image/png", &bytes[..24]).is_err());

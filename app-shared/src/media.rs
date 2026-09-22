@@ -8,6 +8,19 @@ use std::{
     time::Duration,
 };
 
+/// Raster formats with a decoder compiled in. Everything decodes to inert RGBA
+/// and is re-encoded as PNG, so animation and source metadata never survive.
+const SUPPORTED_FORMATS: &[ImageFormat] = &[
+    ImageFormat::Png,
+    ImageFormat::Jpeg,
+    ImageFormat::WebP,
+    ImageFormat::Gif,
+    ImageFormat::Bmp,
+    ImageFormat::Ico,
+    ImageFormat::Tiff,
+    ImageFormat::Avif,
+];
+
 const MAX_DOWNLOAD_BYTES: usize = 4 * 1024 * 1024;
 const MAX_PIXELS: u64 = 4 * 1024 * 1024;
 const MAX_DIMENSION: u32 = 4096;
@@ -43,20 +56,19 @@ fn decode_image(mime: &str, bytes: &[u8]) -> Result<FetchedImage, String> {
     if bytes.len() > MAX_DOWNLOAD_BYTES {
         return Err("Image download exceeds 4 MiB".into());
     }
-    let format = match mime
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
+    // The declared type only has to claim an image; the actual decoder comes from
+    // the signature, so a mislabelled or transcoding host cannot pick the codec.
+    let declared = mime.split(';').next().unwrap_or("").trim();
+    if !declared
         .to_ascii_lowercase()
-        .as_str()
+        .starts_with("image/")
     {
-        "image/png" => ImageFormat::Png,
-        "image/jpeg" => ImageFormat::Jpeg,
-        _ => return Err("Unsupported image MIME type; only PNG and JPEG are enabled".into()),
-    };
-    if image::guess_format(bytes).ok() != Some(format) {
-        return Err("Image MIME and signature do not match".into());
+        return Err("Image response is not an image type".into());
+    }
+    let format = image::guess_format(bytes)
+        .map_err(|_| "Unrecognized image signature")?;
+    if !SUPPORTED_FORMATS.contains(&format) {
+        return Err("Unsupported image format".into());
     }
     let (width, height) = bounded_reader(bytes, format)
         .into_dimensions()
@@ -144,7 +156,7 @@ fn checked_request(url: &url::Url, addresses: &[SocketAddr]) -> Result<Response,
         .map_err(|_| "Cannot initialize checked image transport")?;
     let response = client
         .get(url.clone())
-        .header("Accept", "image/png, image/jpeg")
+        .header("Accept", "image/*")
         .header("Cache-Control", "no-cache")
         .send()
         .map_err(|_| "Image request failed")?;
