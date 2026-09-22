@@ -58,27 +58,51 @@ pub fn ComposeBox(#[prop(default = Addressed::Standalone)] addressed: Addressed)
             || text.read().trim().is_empty()
             || text.read().len() > max_bytes
     };
+    let over_budget = move || text.read().len() > max_bytes;
     view! {
-        <div class="compose-card compact-composer">
-            <textarea class="compose-textarea" rows="2" aria-label="Post text" placeholder="What’s on your mind?"
+        <div class="composer">
+            <textarea class="composer-text" rows="3" aria-label=addressed.label()
+                placeholder=addressed.placeholder()
                 prop:value=move || text.get() on:input=move |ev| text.set(event_target_value(&ev)) />
-            <details class="compose-topics">
-                <summary>"Wire & hashtags"</summary>
-                <div class="topic-fields">
-                <label>"Wire (optional)"<input class="input" placeholder="/rosint" prop:value=move || wire.get() on:input=move |ev| wire.set(event_target_value(&ev)) /></label>
-                <label>"Hashtags (optional)"<input class="input" placeholder="#investigation #documents" prop:value=move || hashtags.get() on:input=move |ev| hashtags.set(event_target_value(&ev)) /></label>
-                </div>
-            </details>
-            <div class="compose-footer">
-                <span class="byte-meter">{move || text.read().len()} "/" {max_bytes} " bytes"</span>
+            <div class="composer-bar">
+                <details class="composer-topics">
+                    <summary aria-label="Wire and hashtags">
+                        <span class="composer-topics-mark" aria-hidden="true">"#"</span>
+                        <span class="composer-topics-text">{move || topic_summary(&wire.get(), &hashtags.get())}</span>
+                    </summary>
+                    <div class="composer-fields">
+                        <label>"Wire"<input placeholder="/rosint"
+                            prop:value=move || wire.get() on:input=move |ev| wire.set(event_target_value(&ev)) /></label>
+                        <label>"Hashtags"<input placeholder="#investigation #documents"
+                            prop:value=move || hashtags.get() on:input=move |ev| hashtags.set(event_target_value(&ev)) /></label>
+                    </div>
+                </details>
+                <span class=move || match over_budget() { true => "composer-meter over", false => "composer-meter" }>
+                    {move || text.read().len()}<span class="composer-meter-max">"/"{max_bytes}</span>
+                </span>
                 <button class="btn btn-primary btn-sm" on:click=prepare disabled=blocked>
-                    {move || match busy.get() { true => "Preparing exact quote…", false => "Review & publish" }}
+                    {move || match busy.get() { true => "Quoting…", false => "Review & publish" }}
                 </button>
             </div>
             <Warning message=trouble.into() />
         </div>
         <PublicationPanel />
     }
+}
+
+fn topic_summary(wire: &str, hashtags: &str) -> String {
+    let wire = wire.trim().trim_start_matches('/');
+    let tags = hashtags.split_whitespace().count();
+    if wire.is_empty() && tags == 0 {
+        return "Wire & hashtags".to_owned();
+    }
+    if wire.is_empty() {
+        return format!("{tags} hashtags");
+    }
+    if tags == 0 {
+        return format!("/{wire}");
+    }
+    format!("/{wire} · {tags} hashtags")
 }
 
 #[component]

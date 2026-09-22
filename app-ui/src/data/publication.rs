@@ -32,6 +32,20 @@ impl Addressed {
             Addressed::Standalone => MAX_POST_BYTES,
         }
     }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Addressed::Thread(_) => "Reply text",
+            Addressed::Standalone => "Post text",
+        }
+    }
+
+    pub fn placeholder(&self) -> &'static str {
+        match self {
+            Addressed::Thread(_) => "Write a reply…",
+            Addressed::Standalone => "What's on your mind?",
+        }
+    }
 }
 
 pub struct Draft {
