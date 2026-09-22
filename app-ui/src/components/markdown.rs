@@ -169,15 +169,7 @@ fn ExternalImage(url: String, alt: String) -> impl IntoView {
             }
         });
     });
-    let refresh = move |_| {
-        if let Some(previous) = data.get_untracked() {
-            state
-                .media_bytes
-                .update(|bytes| *bytes = bytes.saturating_sub(previous.display_bytes()));
-        }
-        data.set(None);
-        requested.set(true);
-    };
+    let load = move |_| requested.set(true);
     on_cleanup(move || {
         if let Some(Some(previous)) = data.try_get() {
             state
@@ -186,17 +178,27 @@ fn ExternalImage(url: String, alt: String) -> impl IntoView {
         }
     });
     let placeholder_alt = alt.clone();
+    // A loaded image stands alone: the placeholder, and with it the button, exist
+    // only while there is nothing to show. Loading stays manual only when the
+    // reader turned autoload off, or when a failure left something to retry.
+    let shown = move || data.get().is_some();
+    let offers_load =
+        move || permitted && !loading.get() && (!state.autoload_images.get() || message.get().is_some());
     view! {
         <span class="external-image">
             {move || data.get().map(|image| view! { <img src=image.data_url alt=alt.clone() /> })}
-            <span class="media-placeholder">
-                <span>{placeholder_alt}</span>
-                {move || if loading.get() { "Loading checked image…" } else { "External image" }}
-                {move || message.get().map(|message| view! { <span>{message}</span> })}
-                <button class="btn btn-secondary btn-sm" disabled=move || !permitted || loading.get() on:click=refresh>
-                    {move || if data.get().is_some() { "Refresh image" } else { "Load image" }}
-                </button>
-            </span>
+            {move || (!shown()).then(|| view! {
+                <span class="media-placeholder">
+                    <span>{placeholder_alt.clone()}</span>
+                    {move || if loading.get() { "Loading checked image…" } else { "External image" }}
+                    {move || message.get().map(|message| view! { <span>{message}</span> })}
+                    {move || offers_load().then(|| view! {
+                        <button class="btn btn-secondary btn-sm" on:click=load>
+                            {move || if message.get().is_some() { "Retry image" } else { "Load image" }}
+                        </button>
+                    })}
+                </span>
+            })}
         </span>
     }
 }
