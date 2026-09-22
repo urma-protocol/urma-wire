@@ -8,7 +8,7 @@ use crate::{
     components::Navbar,
     pages::{
         ComponentsPage, ComposePage, ConnectionPage, FeedPage, IdentityPage, PostDetailPage,
-        ProfilePage, SettingsPage,
+        ProfilePage, SettingsPage, WalletPage,
     },
     platform::default_bridge,
     state::AppState,
@@ -41,7 +41,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/compose") view=ComposePage />
                         <Route path=path!("/components") view=ComponentsPage />
                         <Route path=path!("/settings") view=SettingsPage />
-                        <Route path=path!("/wallet") view=SettingsPage />
+                        <Route path=path!("/wallet") view=WalletPage />
                         <Route path=path!("/identity") view=IdentityPage />
                         <Route path=path!("/connection") view=ConnectionPage />
                     </Routes>

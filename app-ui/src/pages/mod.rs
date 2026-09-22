@@ -7,6 +7,7 @@ pub mod identity;
 pub mod post_detail;
 pub mod profile;
 pub mod settings;
+pub mod wallet;
 pub use identity::IdentityPage;
 mod source_settings;
 
@@ -17,3 +18,4 @@ pub use feed::FeedPage;
 pub use post_detail::PostDetailPage;
 pub use profile::ProfilePage;
 pub use settings::SettingsPage;
+pub use wallet::WalletPage;

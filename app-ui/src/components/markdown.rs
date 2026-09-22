@@ -117,7 +117,7 @@ fn ExternalImage(url: String, alt: String) -> impl IntoView {
         }
         if state.media_bytes.get_untracked() >= MAX_DISPLAY_BYTES {
             message.set(Some(
-                "Displayed media reached 64 MiB. Clear media in Wallet settings to load more."
+                "Displayed media reached 64 MiB. Clear media in Settings to load more."
                     .into(),
             ));
             requested.set(false);
@@ -159,7 +159,7 @@ fn ExternalImage(url: String, alt: String) -> impl IntoView {
                 }
                 Ok(_) => {
                     let _ = message.try_set(Some(
-                        "Image exceeds remaining display budget. Clear media in Wallet settings."
+                        "Image exceeds remaining display budget. Clear media in Settings."
                             .into(),
                     ));
                 }
