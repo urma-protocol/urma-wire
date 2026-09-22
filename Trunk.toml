@@ -3,7 +3,7 @@ target = "index.html"
 dist = "dist"
 
 [watch]
-watch = ["app-shared", "app-ui", "styles.css", "index.html", "assets"]
+watch = ["app-shared", "app-ui", "styles.css", "index.html", "assets", "web"]
 
 [serve]
 address = "127.0.0.1"

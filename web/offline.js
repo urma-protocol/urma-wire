@@ -1,5 +1,15 @@
 // No passwords, decrypted identity material, or vault data enter the worker/cache.
-if (!(window.__TAURI__ || window.__TAURI_INTERNALS__)) {
+// The offline cache is a release behaviour: under `trunk serve` it would pin a stale
+// build in the webview, so dev unregisters any worker instead of installing one.
+const URMA_DEV_SERVE = location.port === '8080';
+if (URMA_DEV_SERVE && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations()
+        .then(regs => Promise.all(regs.map(reg => reg.unregister())))
+        .then(() => caches.keys())
+        .then(keys => Promise.all(keys.map(key => caches.delete(key))))
+        .catch(() => {});
+}
+if (!URMA_DEV_SERVE && !(window.__TAURI__ || window.__TAURI_INTERNALS__)) {
     const status = document.createElement('aside');
     status.setAttribute('role', 'status');
     status.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:1000;background:#17221b;color:#fff;padding:8px 16px;font:12px sans-serif';
