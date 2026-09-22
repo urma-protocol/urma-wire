@@ -4,6 +4,9 @@ use crate::limits::MAX_POST_BYTES;
 use crate::limits::MAX_REPLY_BYTES;
 use serde_json::json;
 use wire_app_shared::live_model::Publication;
+use wire_app_shared::topic_labels::read_hashtags;
+use wire_app_shared::topic_labels::read_label;
+use wire_app_shared::topic_labels::Label;
 use wire_app_shared::Chain;
 use wire_app_shared::Txid;
 
@@ -55,20 +58,27 @@ pub struct Draft {
     pub addressed: Addressed,
 }
 
+pub enum Spoken {
+    Draft(Draft),
+    Rejected(String),
+}
+
 impl Draft {
-    pub fn spoken(text: String, wire: &str, hashtags: &str, addressed: Addressed) -> Self {
-        let mut hashtags: Vec<String> = hashtags
-            .split_whitespace()
-            .map(|tag| tag.trim_start_matches('#').to_ascii_lowercase())
-            .collect();
-        hashtags.sort();
-        hashtags.dedup();
-        Self {
+    pub fn spoken(text: String, wire: &str, hashtags: &str, addressed: Addressed) -> Spoken {
+        let typed = wire.trim();
+        let wire = match typed.is_empty() {
+            true => String::new(),
+            false => match read_label(typed) {
+                Label::Valid(label) => label,
+                Label::Rejected(reason) => return Spoken::Rejected(format!("Wire: {reason}")),
+            },
+        };
+        Spoken::Draft(Self {
             text,
-            wire: wire.trim().trim_start_matches('/').to_ascii_lowercase(),
-            hashtags,
+            wire,
+            hashtags: read_hashtags(hashtags),
             addressed,
-        }
+        })
     }
 }
 

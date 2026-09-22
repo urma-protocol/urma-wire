@@ -1,9 +1,11 @@
+use crate::components::LabelField;
 use crate::components::Said;
 use crate::components::Warning;
 use crate::data::publication;
-use crate::data::publication::Addressed;
 use crate::data::publication::Draft;
+use crate::data::publication::Spoken;
 use crate::limits::AVATAR_PREVIEW_PIXELS;
+use crate::state::addressing::Speaking;
 use crate::state::AppState;
 use leptos::prelude::expect_context;
 use leptos::prelude::AriaAttributes;
@@ -23,27 +25,37 @@ use leptos::prelude::{component, event_target_value, view};
 use tracing::warn;
 use wire_app_shared::live_model::Publication;
 use wire_app_shared::render_avatar_svg;
+use wire_app_shared::topic_labels::Kind;
 
 #[component]
-pub fn ComposeBox(#[prop(default = Addressed::Standalone)] addressed: Addressed) -> impl IntoView {
+pub fn ComposeBox() -> impl IntoView {
     let state = expect_context::<AppState>();
-    let text = match addressed {
-        Addressed::Thread(_) => RwSignal::new(String::new()),
-        Addressed::Standalone => state.post_draft,
-    };
+    let text = state.post_draft;
     let wire = RwSignal::new(String::new());
     let hashtags = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
     let trouble = RwSignal::new(Said::Nothing);
-    let max_bytes = addressed.max_bytes();
+    let addressed = move || state.speaking.get().addressed();
+    let max_bytes = move || addressed().max_bytes();
     let prepare = move |_clicked: leptos::ev::MouseEvent| {
-        busy.set(true);
         trouble.set(Said::Nothing);
-        let draft = Draft::spoken(text.get(), &wire.get(), &hashtags.get(), addressed);
+        let draft = match Draft::spoken(text.get(), &wire.get(), &hashtags.get(), addressed()) {
+            Spoken::Draft(draft) => draft,
+            Spoken::Rejected(reason) => {
+                trouble.set(Said::Something(reason));
+                return;
+            }
+        };
+        busy.set(true);
+        let spoken_wire = draft.wire.clone();
+        let spoken_tags = draft.hashtags.clone();
         let chain = state.active_chain.get();
         leptos::task::spawn_local(async move {
             match publication::quote(chain, draft).await {
-                Ok(quote) => state.publication.set(Some(quote)),
+                Ok(quote) => {
+                    state.remember_topics(&spoken_wire, &spoken_tags);
+                    state.publication.set(Some(quote));
+                }
                 Err(failure) => {
                     warn!(failure = %failure, "publication quote refused");
                     trouble.set(Said::Something(failure.reported()));
@@ -56,13 +68,14 @@ pub fn ComposeBox(#[prop(default = Addressed::Standalone)] addressed: Addressed)
         busy.get()
             || state.following.get()
             || text.read().trim().is_empty()
-            || text.read().len() > max_bytes
+            || text.read().len() > max_bytes()
     };
-    let over_budget = move || text.read().len() > max_bytes;
+    let over_budget = move || text.read().len() > max_bytes();
     view! {
         <div class="composer">
-            <textarea class="composer-text" rows="3" aria-label=addressed.label()
-                placeholder=addressed.placeholder()
+            <ReplyContext />
+            <textarea class="composer-text" rows="3" aria-label=move || addressed().label()
+                placeholder=move || addressed().placeholder()
                 prop:value=move || text.get() on:input=move |ev| text.set(event_target_value(&ev)) />
             <div class="composer-bar">
                 <details class="composer-topics">
@@ -71,23 +84,59 @@ pub fn ComposeBox(#[prop(default = Addressed::Standalone)] addressed: Addressed)
                         <span class="composer-topics-text">{move || topic_summary(&wire.get(), &hashtags.get())}</span>
                     </summary>
                     <div class="composer-fields">
-                        <label>"Wire"<input placeholder="/rosint"
-                            prop:value=move || wire.get() on:input=move |ev| wire.set(event_target_value(&ev)) /></label>
-                        <label>"Hashtags"<input placeholder="#investigation #documents"
-                            prop:value=move || hashtags.get() on:input=move |ev| hashtags.set(event_target_value(&ev)) /></label>
+                        <LabelField label="Wire" placeholder="rosint" kind=Kind::Wire value=wire single=true />
+                        <LabelField label="Hashtags" placeholder="investigation documents" kind=Kind::Hashtag value=hashtags single=false />
                     </div>
                 </details>
                 <span class=move || match over_budget() { true => "composer-meter over", false => "composer-meter" }>
                     {move || text.read().len()}<span class="composer-meter-max">"/"{max_bytes}</span>
                 </span>
                 <button class="btn btn-primary btn-sm" on:click=prepare disabled=blocked>
-                    {move || match busy.get() { true => "Quoting…", false => "Review & publish" }}
+                    {move || match busy.get() { true => "Quoting…", false => state.speaking.get().publish_label() }}
                 </button>
             </div>
             <Warning message=trouble.into() />
         </div>
         <PublicationPanel />
     }
+}
+
+#[component]
+fn ReplyContext() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    view! {
+        {move || match state.speaking.get() {
+            Speaking::InReplyTo(post) => {
+                let author = state.display_name(post.author);
+                let excerpt = excerpt_of(&post.text);
+                view! {
+                    <div class="composer-reply">
+                        <span class="composer-reply-mark" aria-hidden="true">"↳"</span>
+                        <span class="composer-reply-text">
+                            "Replying to "<strong>{author}</strong>
+                            <span class="composer-reply-excerpt">{excerpt}</span>
+                        </span>
+                        <button type="button" class="composer-reply-cancel" aria-label="Cancel reply"
+                            on:click=move |_clicked| state.stop_replying()>"✕"</button>
+                    </div>
+                }.into_any()
+            }
+            Speaking::Freely => ().into_any(),
+        }}
+    }
+}
+
+fn excerpt_of(text: &str) -> String {
+    let flattened: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut excerpt = String::new();
+    for character in flattened.chars() {
+        if excerpt.chars().count() >= 64 {
+            excerpt.push('…');
+            break;
+        }
+        excerpt.push(character);
+    }
+    excerpt
 }
 
 fn topic_summary(wire: &str, hashtags: &str) -> String {

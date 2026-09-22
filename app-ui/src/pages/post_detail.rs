@@ -3,7 +3,6 @@ use crate::components::ComposeBox;
 use crate::components::Missing;
 use crate::components::PostCard;
 use crate::components::Warning;
-use crate::data::publication::Addressed;
 use crate::state::thread::Showing;
 use crate::state::thread::Thread;
 use leptos::prelude::ClassAttribute;
@@ -32,7 +31,7 @@ pub fn PostDetailPage() -> impl IntoView {
                         <div class="detail-wrapper">
                             <PostCard post=post.clone() />
                             <div class="reply-compose-section">
-                                <ComposeBox addressed=Addressed::Thread(post.txid) />
+                                <ComposeBox />
                             </div>
                             <div class="replies-section">
                                 <h3 class="section-title">"Confirmed Replies (" {move || replies.read().len()} ")"</h3>

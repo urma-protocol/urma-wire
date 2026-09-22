@@ -53,7 +53,10 @@ impl Thread {
             trouble.set(Said::Nothing);
             leptos::task::spawn_local(async move {
                 match records::post(chain, txid).await {
-                    Ok(Record::Found(post)) => showing.set(Showing::Post(post)),
+                    Ok(Record::Found(post)) => {
+                        state.reply_to(post.clone());
+                        showing.set(Showing::Post(post));
+                    }
                     Ok(Record::Absent) => showing.set(Showing::Unknown(txid.to_display_hex())),
                     Err(failure) => {
                         warn!(failure = %failure, "post record could not be read");

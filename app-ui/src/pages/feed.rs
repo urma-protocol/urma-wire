@@ -16,6 +16,7 @@ use leptos::prelude::{component, view};
 pub fn FeedPage() -> impl IntoView {
     let state = expect_context::<AppState>();
     state.load_feed();
+    state.stop_replying();
 
     view! {
         <section class="page-container feed-page">

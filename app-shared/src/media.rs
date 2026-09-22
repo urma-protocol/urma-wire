@@ -59,14 +59,10 @@ fn decode_image(mime: &str, bytes: &[u8]) -> Result<FetchedImage, String> {
     // The declared type only has to claim an image; the actual decoder comes from
     // the signature, so a mislabelled or transcoding host cannot pick the codec.
     let declared = mime.split(';').next().unwrap_or("").trim();
-    if !declared
-        .to_ascii_lowercase()
-        .starts_with("image/")
-    {
+    if !declared.to_ascii_lowercase().starts_with("image/") {
         return Err("Image response is not an image type".into());
     }
-    let format = image::guess_format(bytes)
-        .map_err(|_| "Unrecognized image signature")?;
+    let format = image::guess_format(bytes).map_err(|_| "Unrecognized image signature")?;
     if !SUPPORTED_FORMATS.contains(&format) {
         return Err("Unsupported image format".into());
     }

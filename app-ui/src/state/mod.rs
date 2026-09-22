@@ -1,3 +1,4 @@
+pub mod addressing;
 pub mod session;
 pub mod thread;
 pub mod vault;

@@ -6,17 +6,24 @@ use crate::data::identity;
 use crate::data::publication;
 use crate::data::publication::Pending;
 use crate::data::records;
+use crate::data::topics;
+use crate::data::topics::Recalled;
+use crate::data::topics::Remembered;
 use crate::limits::PUBLICATION_POLL_MS;
+use crate::state::addressing::Speaking;
 use leptos::prelude::Get;
 use leptos::prelude::GetUntracked;
 use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
+use leptos::prelude::Update;
 use leptos::prelude::With;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use tracing::warn;
 use wire_app_shared::connection::ConnectionHealth;
 use wire_app_shared::live_model::Publication;
 use wire_app_shared::public_identity::PublicIdentity;
+use wire_app_shared::topic_labels::seen_in;
 use wire_app_shared::AuthorId;
 use wire_app_shared::Chain;
 use wire_app_shared::IdentityStatus;
@@ -47,11 +54,19 @@ pub struct AppState {
     pub connection_health: RwSignal<Option<ConnectionHealth>>,
     pub connection_last_success_ms: RwSignal<Option<u64>>,
     pub is_checking_connection: RwSignal<bool>,
+    pub speaking: RwSignal<Speaking>,
+    pub topics: RwSignal<Remembered>,
 }
 
 impl AppState {
     pub fn started() -> Self {
         let preference = stored_autoload();
+        let recalled = topics::load();
+        let topic_trouble = match &recalled {
+            Recalled::Unreadable(reason) => Said::Something(reason.clone()),
+            Recalled::Topics(_) => Said::Nothing,
+            Recalled::Empty => Said::Nothing,
+        };
         let state = Self {
             active_chain: RwSignal::new(Chain::Litecoin),
             autoload_images: RwSignal::new(preference.wanted()),
@@ -75,7 +90,13 @@ impl AppState {
             connection_health: RwSignal::new(None),
             connection_last_success_ms: RwSignal::new(None),
             is_checking_connection: RwSignal::new(false),
+            speaking: RwSignal::new(Speaking::Freely),
+            topics: RwSignal::new(recalled.remembered()),
         };
+        match topic_trouble {
+            Said::Something(reason) => state.status_message.set(Said::Something(reason)),
+            Said::Nothing => (),
+        }
         state.load_identity();
         state.load_feed();
         state.load_pending_publication();
@@ -246,6 +267,32 @@ impl AppState {
             }
             state.following.set(false);
         });
+    }
+
+    pub fn reply_to(&self, post: Post) {
+        self.speaking.set(Speaking::InReplyTo(post));
+    }
+
+    pub fn stop_replying(&self) {
+        self.speaking.set(Speaking::Freely);
+    }
+
+    pub fn remember_topics(&self, wire: &str, hashtags: &[String]) {
+        self.topics.update(|remembered| {
+            remembered.used(wire, hashtags);
+            topics::save(remembered);
+        });
+    }
+
+    pub fn toggle_follow(&self, spelled: String) {
+        self.topics.update(|remembered| {
+            remembered.toggle(spelled);
+            topics::save(remembered);
+        });
+    }
+
+    pub fn seen_topics(&self) -> BTreeSet<String> {
+        seen_in(&self.feed.get())
     }
 
     pub fn display_name(&self, author: AuthorId) -> String {

@@ -23,6 +23,7 @@ pub mod public_identity;
 pub mod publication_record;
 pub mod source;
 pub mod store;
+pub mod topic_labels;
 pub mod traits;
 
 #[cfg(not(target_arch = "wasm32"))]

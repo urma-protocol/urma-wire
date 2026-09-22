@@ -5,3 +5,4 @@ pub mod identity;
 pub mod media;
 pub mod publication;
 pub mod records;
+pub mod topics;

@@ -1,4 +1,7 @@
-pub const MAX_VAULT_BYTES: usize = wire_app_shared::identity::MAX_IDENTITY_VAULT_BYTES;
+use crate::data::topics::Remembered;
+use wire_app_shared::identity::MAX_IDENTITY_VAULT_BYTES;
+
+pub const MAX_VAULT_BYTES: usize = MAX_IDENTITY_VAULT_BYTES;
 
 pub const VAULT_INPUT_ID: &str = "identity-vault-file";
 
@@ -20,9 +23,21 @@ pub const AVATAR_PREVIEW_PIXELS: u32 = 128;
 
 pub const PROFILE_AVATAR_PIXELS: u32 = 72;
 
+pub const CARD_AVATAR_PIXELS: u32 = 40;
+
 pub const IMAGE_PREFERENCE_KEY: &str = "wire-disable-external-images-v1";
 
 pub const UNREADABLE_VAULT: &str = "Cannot read the selected vault";
+
+pub const TOPICS_STORAGE_KEY: &str = "wire-topics-v1";
+
+pub const MAX_REMEMBERED_LABELS: usize = 24;
+
+pub const MAX_SUGGESTIONS: usize = 6;
+
+pub fn topics_when_unset() -> Remembered {
+    Remembered::default()
+}
 
 pub fn autoload_images_when_unset() -> bool {
     false
