@@ -16,7 +16,6 @@ use leptos::prelude::IntoView;
 use leptos::prelude::OnAttribute;
 use leptos::prelude::PropAttribute;
 use leptos::prelude::Set;
-use leptos::prelude::Show;
 use leptos::prelude::{component, event_target_value, view};
 use wire_app_shared::IdentityStatus;
 
@@ -54,9 +53,15 @@ pub fn IdentityPage() -> impl IntoView {
                         on:input=move |event| vault.password.set(event_target_value(&event)) />
                 </label>
                 <button class="btn btn-primary" disabled=busy on:click=act(Intent::Unlock)>"Unlock identity"</button>
-                <Show when=move || configured_unlock(state)>
-                    <button class="btn btn-secondary" disabled=busy on:click=act(Intent::UseConfiguredFile)>"Use configured unlock file"</button>
-                </Show>
+                {move || match configured_unlock(state) {
+                    true => view! {
+                        <button class="btn btn-secondary" disabled=busy
+                            on:click=move |_clicked| vault.act(Intent::UseConfiguredFile)>
+                            "Use configured unlock file"
+                        </button>
+                    }.into_any(),
+                    false => ().into_any(),
+                }}
                 <button class="btn btn-secondary" disabled=busy on:click=act(Intent::Lock)>"Lock identity"</button>
                 <p>"Import a copy of an existing encrypted URMA vault. Import validates its password and unlocks its active identity. Your original vault stays intact. An existing imported vault cannot be overwritten."</p>
                 <label>"Encrypted URMA vault"<input id=VAULT_INPUT_ID type="file" accept=".urma,.vault" /></label>

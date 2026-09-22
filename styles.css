@@ -150,6 +150,13 @@ button,a,input,textarea,summary { -webkit-tap-highlight-color:transparent; }
 .label-suggestion { display:flex; align-items:center; gap:8px; padding:6px 9px; border-radius:5px; cursor:pointer; font:13px var(--font-mono); color:var(--text-muted); }
 .label-suggestion.active { background:#202b15; color:var(--color-accent); }
 .label-suggestion-followed { margin-left:auto; font:9px var(--font-sans); letter-spacing:.08em; text-transform:uppercase; color:var(--color-accent); opacity:.75; }
+.feed-filter { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 14px; margin-bottom:14px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:9px; }
+.feed-filter-toggle { flex-shrink:0; padding:5px 12px; border:1px solid var(--border-color); border-radius:20px; background:transparent; color:var(--text-muted); font-size:12px; font-weight:550; cursor:pointer; }
+.feed-filter-toggle:hover { border-color:#3e4c39; color:var(--text-main); }
+.feed-filter-toggle.active { background:var(--color-accent); border-color:var(--color-accent); color:#10150a; }
+.feed-filter-chips { display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
+.followed-strip { display:flex; flex-wrap:wrap; gap:7px; }
+.followed-empty { color:var(--text-dim); font-size:13px; }
 .topic-chip { padding:2px 8px; border:1px solid var(--border-color); border-radius:20px; background:transparent; color:var(--text-dim); font:11px var(--font-mono); cursor:pointer; }
 .topic-chip:hover { border-color:#3e4c39; color:var(--text-muted); }
 .topic-chip.followed { border-color:var(--color-accent); color:var(--color-accent); background:#202b15; }

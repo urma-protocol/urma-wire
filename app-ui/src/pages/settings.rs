@@ -1,5 +1,6 @@
 use crate::components::markdown::remember_autoload;
 use crate::components::DescribedGroup;
+use crate::components::FollowedTopics;
 use crate::components::Notice;
 use crate::components::PageHeader;
 use crate::components::SettingsGroup;
@@ -33,6 +34,12 @@ pub fn SettingsPage() -> impl IntoView {
             />
             <Notice message=state.status_message.into() />
             <NetworkChoice />
+            <DescribedGroup
+                title="Followed topics"
+                description="Wires and hashtags you follow are suggested first while writing, and can filter the feed."
+            >
+                <FollowedTopics />
+            </DescribedGroup>
             <MediaPrivacy />
             <BrowserSourceSettings />
             <RuntimeFacts />

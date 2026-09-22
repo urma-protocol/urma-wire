@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use tracing::warn;
 use wire_app_shared::connection::ConnectionHealth;
+use wire_app_shared::live_model::matches_topic;
 use wire_app_shared::live_model::Publication;
 use wire_app_shared::public_identity::PublicIdentity;
 use wire_app_shared::topic_labels::seen_in;
@@ -56,6 +57,7 @@ pub struct AppState {
     pub is_checking_connection: RwSignal<bool>,
     pub speaking: RwSignal<Speaking>,
     pub topics: RwSignal<Remembered>,
+    pub only_followed: RwSignal<bool>,
 }
 
 impl AppState {
@@ -92,6 +94,7 @@ impl AppState {
             is_checking_connection: RwSignal::new(false),
             speaking: RwSignal::new(Speaking::Freely),
             topics: RwSignal::new(recalled.remembered()),
+            only_followed: RwSignal::new(false),
         };
         match topic_trouble {
             Said::Something(reason) => state.status_message.set(Said::Something(reason)),
@@ -293,6 +296,28 @@ impl AppState {
 
     pub fn seen_topics(&self) -> BTreeSet<String> {
         seen_in(&self.feed.get())
+    }
+
+    pub fn toggle_only_followed(&self) {
+        self.only_followed.update(|only| *only = !*only);
+    }
+
+    pub fn shown_feed(&self) -> Vec<Post> {
+        let posts = self.feed.get();
+        if !self.only_followed.get() {
+            return posts;
+        }
+        let followed = self.topics.get().followed_labels();
+        if followed.is_empty() {
+            return posts;
+        }
+        let mut shown = Vec::new();
+        for post in posts {
+            if followed.iter().any(|label| matches_topic(&post, label)) {
+                shown.push(post);
+            }
+        }
+        shown
     }
 
     pub fn display_name(&self, author: AuthorId) -> String {

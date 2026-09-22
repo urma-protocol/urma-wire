@@ -1,11 +1,12 @@
 use crate::components::markdown::Markdown;
 use crate::components::AvatarView;
+use crate::components::FollowChip;
 use crate::limits::CARD_AVATAR_PIXELS;
 use crate::state::AppState;
 use leptos::prelude::expect_context;
 use leptos::prelude::ClassAttribute;
+use leptos::prelude::CollectView;
 use leptos::prelude::ElementChild;
-use leptos::prelude::Get;
 use leptos::prelude::GlobalAttributes;
 use leptos::prelude::IntoAny;
 use leptos::prelude::IntoView;
@@ -73,7 +74,6 @@ fn plural(count: usize) -> &'static str {
 
 #[component]
 fn TopicLabels(wire: String, hashtags: Vec<String>) -> impl IntoView {
-    let state = expect_context::<AppState>();
     if wire.is_empty() && hashtags.is_empty() {
         return ().into_any();
     }
@@ -86,20 +86,8 @@ fn TopicLabels(wire: String, hashtags: Vec<String>) -> impl IntoView {
     }
     view! {
         <p class="topic-labels">
-            {spelled.into_iter().map(|label| {
-                let held = label.clone();
-                view! {
-                    <button type="button"
-                        class=move || match state.topics.get().follows(&held) { true => "topic-chip followed", false => "topic-chip" }
-                        title="Follow or unfollow this topic"
-                        on:click={
-                            let spelled = label.clone();
-                            move |_clicked| state.toggle_follow(spelled.clone())
-                        }>
-                        {label.clone()}
-                    </button>
-                }
-            }).collect::<Vec<_>>()}
+            {spelled.into_iter().map(|label| view! { <FollowChip spelled=label /> }).collect_view()}
         </p>
-    }.into_any()
+    }
+    .into_any()
 }

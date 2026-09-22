@@ -1,6 +1,7 @@
 pub mod avatar_view;
 pub mod budget;
 pub mod compose_box;
+pub mod followed;
 pub mod label_field;
 pub mod markdown;
 pub mod navbar;
@@ -12,6 +13,9 @@ pub mod said;
 
 pub use avatar_view::AvatarView;
 pub use compose_box::ComposeBox;
+pub use followed::FeedFilter;
+pub use followed::FollowChip;
+pub use followed::FollowedTopics;
 pub use label_field::LabelField;
 pub use navbar::Navbar;
 pub use page::BackToFeed;

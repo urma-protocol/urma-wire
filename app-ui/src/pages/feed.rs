@@ -1,4 +1,5 @@
 use crate::components::ComposeBox;
+use crate::components::FeedFilter;
 use crate::components::PostCard;
 use crate::limits::FEED_PAGE_SIZE;
 use crate::state::AppState;
@@ -25,6 +26,7 @@ pub fn FeedPage() -> impl IntoView {
                 <div class="stream-toolbar">
                     <h2>"Latest records"</h2>
                 </div>
+                <FeedFilter />
                 <SyncTrouble />
                 <Stream />
             </div>
@@ -51,7 +53,7 @@ fn Stream() -> impl IntoView {
     let state = expect_context::<AppState>();
     view! {
         {move || {
-            let posts = state.feed.get();
+            let posts = state.shown_feed();
             if !posts.is_empty() {
                 return view! {
                     <div class="posts-list">
@@ -59,8 +61,11 @@ fn Stream() -> impl IntoView {
                     </div>
                 }.into_any();
             }
-            match state.is_loading_feed.get() {
-                true => view! { <p role="status">"Loading…"</p> }.into_any(),
+            if state.is_loading_feed.get() {
+                return view! { <p role="status">"Loading…"</p> }.into_any();
+            }
+            match state.only_followed.get() {
+                true => view! { <p class="empty-state">"No confirmed records carry the topics you follow yet."</p> }.into_any(),
                 false => view! { <p class="empty-state">"No posts yet."</p> }.into_any(),
             }
         }}
