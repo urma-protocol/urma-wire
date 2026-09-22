@@ -1,4 +1,5 @@
 pub mod compose;
+pub mod components_gallery;
 pub mod connection;
 pub mod feed;
 mod feed_topics;
@@ -10,6 +11,7 @@ pub use identity::IdentityPage;
 mod source_settings;
 
 pub use compose::ComposePage;
+pub use components_gallery::ComponentsPage;
 pub use connection::ConnectionPage;
 pub use feed::FeedPage;
 pub use post_detail::PostDetailPage;

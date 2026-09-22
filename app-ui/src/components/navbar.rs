@@ -55,6 +55,9 @@ pub fn Navbar() -> impl IntoView {
                 <a href="/connection" class=move || if location.pathname.get() == "/connection" { "nav-link active" } else { "nav-link" }>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg><span>"Connection"</span>
                 </a>
+                <a href="/components" class=move || if location.pathname.get().starts_with("/components") { "nav-link active" } else { "nav-link" }>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg><span>"Components"</span>
+                </a>
             </nav>
             <div class="sidebar-note"><span class="eyebrow">"YOUR IDENTITY. YOUR WORDS."</span><p>"Signed by you."<br/>"Recorded on-chain."</p></div>
             <div class="network-switcher">
