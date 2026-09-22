@@ -1,3 +1,5 @@
+use crate::state::session::signing_author;
+use crate::state::session::Signer;
 use crate::{platform::tauri_call, state::AppState};
 use leptos::prelude::*;
 use serde_json::json;
@@ -211,26 +213,27 @@ pub fn ProfileEditor() -> impl IntoView {
     };
 
     let load_confirmed = move |_| {
-        if let Some(author) = state.author_id() {
-            if let Some(identity) = state
-                .public_identities
-                .get_untracked()
-                .get(&author.to_hex())
-            {
-                nickname.set(identity.nickname.clone().unwrap_or_default());
-                let loaded_pixels = identity
-                    .avatar
-                    .as_ref()
-                    .and_then(|bytes| bytes.as_slice().try_into().ok())
-                    .map(decode_avatar_pixels)
-                    .unwrap_or([15; 1024]);
-                push_undo(pixels.get_untracked());
-                pixels.set(loaded_pixels);
-            }
-        }
+        let Signer::Author(author) = signing_author(state) else {
+            return;
+        };
+        let identities = state.public_identities.get_untracked();
+        let Some(identity) = identities.get(&author.to_hex()) else {
+            return;
+        };
+        nickname.set(identity.nickname.clone().unwrap_or_default());
+        let loaded_pixels = identity
+            .avatar
+            .as_ref()
+            .and_then(|bytes| bytes.as_slice().try_into().ok())
+            .map(decode_avatar_pixels)
+            .unwrap_or([15; 1024]);
+        push_undo(pixels.get_untracked());
+        pixels.set(loaded_pixels);
     };
 
-    let disabled = move || busy.get() || state.following.get() || state.author_id().is_none();
+    let disabled = move || {
+        busy.get() || state.following.get() || matches!(signing_author(state), Signer::Locked)
+    };
     let can_undo = move || !history.with(|h| h.is_empty());
     let can_redo = move || !future.with(|f| f.is_empty());
 

@@ -1,5 +1,12 @@
-use crate::{components::ComposeBox, state::AppState};
-use leptos::prelude::*;
+use crate::components::BackToFeed;
+use crate::components::ComposeBox;
+use crate::state::AppState;
+use leptos::prelude::expect_context;
+use leptos::prelude::ClassAttribute;
+use leptos::prelude::ElementChild;
+use leptos::prelude::Get;
+use leptos::prelude::IntoView;
+use leptos::prelude::{component, view};
 
 #[component]
 pub fn ComposePage() -> impl IntoView {
@@ -8,9 +15,7 @@ pub fn ComposePage() -> impl IntoView {
 
     view! {
         <section class="page-container compose-page">
-            <div class="page-nav-back">
-                <a href="/" class="back-link">"← Back to feed"</a>
-            </div>
+            <BackToFeed />
 
             <div class="compose-page-header">
                 <span class="eyebrow">"YOUR VOICE. ON RECORD."</span>

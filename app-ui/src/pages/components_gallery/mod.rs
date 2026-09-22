@@ -10,8 +10,7 @@ pub mod replies;
 
 use leptos::prelude::*;
 use mock_data::{
-    mock_post_editorial, mock_post_investigative, mock_reply_corroboration,
-    mock_reply_quick,
+    mock_post_editorial, mock_post_investigative, mock_reply_corroboration, mock_reply_quick,
 };
 
 #[component]

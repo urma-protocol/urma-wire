@@ -1,20 +1,19 @@
-pub mod compose;
 pub mod components_gallery;
+pub mod compose;
 pub mod connection;
 pub mod feed;
-mod feed_topics;
 pub mod identity;
 pub mod post_detail;
 pub mod profile;
 pub mod settings;
+pub mod source_settings;
 pub mod wallet;
-pub use identity::IdentityPage;
-mod source_settings;
 
-pub use compose::ComposePage;
 pub use components_gallery::ComponentsPage;
+pub use compose::ComposePage;
 pub use connection::ConnectionPage;
 pub use feed::FeedPage;
+pub use identity::IdentityPage;
 pub use post_detail::PostDetailPage;
 pub use profile::ProfilePage;
 pub use settings::SettingsPage;

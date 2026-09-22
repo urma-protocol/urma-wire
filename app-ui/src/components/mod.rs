@@ -1,13 +1,26 @@
 pub mod avatar_view;
+pub mod budget;
 pub mod compose_box;
 pub mod markdown;
 pub mod navbar;
+pub mod page;
 pub mod post_card;
 pub mod profile_editor;
 pub mod reply_card;
+pub mod said;
 
 pub use avatar_view::AvatarView;
 pub use compose_box::ComposeBox;
 pub use navbar::Navbar;
+pub use page::BackToFeed;
+pub use page::DescribedGroup;
+pub use page::DetailRow;
+pub use page::Missing;
+pub use page::Notice;
+pub use page::PageHeader;
+pub use page::SettingsGroup;
+pub use page::Stat;
+pub use page::Warning;
 pub use post_card::PostCard;
 pub use reply_card::ReplyCard;
+pub use said::Said;

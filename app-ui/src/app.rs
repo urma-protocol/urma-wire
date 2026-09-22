@@ -1,23 +1,35 @@
-use leptos::prelude::*;
-use leptos_meta::{provide_meta_context, Title};
-use leptos_router::components::{Route, Router, Routes};
+use crate::components::Navbar;
+use crate::pages::ComponentsPage;
+use crate::pages::ComposePage;
+use crate::pages::ConnectionPage;
+use crate::pages::FeedPage;
+use crate::pages::IdentityPage;
+use crate::pages::PostDetailPage;
+use crate::pages::ProfilePage;
+use crate::pages::SettingsPage;
+use crate::pages::WalletPage;
+use crate::platform::default_bridge;
+use crate::state::AppState;
+use leptos::prelude::provide_context;
+use leptos::prelude::ClassAttribute;
+use leptos::prelude::ElementChild;
+use leptos::prelude::GlobalAttributes;
+use leptos::prelude::IntoView;
+use leptos::prelude::RwSignal;
+use leptos::prelude::{component, view};
+use leptos_meta::provide_meta_context;
+use leptos_meta::Title;
+use leptos_router::components::Route;
+use leptos_router::components::Router;
+use leptos_router::components::Routes;
 use leptos_router::path;
-use thaw::{ConfigProvider, Theme};
-
-use crate::{
-    components::Navbar,
-    pages::{
-        ComponentsPage, ComposePage, ConnectionPage, FeedPage, IdentityPage, PostDetailPage,
-        ProfilePage, SettingsPage, WalletPage,
-    },
-    platform::default_bridge,
-    state::AppState,
-};
+use thaw::ConfigProvider;
+use thaw::Theme;
 
 #[component]
 pub fn App() -> impl IntoView {
     provide_meta_context();
-    provide_context(AppState::new());
+    provide_context(AppState::started());
     provide_context(default_bridge());
 
     view! {

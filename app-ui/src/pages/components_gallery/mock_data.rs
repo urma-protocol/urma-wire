@@ -1,6 +1,4 @@
-use wire_app_shared::{
-    AuthorId, Chain, ConfirmedStatus, Post, Reply, Txid,
-};
+use wire_app_shared::{AuthorId, Chain, ConfirmedStatus, Post, Reply, Txid};
 
 pub fn mock_author_investigator() -> (AuthorId, &'static str, &'static str) {
     let mut bytes = [0x3bu8; 32];
@@ -9,11 +7,7 @@ pub fn mock_author_investigator() -> (AuthorId, &'static str, &'static str) {
     bytes[2] = 0x4f;
     bytes[3] = 0x1a;
     bytes[31] = 0x9f;
-    (
-        AuthorId::from_bytes(bytes),
-        "Alex Rivera",
-        "@alex_intel",
-    )
+    (AuthorId::from_bytes(bytes), "Alex Rivera", "@alex_intel")
 }
 
 pub fn mock_author_auditor() -> (AuthorId, &'static str, &'static str) {
@@ -23,11 +17,7 @@ pub fn mock_author_auditor() -> (AuthorId, &'static str, &'static str) {
     bytes[2] = 0x9e;
     bytes[3] = 0x5b;
     bytes[31] = 0x44;
-    (
-        AuthorId::from_bytes(bytes),
-        "Elena Vance",
-        "@chain_auditor",
-    )
+    (AuthorId::from_bytes(bytes), "Elena Vance", "@chain_auditor")
 }
 
 pub fn mock_author_source() -> (AuthorId, &'static str, &'static str) {
@@ -37,11 +27,7 @@ pub fn mock_author_source() -> (AuthorId, &'static str, &'static str) {
     bytes[2] = 0x88;
     bytes[3] = 0xd0;
     bytes[31] = 0x11;
-    (
-        AuthorId::from_bytes(bytes),
-        "Source Zero",
-        "@whistle_anon",
-    )
+    (AuthorId::from_bytes(bytes), "Source Zero", "@whistle_anon")
 }
 
 pub fn mock_txid_investigation() -> Txid {

@@ -4,7 +4,10 @@ use leptos::prelude::*;
 /// The standard collapsed composer with expandable wire/hashtags details and byte count.
 #[component]
 pub fn ComposerVariantA() -> impl IntoView {
-    let text = RwSignal::new("Preliminary intelligence confirms transponder deactivation prior to rendezvous.".to_string());
+    let text = RwSignal::new(
+        "Preliminary intelligence confirms transponder deactivation prior to rendezvous."
+            .to_string(),
+    );
     let wire = RwSignal::new("rosint".to_string());
     let hashtags = RwSignal::new("#investigation #maritime".to_string());
     let max_bytes = 32_760;
