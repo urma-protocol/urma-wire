@@ -1,3 +1,4 @@
+use crate::components::Missing;
 use crate::components::Navbar;
 use crate::pages::ComponentsPage;
 use crate::pages::ComposePage;
@@ -8,7 +9,7 @@ use crate::pages::PostDetailPage;
 use crate::pages::ProfilePage;
 use crate::pages::SettingsPage;
 use crate::pages::WalletPage;
-use crate::platform::default_bridge;
+use crate::platform::Platform;
 use crate::state::AppState;
 use leptos::prelude::provide_context;
 use leptos::prelude::ClassAttribute;
@@ -30,7 +31,7 @@ use thaw::Theme;
 pub fn App() -> impl IntoView {
     provide_meta_context();
     provide_context(AppState::started());
-    provide_context(default_bridge());
+    provide_context(Platform::detected());
 
     view! {
         <Title text="URMA Wire — Social journalism" />
@@ -41,11 +42,9 @@ pub fn App() -> impl IntoView {
                 <main class="main-content">
                     <div id="network-content">
                     <Routes fallback=|| view! {
-                        <div class="empty-state not-found">
-                            <span class="empty-icon">"🔍"</span>
-                            <h3>"404 — Page Not Found"</h3>
+                        <Missing heading="Page not found">
                             <p>"The requested route does not exist in URMA Wire."</p>
-                        </div>
+                        </Missing>
                     }>
                         <Route path=path!("/") view=FeedPage />
                         <Route path=path!("/post/:txid") view=PostDetailPage />

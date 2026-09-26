@@ -101,7 +101,7 @@ Focused nonvisual browser fixture check, using installed Chromium/chromedriver
 and a disposable profile (no installation, live chain source or user vault):
 
 ```sh
-NO_COLOR=true trunk build --features browser-fixture-test --offline
+NO_COLOR=true trunk build --features fixture-harness --offline
 python3 scripts/browser_fixture_test.py --chain
 node scripts/offline_worker_test.js
 ```
@@ -251,6 +251,9 @@ network. Leaving both fields empty keeps legacy kind 02/04 encoding. Structured
 records use new kinds 0A/0B. Names use 1–32 lowercase ASCII letters/digits, `-`
 or `_`, beginning with a letter/digit; the UI lowercases label input and sorts
 and deduplicates hashtags before exact approval. Text remains unchanged.
+Cards show a carried label where the text writes it, and that word follows or
+unfollows it; only labels carried without appearing in the text are shown as
+separate chips. This is display only: the signed text and topics are unchanged.
 
 Global feed includes all records and clears both optional filters. Separate wire
 and hashtag controls work independently: either alone filters that dimension;
@@ -267,6 +270,16 @@ Index format 2 rescans a format-1 cache from its recorded starting height, becau
 old readers could have skipped the newly allocated kinds. This occurs on the
 next explicit sync, uses the normal bounded slices and retains chain validation.
 No full-chain history or reduced blockchain scanning cost is implied.
+
+## Replies in the feed
+
+A reply whose parent is shown in the feed sits under that parent instead of
+the top-level stream. The newest replies appear first, up to Settings →
+**Replies shown per post** (default 5, 0 keeps them collapsed, persisted in
+WebView localStorage); **View all N replies** opens the whole thread. A reply
+to a reply stays inside its parent reply's thread. A reply whose parent is
+outside the indexed history, or filtered out, stays top-level and names the
+record it answers. Grouping is display only: records and the index are unchanged.
 
 ## Focused local checks
 
@@ -285,16 +298,24 @@ green mark. Reduced-motion preferences disable the animation. The timer and
 event listener are removed when the navigation component unmounts.
 
 ```sh
-cargo test -p wire-app-shared --locked
+cargo test --workspace --locked
 cargo check --workspace --locked
 cargo check -p wire-app-ui --target wasm32-unknown-unknown --locked
+lawkeeper
 ```
+
+Crates: `app-core` holds the domain types and the typed `Request`/`Response`/`Fault`
+contract; `app-engine` holds the single projection and record codec plus the
+native (Tauri) and browser (IndexedDB/Esplora) backends; `app-ui` is Leptos only
+and asks the engine through `wire_app_engine::client::ask`; `src-tauri` exposes one
+`engine` command. `law.toml` declares the layer map and one `config.rs` sanctum
+per crate; `scripts/law_report.sh` tallies violations by file and rule.
 
 Tests use temporary files, public fixture identities and a loopback RPC mock;
 they do not start a blockchain node or broadcast to a live network. They cover
 exact approval, post/reply preparation, confirmation stages, read-only status,
 restart, unchanged retransmission, rejection/source failure and feed projection.
-Focused profile/media checks are `cargo test -p wire-app-shared --test live
+Focused profile/media checks are `cargo test -p wire-app-engine --test live
 --test public_identity --test media --locked`: exact profile/avatar approval and
 resume, fixed bytes/palette, colliding names/latest ordering/rollback projection,
 destination/redirect bounds, MIME/signature/decode/size failures and inert browser

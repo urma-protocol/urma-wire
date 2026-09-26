@@ -1,28 +1,28 @@
-use crate::components::markdown::Markdown;
+use crate::components::markdown::PostText;
+use crate::components::post_parts::{InlineReply, ReplyToggle, ThreadCount};
 use crate::components::AvatarView;
-use crate::components::FollowChip;
-use crate::limits::CARD_AVATAR_PIXELS;
+use crate::config::CARD_AVATAR_PIXELS;
 use crate::state::AppState;
 use leptos::prelude::expect_context;
 use leptos::prelude::ClassAttribute;
-use leptos::prelude::CollectView;
 use leptos::prelude::ElementChild;
 use leptos::prelude::GlobalAttributes;
 use leptos::prelude::IntoAny;
 use leptos::prelude::IntoView;
-use leptos::prelude::OnAttribute;
 use leptos::prelude::{component, view};
-use wire_app_shared::Post;
+use wire_app_core::model::{Placement, Post};
 
 #[component]
 pub fn PostCard(post: Post) -> impl IntoView {
     let state = expect_context::<AppState>();
     let author = post.author;
     let author_hex = author.to_hex();
-    let txid_disp = post.txid.to_display_hex();
-    let txid_short = post.txid.short_display();
+    let txid = post.txid;
+    let txid_disp = txid.to_display_hex();
+    let txid_short = txid.short_display();
     let reply_count = post.reply_count;
-    let replying = post.clone();
+    let block_height = post.status.block_height;
+    let confirmations = post.status.confirmations;
 
     view! {
         <article class="post-card">
@@ -37,14 +37,14 @@ pub fn PostCard(post: Post) -> impl IntoView {
                     </div>
                 </a>
                 <div class="post-status-meta">
-                    <span class="badge badge-block">"#" {post.status.block_height}</span>
-                    <span class="badge badge-conf">{post.status.confirmations} " conf"</span>
+                    <span class="badge" title="Block height">"#" {block_height}</span>
+                    <span class="badge badge-conf" title="Confirmations">{confirmations} " conf"</span>
                 </div>
             </div>
 
             <div class="post-content">
-                <TopicLabels wire=post.wire.clone() hashtags=post.hashtags.clone() />
-                <Markdown text=post.text.clone() />
+                <Answering placement=post.placement />
+                <PostText text=post.text.clone() wire=post.wire.clone() hashtags=post.hashtags.clone() />
             </div>
 
             <div class="post-footer">
@@ -52,41 +52,27 @@ pub fn PostCard(post: Post) -> impl IntoView {
                     "tx: " {txid_short}
                 </span>
                 <div class="post-actions">
-                    <button type="button" class="post-action"
-                        on:click=move |_clicked| state.reply_to(replying.clone())>
-                        "↳ Reply"
-                    </button>
-                    <a href=format!("/post/{txid_disp}") class="post-action">
-                        {reply_count}" "{plural(reply_count)}
-                    </a>
+                    <ReplyToggle post=post.clone() />
+                    <ThreadCount txid=txid count=reply_count />
                 </div>
             </div>
+            <InlineReply post=post />
         </article>
     }
 }
 
-fn plural(count: usize) -> &'static str {
-    match count {
-        1 => "reply",
-        _ => "replies",
-    }
-}
-
 #[component]
-fn TopicLabels(wire: String, hashtags: Vec<String>) -> impl IntoView {
-    if wire.is_empty() && hashtags.is_empty() {
+fn Answering(placement: Placement) -> impl IntoView {
+    let Placement::Reply(parent) = placement else {
         return ().into_any();
-    }
-    let mut spelled: Vec<String> = Vec::new();
-    if !wire.is_empty() {
-        spelled.push(format!("/{wire}"));
-    }
-    for tag in hashtags {
-        spelled.push(format!("#{tag}"));
-    }
+    };
+    let parent_disp = parent.to_display_hex();
     view! {
-        <p class="topic-labels">
-            {spelled.into_iter().map(|label| view! { <FollowChip spelled=label /> }).collect_view()}
+        <p class="post-answering">
+            "↳ Replying to "
+            <a href=format!("/post/{parent_disp}") title=format!("Parent TxID: {parent_disp}")>
+                {parent.short_display()}
+            </a>
         </p>
     }
     .into_any()

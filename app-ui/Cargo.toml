@@ -6,10 +6,10 @@ publish = false
 description = "URMA Wire Leptos CSR user interface"
 
 [features]
-browser-fixture-test = []
+fixture-harness = ["wire-app-engine/fixture-harness"]
 
 [dependencies]
-wire-app-shared = { path = "../app-shared" }
+wire-app-core = { path = "../app-core" }
 leptos = { version = "0.7", features = ["csr"] }
 leptos_router = "0.7"
 leptos_meta = "0.7"
@@ -29,22 +29,16 @@ web-sys = { version = "0.3", features = [
     "HtmlElement",
     "HtmlInputElement",
     "HtmlTextAreaElement",
-    "KeyboardEvent"
+    "KeyboardEvent",
+    "ScrollIntoViewOptions",
+    "ScrollLogicalPosition",
+    "ScrollToOptions",
+    "ScrollBehavior",
+    "CssStyleDeclaration",
+    "DomRect"
 ] }
 wasm-bindgen-futures = "0.4"
 gloo-timers = { version = "0.3", features = ["futures"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-urma-identity = "0.2.0"
-urma-runtime = "0.2.0"
-urma-chain = "0.2.0"
-urma-core = "0.2.0"
-urma-wallet = "0.2.0"
-urma-wire = "0.2.0"
-urma-profiles = "0.2.0"
-getrandom = { version = "0.2", features = ["js"] }
-ring = { version = "0.17", features = ["wasm32_unknown_unknown_js"] }
-zeroize = "1"
-bitcoin = { version = "0.32", features = ["serde"] }
-hex = "0.4"
-js-sys = "0.3"
+wire-app-engine = { path = "../app-engine" }

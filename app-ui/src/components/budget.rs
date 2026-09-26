@@ -1,4 +1,4 @@
-use crate::limits::MAX_DISPLAY_BYTES;
+use crate::config::MAX_DISPLAY_BYTES;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Budget(usize);

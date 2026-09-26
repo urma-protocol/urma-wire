@@ -1,12 +1,17 @@
-use crate::components::markdown::remember_autoload;
+use crate::components::Actions;
 use crate::components::DescribedGroup;
+use crate::components::Fact;
+use crate::components::Facts;
 use crate::components::FollowedTopics;
 use crate::components::Notice;
 use crate::components::PageHeader;
 use crate::components::SettingsGroup;
+use crate::data::preferences::remember_autoload;
+use crate::data::preferences::remember_replies_shown;
 use crate::pages::source_settings::BrowserSourceSettings;
-use crate::platform::use_platform_bridge;
+use crate::platform::use_platform;
 use crate::state::AppState;
+use crate::state::Said;
 use leptos::prelude::expect_context;
 use leptos::prelude::ClassAttribute;
 use leptos::prelude::ElementChild;
@@ -17,21 +22,18 @@ use leptos::prelude::OnAttribute;
 use leptos::prelude::PropAttribute;
 use leptos::prelude::Set;
 use leptos::prelude::Update;
-use leptos::prelude::{component, view};
+use leptos::prelude::{component, event_target, event_target_value, view};
 use tracing::warn;
-use wire_app_shared::Chain;
+use wire_app_core::model::Chain;
 
 #[component]
 pub fn SettingsPage() -> impl IntoView {
     let state = expect_context::<AppState>();
     view! {
         <section class="page-container settings-page">
-            <PageHeader
-                eyebrow="PREFERENCES."
-                title="Your"
-                accent="settings."
-                subtitle="Network, media privacy and runtime preferences. Funding and balances live in Wallet."
-            />
+            <PageHeader eyebrow="PREFERENCES." title="Your" accent="settings.">
+                "Network, media privacy and runtime preferences. Funding and balances live in Wallet."
+            </PageHeader>
             <Notice message=state.status_message.into() />
             <NetworkChoice />
             <DescribedGroup
@@ -40,6 +42,7 @@ pub fn SettingsPage() -> impl IntoView {
             >
                 <FollowedTopics />
             </DescribedGroup>
+            <ReplyPreview />
             <MediaPrivacy />
             <BrowserSourceSettings />
             <RuntimeFacts />
@@ -81,6 +84,43 @@ fn NetworkChoice() -> impl IntoView {
 }
 
 #[component]
+fn ReplyPreview() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let change = move |event: leptos::ev::Event| {
+        let typed = event_target_value(&event);
+        let count = match typed.trim().parse::<usize>() {
+            Ok(count) => count,
+            Err(error) => {
+                warn!(error = %error, typed = %typed, "reply preview size is not a whole number");
+                event_target::<web_sys::HtmlInputElement>(&event)
+                    .set_value(&state.replies_shown.get_untracked().to_string());
+                return;
+            }
+        };
+        match remember_replies_shown(count) {
+            Ok(()) => state.replies_shown.set(count),
+            Err(fault) => {
+                warn!(fault = %fault, "reply preview size could not be stored");
+                state.status_message.set(Said::Something(fault.message));
+            }
+        }
+    };
+    view! {
+        <DescribedGroup
+            title="Replies in the feed"
+            description="The newest replies appear under each post; the full thread opens from the post. 0 keeps replies behind the reply count."
+        >
+            <label class="field field-count">
+                <span>"Replies shown per post"</span>
+                <input type="number" min="0" step="1"
+                    prop:value=move || state.replies_shown.get().to_string()
+                    on:change=change />
+            </label>
+        </DescribedGroup>
+    }
+}
+
+#[component]
 fn MediaPrivacy() -> impl IntoView {
     let state = expect_context::<AppState>();
     let hide_images = move || !state.autoload_images.get();
@@ -88,9 +128,9 @@ fn MediaPrivacy() -> impl IntoView {
         let enabled = !state.autoload_images.get_untracked();
         match remember_autoload(enabled) {
             Ok(()) => state.autoload_images.set(enabled),
-            Err(complaint) => {
-                warn!("image preference could not be stored");
-                state.status_message.set(complaint);
+            Err(fault) => {
+                warn!(fault = %fault, "image preference could not be stored");
+                state.status_message.set(Said::Something(fault.message));
             }
         }
     };
@@ -100,8 +140,8 @@ fn MediaPrivacy() -> impl IntoView {
     };
     view! {
         <DescribedGroup
-            title="External Media Fetch (Markdown Images)"
-            description="Under the URMA Wire specification (D-020), external media is not stored on-chain."
+            title="External images"
+            description="Markdown image references are fetched from their hosts; external media is never stored on-chain (URMA Wire D-020)."
         >
             <label class="toggle-control">
                 <input type="checkbox" prop:checked=hide_images on:change=toggle />
@@ -112,30 +152,25 @@ fn MediaPrivacy() -> impl IntoView {
                 "Downloading external images exposes your connection IP address and request metadata to the host server. Disabling autoload prevents automatic metadata leakage."
             </div>
             <p class="action-desc">"Desktop fetches checked raster images. Browser fetching is disabled because destination checks cannot be enforced. Displayed media is temporary; Wire keeps no media cache."</p>
-            <button class="btn btn-secondary" on:click=clear>"Clear displayed media"</button>
+            <Actions>
+                <button class="btn btn-secondary btn-sm" on:click=clear>"Clear displayed media"</button>
+            </Actions>
         </DescribedGroup>
     }
 }
 
 #[component]
 fn RuntimeFacts() -> impl IntoView {
-    let platform = use_platform_bridge();
+    let platform = use_platform();
+    let platform_name = platform.name();
+    let storage_name = platform.storage_name();
     view! {
-        <SettingsGroup title="Runtime Platform & Local Indexer">
-            <div class="runtime-info-table">
-                <div class="info-row">
-                    <span class="info-label">"Runtime Target:"</span>
-                    <span class="info-val">{platform.platform_name()}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">"Indexing Engine:"</span>
-                    <span class="info-val">{platform.storage_name()}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">"URMA Protocol:"</span>
-                    <span class="info-val">"URMA V0"</span>
-                </div>
-            </div>
+        <SettingsGroup title="Runtime">
+            <Facts>
+                <Fact label="Platform">{platform_name}</Fact>
+                <Fact label="Protocol">"URMA V0"</Fact>
+                <Fact label="Local index" wide=true>{storage_name}</Fact>
+            </Facts>
         </SettingsGroup>
     }
 }

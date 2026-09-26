@@ -1,6 +1,6 @@
 use super::mock_data::{mock_author_auditor, mock_author_investigator, mock_author_source};
 use leptos::prelude::*;
-use wire_app_shared::render_identicon_svg;
+use wire_app_core::avatar::render_identicon_svg;
 
 /// Variant A: Wire Channel Dossier Banner
 /// Header card for structured wires like `/rosint` showing provenance, stats, active contributors, and local follow toggle.

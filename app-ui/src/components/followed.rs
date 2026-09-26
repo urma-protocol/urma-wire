@@ -10,20 +10,44 @@ use leptos::prelude::IntoView;
 use leptos::prelude::OnAttribute;
 use leptos::prelude::{component, view};
 
+#[derive(Clone, Copy)]
+enum Look {
+    Chip,
+    Inline,
+}
+
+impl Look {
+    fn class(self, followed: bool) -> &'static str {
+        match (self, followed) {
+            (Look::Chip, true) => "topic-chip followed",
+            (Look::Chip, false) => "topic-chip",
+            (Look::Inline, true) => "topic-inline followed",
+            (Look::Inline, false) => "topic-inline",
+        }
+    }
+}
+
 #[component]
 pub fn FollowChip(spelled: String) -> impl IntoView {
+    let written = spelled.clone();
+    view! { <Following spelled=spelled written=written look=Look::Chip /> }
+}
+
+#[component]
+pub fn FollowToken(spelled: String, written: String) -> impl IntoView {
+    view! { <Following spelled=spelled written=written look=Look::Inline /> }
+}
+
+#[component]
+fn Following(spelled: String, written: String, look: Look) -> impl IntoView {
     let state = expect_context::<AppState>();
     let held = spelled.clone();
-    let toggling = spelled.clone();
     view! {
         <button type="button"
-            class=move || match state.topics.get().follows(&held) {
-                true => "topic-chip followed",
-                false => "topic-chip",
-            }
+            class=move || look.class(state.topics.get().follows(&held))
             title="Follow or unfollow this topic"
-            on:click=move |_clicked| state.toggle_follow(toggling.clone())>
-            {spelled}
+            on:click=move |_clicked| state.toggle_follow(spelled.clone())>
+            {written}
         </button>
     }
 }

@@ -1,5 +1,6 @@
 use leptos::prelude::*;
-use wire_app_shared::{render_identicon_svg, Reply};
+use super::mock_data::Reply;
+use wire_app_core::avatar::render_identicon_svg;
 
 /// Variant A: Baseline V0 Reply Card
 /// Left-bordered indented response card with target txid badge and confirmation metadata.

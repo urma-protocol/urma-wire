@@ -1,6 +1,5 @@
-use crate::components::Said;
 use crate::data::identity;
-use crate::data::identity::Unlock;
+use crate::state::said::Said;
 use crate::state::session::AppState;
 use leptos::prelude::expect_context;
 use leptos::prelude::GetUntracked;
@@ -8,6 +7,7 @@ use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
 use leptos::prelude::Update;
 use tracing::warn;
+use wire_app_core::session::{Credential, IdentityStatus, Session};
 
 #[derive(Clone, Copy)]
 pub struct Vault {
@@ -68,17 +68,17 @@ async fn perform(state: AppState, intent: Intent, credential: String) -> Outcome
     match intent {
         Intent::Import => import_vault(state, credential).await,
         Intent::Lock => lock_vault(state).await,
-        Intent::Unlock => open(Unlock::Password(credential)).await,
-        Intent::UseConfiguredFile => open(Unlock::ConfiguredFile).await,
+        Intent::Unlock => open(Credential::Password(credential)).await,
+        Intent::UseConfiguredFile => open(Credential::ConfiguredFile).await,
     }
 }
 
 async fn import_vault(state: AppState, password: String) -> Outcome {
     let bytes = match identity::selected_vault().await {
         Ok(bytes) => bytes,
-        Err(failure) => {
-            warn!(failure = %failure, "vault file could not be read");
-            return Outcome::Refused(failure.reported());
+        Err(fault) => {
+            warn!(fault = %fault, "vault file could not be read");
+            return Outcome::Refused(fault.message);
         }
     };
     match identity::import(bytes, password).await {
@@ -86,9 +86,9 @@ async fn import_vault(state: AppState, password: String) -> Outcome {
             state.identity.set(Some(status));
             Outcome::Changed("Identity unlocked for this session.".to_owned())
         }
-        Err(failure) => {
-            warn!(failure = %failure, "vault import refused");
-            Outcome::Refused(failure.reported())
+        Err(fault) => {
+            warn!(fault = %fault, "vault import refused");
+            Outcome::Refused(fault.message)
         }
     }
 }
@@ -101,28 +101,26 @@ async fn lock_vault(state: AppState) -> Outcome {
                 "Identity locked. Already approved signed plans remain resumable.".to_owned(),
             )
         }
-        Err(failure) => {
-            warn!(failure = %failure, "lock refused");
-            Outcome::Refused(failure.reported())
+        Err(fault) => {
+            warn!(fault = %fault, "lock refused");
+            Outcome::Refused(fault.message)
         }
     }
 }
 
-async fn open(credential: Unlock) -> Outcome {
+async fn open(credential: Credential) -> Outcome {
     match identity::unlock(credential).await {
         Ok(()) => Outcome::Changed("Identity unlocked for this session.".to_owned()),
-        Err(failure) => {
-            warn!(failure = %failure, "unlock refused");
-            Outcome::Refused(failure.reported())
+        Err(fault) => {
+            warn!(fault = %fault, "unlock refused");
+            Outcome::Refused(fault.message)
         }
     }
 }
 
-fn forget_author(status: &mut Option<wire_app_shared::IdentityStatus>) {
+fn forget_author(status: &mut Option<IdentityStatus>) {
     let Some(status) = status.as_mut() else {
         return;
     };
-    status.unlocked = false;
-    status.author_pubkey = None;
-    status.author_fingerprint = None;
+    status.session = Session::Locked;
 }

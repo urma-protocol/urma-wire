@@ -1,6 +1,7 @@
 use super::mock_data::{mock_author_auditor, mock_author_investigator, mock_hawk_avatar_bytes};
 use leptos::prelude::*;
-use wire_app_shared::{render_avatar_svg, render_identicon_svg, AuthorId};
+use wire_app_core::avatar::{render_avatar_svg, render_identicon_svg};
+use wire_app_core::model::AuthorId;
 
 /// Variant A: Baseline V0 Avatar & Identicon
 /// Shows the standard pixel-art avatar rendering and identicon fallback across various sizes.
@@ -209,7 +210,7 @@ pub fn IdentityVariantD() -> impl IntoView {
 #[component]
 pub fn IdentityVariantStudio() -> impl IntoView {
     use crate::components::profile_editor::{apply_brush, flood_fill, BrushShape, Tool};
-    use wire_app_shared::{avatar::encode_avatar_pixels, decode_avatar_pixels, AvatarPalette};
+    use wire_app_core::avatar::{decode_avatar_pixels, encode_avatar_pixels, AvatarPalette};
 
     let initial_pixels = decode_avatar_pixels(&mock_hawk_avatar_bytes());
     let pixels = RwSignal::new(initial_pixels);

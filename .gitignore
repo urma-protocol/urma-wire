@@ -15,7 +15,9 @@
 !/app-*/Cargo.toml
 !/app-*/src/**/*.rs
 !/app-*/tests/**/*.rs
-!/app-shared/tests/fixtures/valid.vault
+!/app-engine/tests/fixtures/valid.vault
+!/law.toml
+!/scripts/*.sh
 !/src-tauri/Cargo.toml
 !/src-tauri/build.rs
 !/src-tauri/src/**/*.rs

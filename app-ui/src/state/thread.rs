@@ -1,6 +1,5 @@
-use crate::components::Said;
 use crate::data::records;
-use crate::data::records::Record;
+use crate::state::said::Said;
 use crate::state::session::AppState;
 use leptos::prelude::expect_context;
 use leptos::prelude::Effect;
@@ -10,8 +9,8 @@ use leptos::prelude::Set;
 use leptos::prelude::Signal;
 use leptos_router::hooks::use_params_map;
 use tracing::warn;
-use wire_app_shared::Post;
-use wire_app_shared::Txid;
+use wire_app_core::feed::Lookup;
+use wire_app_core::model::{Post, Txid};
 
 #[derive(Clone)]
 pub enum Showing {
@@ -53,22 +52,19 @@ impl Thread {
             trouble.set(Said::Nothing);
             leptos::task::spawn_local(async move {
                 match records::post(chain, txid).await {
-                    Ok(Record::Found(post)) => {
-                        state.reply_to(post.clone());
-                        showing.set(Showing::Post(post));
-                    }
-                    Ok(Record::Absent) => showing.set(Showing::Unknown(txid.to_display_hex())),
-                    Err(failure) => {
-                        warn!(failure = %failure, "post record could not be read");
+                    Ok(Lookup::Found(post)) => showing.set(Showing::Post(post)),
+                    Ok(Lookup::Absent) => showing.set(Showing::Unknown(txid.to_display_hex())),
+                    Err(fault) => {
+                        warn!(fault = %fault, "post record could not be read");
                         showing.set(Showing::Unknown(txid.to_display_hex()));
-                        trouble.set(Said::Something(failure.reported()));
+                        trouble.set(Said::Something(fault.message));
                     }
                 }
                 match records::replies(chain, txid).await {
                     Ok(found) => replies.set(found),
-                    Err(failure) => {
-                        warn!(failure = %failure, "replies could not be read");
-                        trouble.set(Said::Something(failure.reported()));
+                    Err(fault) => {
+                        warn!(fault = %fault, "replies could not be read");
+                        trouble.set(Said::Something(fault.message));
                     }
                 }
             });

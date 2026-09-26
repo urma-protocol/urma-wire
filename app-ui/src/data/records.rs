@@ -1,36 +1,26 @@
 use crate::data::engine::ask;
-use crate::data::failure::Failure;
-use serde_json::json;
-use wire_app_shared::live_model::Feed;
-use wire_app_shared::Chain;
-use wire_app_shared::Post;
-use wire_app_shared::Txid;
+use wire_app_core::contract::{Request, Response};
+use wire_app_core::errors::Fault;
+use wire_app_core::feed::{Feed, Lookup};
+use wire_app_core::model::{Chain, Post, Txid};
 
-pub enum Record {
-    Found(Post),
-    Absent,
+pub async fn feed(chain: Chain) -> Result<Feed, Fault> {
+    match ask(Request::Feed { chain }).await? {
+        Response::Feed(feed) => Ok(feed),
+        other => Err(other.unexpected("feed")),
+    }
 }
 
-pub async fn feed(chain: Chain) -> Result<Feed, Failure> {
-    ask("get_feed", &json!({ "chain": chain.code() })).await
+pub async fn post(chain: Chain, txid: Txid) -> Result<Lookup, Fault> {
+    match ask(Request::Post { chain, txid }).await? {
+        Response::Post(lookup) => Ok(lookup),
+        other => Err(other.unexpected("post")),
+    }
 }
 
-pub async fn post(chain: Chain, txid: Txid) -> Result<Record, Failure> {
-    let found: Option<Post> = ask(
-        "get_post",
-        &json!({ "chain": chain.code(), "txid": txid.to_display_hex() }),
-    )
-    .await?;
-    let Some(post) = found else {
-        return Ok(Record::Absent);
-    };
-    Ok(Record::Found(post))
-}
-
-pub async fn replies(chain: Chain, txid: Txid) -> Result<Vec<Post>, Failure> {
-    ask(
-        "get_replies",
-        &json!({ "chain": chain.code(), "txid": txid.to_display_hex() }),
-    )
-    .await
+pub async fn replies(chain: Chain, txid: Txid) -> Result<Vec<Post>, Fault> {
+    match ask(Request::Replies { chain, txid }).await? {
+        Response::Replies(replies) => Ok(replies),
+        other => Err(other.unexpected("replies")),
+    }
 }

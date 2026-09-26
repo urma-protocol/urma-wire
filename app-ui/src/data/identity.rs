@@ -1,75 +1,76 @@
+#[cfg(target_arch = "wasm32")]
+use crate::config::UNREADABLE_VAULT;
 use crate::data::engine::ask;
-use crate::data::failure::Failure;
-#[cfg(target_arch = "wasm32")]
-use crate::limits::MAX_VAULT_BYTES;
-#[cfg(target_arch = "wasm32")]
-use crate::limits::UNREADABLE_VAULT;
-use serde_json::json;
-use wire_app_shared::IdentityStatus;
+use wire_app_core::contract::{Request, Response};
+use wire_app_core::errors::{Fault, FaultKind};
+use wire_app_core::session::{Credential, IdentityStatus};
 
-pub enum Unlock {
-    Password(String),
-    ConfiguredFile,
+pub async fn status() -> Result<IdentityStatus, Fault> {
+    match ask(Request::IdentityStatus).await? {
+        Response::Identity(status) => Ok(status),
+        other => Err(other.unexpected("identity status")),
+    }
 }
 
-pub async fn status() -> Result<IdentityStatus, Failure> {
-    ask("identity_status", &json!({})).await
+pub async fn import(vault: Vec<u8>, password: String) -> Result<IdentityStatus, Fault> {
+    match ask(Request::ImportIdentity { vault, password }).await? {
+        Response::Identity(status) => Ok(status),
+        other => Err(other.unexpected("identity import")),
+    }
 }
 
-pub async fn import(vault_bytes: Vec<u8>, password: String) -> Result<IdentityStatus, Failure> {
-    ask(
-        "import_identity",
-        &json!({ "vaultBytes": vault_bytes, "password": password }),
-    )
-    .await
+pub async fn unlock(credential: Credential) -> Result<(), Fault> {
+    match ask(Request::Unlock(credential)).await? {
+        Response::Unlocked => Ok(()),
+        other => Err(other.unexpected("unlock")),
+    }
 }
 
-pub async fn unlock(credential: Unlock) -> Result<(), Failure> {
-    let (password, use_unlock_file) = match credential {
-        Unlock::Password(password) => (password, false),
-        Unlock::ConfiguredFile => (String::new(), true),
-    };
-    ask(
-        "unlock_wallet",
-        &json!({ "password": password, "useUnlockFile": use_unlock_file }),
-    )
-    .await
-}
-
-pub async fn lock() -> Result<(), Failure> {
-    ask("lock_wallet", &json!({})).await
+pub async fn lock() -> Result<(), Fault> {
+    match ask(Request::Lock).await? {
+        Response::Locked => Ok(()),
+        other => Err(other.unexpected("lock")),
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn selected_vault() -> Result<Vec<u8>, Failure> {
-    match read_identity_file(MAX_VAULT_BYTES).await {
+fn unreadable(reason: String) -> Fault {
+    Fault::new(FaultKind::Identity, reason)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn selected_vault() -> Result<Vec<u8>, Fault> {
+    match read_identity_file(wire_app_core::config::MAX_VAULT_BYTES).await {
         Ok(value) => decode_vault_bytes(value),
         Err(rejection) => Err(vault_rejection(rejection)),
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn selected_vault() -> Result<Vec<u8>, Failure> {
-    Err(Failure::BrowserOnly)
+pub async fn selected_vault() -> Result<Vec<u8>, Fault> {
+    Err(Fault::new(
+        FaultKind::Unsupported,
+        "File selection requires the app frontend",
+    ))
 }
 
 #[cfg(target_arch = "wasm32")]
-fn decode_vault_bytes(value: wasm_bindgen::JsValue) -> Result<Vec<u8>, Failure> {
+fn decode_vault_bytes(value: wasm_bindgen::JsValue) -> Result<Vec<u8>, Fault> {
     let Some(text) = value.as_string() else {
-        return Err(Failure::VaultUnreadable(UNREADABLE_VAULT.to_owned()));
+        return Err(unreadable(UNREADABLE_VAULT.to_owned()));
     };
     match serde_json::from_str(&text) {
         Ok(bytes) => Ok(bytes),
-        Err(error) => Err(Failure::Decode(error.to_string())),
+        Err(error) => Err(unreadable(error.to_string())),
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn vault_rejection(rejection: wasm_bindgen::JsValue) -> Failure {
+fn vault_rejection(rejection: wasm_bindgen::JsValue) -> Fault {
     let Some(reason) = rejection.as_string() else {
-        return Failure::VaultUnreadable(UNREADABLE_VAULT.to_owned());
+        return unreadable(UNREADABLE_VAULT.to_owned());
     };
-    Failure::VaultUnreadable(reason)
+    unreadable(reason)
 }
 
 #[cfg(target_arch = "wasm32")]

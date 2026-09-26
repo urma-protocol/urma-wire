@@ -1,12 +1,11 @@
-use crate::limits::topics_when_unset;
-use crate::limits::MAX_REMEMBERED_LABELS;
-use crate::limits::MAX_SUGGESTIONS;
-use crate::limits::TOPICS_STORAGE_KEY;
+use crate::config::MAX_REMEMBERED_LABELS;
+use crate::config::MAX_SUGGESTIONS;
+use crate::data::storage::{read, write, Held, Recalled, Slot};
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeSet;
 use tracing::warn;
-use wire_app_shared::topic_labels::Kind;
+use wire_app_core::topics::Kind;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Suggestion {
@@ -130,56 +129,24 @@ fn promote(held: &mut Vec<String>, label: &str) {
     *held = kept;
 }
 
-pub enum Recalled {
-    Topics(Remembered),
-    Empty,
-    Unreadable(String),
-}
-
-impl Recalled {
-    pub fn remembered(self) -> Remembered {
-        match self {
-            Recalled::Topics(remembered) => remembered,
-            Recalled::Empty => topics_when_unset(),
-            Recalled::Unreadable(_) => topics_when_unset(),
-        }
+pub fn load() -> Recalled<Remembered> {
+    match read(Slot::Topics) {
+        Held::Value(text) => match serde_json::from_str(&text) {
+            Ok(remembered) => Recalled::kept(remembered),
+            Err(error) => {
+                warn!(error = %error, "topic memory is unreadable");
+                Recalled::doubted(
+                    Remembered::default(),
+                    "Saved topics were unreadable and start empty".to_owned(),
+                )
+            }
+        },
+        Held::Unset => Recalled::kept(Remembered::default()),
+        Held::Unreadable(reason) => Recalled::doubted(Remembered::default(), reason),
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub fn load() -> Recalled {
-    let Kept::Storage(storage) = topic_storage() else {
-        return Recalled::Empty;
-    };
-    let held = match storage.get_item(TOPICS_STORAGE_KEY) {
-        Ok(held) => held,
-        Err(error) => {
-            warn!(error = ?error, "topic memory could not be read");
-            return Recalled::Unreadable("Topic memory could not be read".to_owned());
-        }
-    };
-    let Some(text) = held else {
-        return Recalled::Empty;
-    };
-    match serde_json::from_str(&text) {
-        Ok(remembered) => Recalled::Topics(remembered),
-        Err(error) => {
-            warn!(error = %error, "topic memory is unreadable");
-            Recalled::Unreadable("Saved topics were unreadable and start empty".to_owned())
-        }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn load() -> Recalled {
-    Recalled::Empty
-}
-
-#[cfg(target_arch = "wasm32")]
 pub fn save(remembered: &Remembered) {
-    let Kept::Storage(storage) = topic_storage() else {
-        return;
-    };
     let text = match serde_json::to_string(remembered) {
         Ok(text) => text,
         Err(error) => {
@@ -187,35 +154,8 @@ pub fn save(remembered: &Remembered) {
             return;
         }
     };
-    match storage.set_item(TOPICS_STORAGE_KEY, &text) {
+    match write(Slot::Topics, &text) {
         Ok(()) => (),
-        Err(error) => warn!(error = ?error, "topic memory could not be saved"),
+        Err(fault) => warn!(fault = %fault, "topic memory could not be saved"),
     }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn save(_remembered: &Remembered) {}
-
-#[cfg(target_arch = "wasm32")]
-enum Kept {
-    Storage(web_sys::Storage),
-    Unavailable,
-}
-
-#[cfg(target_arch = "wasm32")]
-fn topic_storage() -> Kept {
-    let Some(window) = web_sys::window() else {
-        return Kept::Unavailable;
-    };
-    let stored = match window.local_storage() {
-        Ok(stored) => stored,
-        Err(error) => {
-            warn!(error = ?error, "topic memory storage unavailable");
-            return Kept::Unavailable;
-        }
-    };
-    let Some(storage) = stored else {
-        return Kept::Unavailable;
-    };
-    Kept::Storage(storage)
 }

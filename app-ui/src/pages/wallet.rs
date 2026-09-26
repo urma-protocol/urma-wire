@@ -1,11 +1,14 @@
-use crate::components::DetailRow;
+use crate::components::Actions;
+use crate::components::Fact;
+use crate::components::Facts;
 use crate::components::Notice;
 use crate::components::PageHeader;
-use crate::components::Said;
 use crate::components::SettingsGroup;
 use crate::components::Stat;
+use crate::config::COPY_FEEDBACK_MS;
 use crate::platform::copy_to_clipboard;
 use crate::state::AppState;
+use crate::state::Said;
 use leptos::prelude::expect_context;
 use leptos::prelude::Callable;
 use leptos::prelude::Callback;
@@ -13,13 +16,14 @@ use leptos::prelude::ClassAttribute;
 use leptos::prelude::ElementChild;
 use leptos::prelude::Get;
 use leptos::prelude::GetUntracked;
+use leptos::prelude::GlobalAttributes;
 use leptos::prelude::IntoAny;
 use leptos::prelude::IntoView;
 use leptos::prelude::OnAttribute;
 use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
 use leptos::prelude::{component, view};
-use wire_app_shared::WalletSummary;
+use wire_app_core::model::WalletSummary;
 
 #[component]
 pub fn WalletPage() -> impl IntoView {
@@ -34,37 +38,38 @@ pub fn WalletPage() -> impl IntoView {
             return;
         };
         copy_to_clipboard(&summary.receive_address);
-        copied.set(Said::Something("Address copied to clipboard!".to_owned()));
+        copied.set(Said::Something("Address copied".to_owned()));
+        leptos::task::spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(COPY_FEEDBACK_MS).await;
+            copied.set(Said::Nothing);
+        });
     });
 
     view! {
         <section class="page-container settings-page">
-            <PageHeader
-                eyebrow="PUBLIC FUNDING."
-                title="Your"
-                accent="wallet."
-                subtitle="Your selected URMA identity signs posts and pays their fees. Its funding address and balance are public."
-            />
+            <PageHeader eyebrow="PUBLIC FUNDING." title="Your" accent="wallet.">
+                "Your selected URMA identity signs posts and pays their fees. Its funding address and balance are public."
+            </PageHeader>
             <Notice message=state.status_message.into() />
 
             <SettingsGroup title="Funding wallet">
-                <a class="btn btn-secondary" href="/identity">"Manage identity"</a>
-                <div class="group-header-row">
+                <Actions>
                     <button class="btn btn-secondary btn-sm"
                         disabled=move || state.is_loading_wallet.get()
                         on:click=refresh>
                         {move || match state.is_loading_wallet.get() {
-                            true => "Refreshing...",
-                            false => "Refresh Balance",
+                            true => "Refreshing…",
+                            false => "Refresh balance",
                         }}
                     </button>
-                </div>
+                    <a class="btn btn-secondary btn-sm" href="/identity">"Manage identity"</a>
+                </Actions>
                 {move || match state.wallet_summary.get() {
                     Some(summary) => view! { <Funding summary=summary copied=copied on_copy=copy_address /> }.into_any(),
                     None => view! { <Unfunded /> }.into_any(),
                 }}
                 <p class="action-desc">
-                    "The active identity in the existing vault signs and funds publication. A sufficient total balance does not guarantee a single usable funding output. Private Archive recovery secrets are separate."
+                    "The active identity in the existing vault signs and funds publication. Only confirmed spendable outputs count, and a sufficient total balance does not guarantee a single usable funding output. Private Archive recovery secrets are separate."
                 </p>
             </SettingsGroup>
         </section>
@@ -75,13 +80,17 @@ pub fn WalletPage() -> impl IntoView {
 fn Unfunded() -> impl IntoView {
     let state = expect_context::<AppState>();
     view! {
-        <div class="loading-state">
-            <span>{move || match state.identity.get() {
-                Some(status) if status.unlocked => "Balance unavailable. Your identity remains unlocked; refresh to query funding.",
-                Some(_) => "Unlock your identity to query funding.",
-                None => "Unlock your identity to query funding.",
-            }}</span>
-        </div>
+        <p class="group-desc" role="status">{move || unfunded(state)}</p>
+    }
+}
+
+fn unfunded(state: AppState) -> &'static str {
+    let Some(status) = state.identity.get() else {
+        return "Unlock your identity to query funding.";
+    };
+    match status.unlocked() {
+        true => "Balance unavailable. Your identity remains unlocked; refresh to query funding.",
+        false => "Unlock your identity to query funding.",
     }
 }
 
@@ -89,29 +98,28 @@ fn Unfunded() -> impl IntoView {
 fn Funding(summary: WalletSummary, copied: RwSignal<Said>, on_copy: Callback<()>) -> impl IntoView {
     let balance = whole_coins(summary.confirmed_balance_sats, summary.chain.code());
     view! {
-        <div class="wallet-details-card">
-            <DetailRow label="Author Public Key (BIP 340 Taproot):">
+        <Facts>
+            <Fact label="Fingerprint">
+                <span class="badge badge-neutral">{summary.author_fingerprint.clone()}</span>
+            </Fact>
+            <Fact label="Chain tip">{format!("#{}", summary.tip_height)}</Fact>
+            <Fact label="Author public key (BIP 340)" wide=true>
                 <code class="code-val">{summary.author_pubkey.clone()}</code>
-            </DetailRow>
-            <DetailRow label="Author Fingerprint:">
-                <span class="badge badge-neutral">"🔑 " {summary.author_fingerprint.clone()}</span>
-            </DetailRow>
-            <DetailRow label="Receive Address:">
+            </Fact>
+            <Fact label="Receive address" wide=true>
                 <div class="address-copy-row">
-                    <code class="code-val address">{summary.receive_address.clone()}</code>
-                    <button class="btn btn-secondary btn-xs" on:click=move |_| on_copy.run(())>"Copy"</button>
+                    <code class="code-val">{summary.receive_address.clone()}</code>
+                    <button class="btn btn-secondary btn-xs" on:click=move |_clicked| on_copy.run(())>"Copy"</button>
                 </div>
                 {move || match copied.get() {
-                    Said::Something(message) => view! { <span class="copy-feedback-text">{message}</span> }.into_any(),
+                    Said::Something(message) => view! { <span class="copy-feedback-text" role="status">{message}</span> }.into_any(),
                     Said::Nothing => ().into_any(),
                 }}
-            </DetailRow>
-            <div class="wallet-grid">
-                <Stat label="Confirmed Balance" value=balance />
-                <Stat label="Funding policy" value="Confirmed spendable outputs only".to_owned() />
-                <Stat label="Spendable UTXOs" value=summary.utxo_count.to_string() />
-                <Stat label="Chain Tip Height" value=format!("#{}", summary.tip_height) />
-            </div>
+            </Fact>
+        </Facts>
+        <div class="wallet-grid">
+            <Stat label="Confirmed balance" value=balance />
+            <Stat label="Spendable outputs" value=summary.utxo_count.to_string() />
         </div>
     }
 }

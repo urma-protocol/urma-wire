@@ -1,7 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "app-shared",
+    "app-core",
+    "app-engine",
     "app-ui",
     "src-tauri",
 ]

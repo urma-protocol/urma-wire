@@ -16,8 +16,6 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-wire-app-shared = { path = "../app-shared" }
-
-urma-identity = "0.2.0"
-urma-io = "0.2.0"
-zeroize = "1"
+tracing = "0.1"
+wire-app-core = { path = "../app-core" }
+wire-app-engine = { path = "../app-engine" }

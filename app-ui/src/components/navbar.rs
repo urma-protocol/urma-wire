@@ -1,6 +1,14 @@
-use leptos::prelude::*;
+use leptos::prelude::AriaAttributes;
+use leptos::prelude::ClassAttribute;
+use leptos::prelude::CustomAttribute;
+use leptos::prelude::ElementChild;
+use leptos::prelude::Get;
+use leptos::prelude::IntoView;
+use leptos::prelude::{component, view};
 use leptos_router::hooks::use_location;
 use thaw::{Menu, MenuItem, MenuPosition, MenuTrigger};
+#[cfg(target_arch = "wasm32")]
+use leptos::prelude::{on_cleanup, Effect};
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen(inline_js = r#"
@@ -29,7 +37,7 @@ extern "C" {
 pub fn Navbar() -> impl IntoView {
     #[cfg(target_arch = "wasm32")]
     {
-        Effect::new(move |_| start_logo_animation());
+        Effect::new(move |_ran_before: Option<()>| start_logo_animation());
         on_cleanup(stop_logo_animation);
     }
     let location = use_location();
@@ -64,7 +72,7 @@ pub fn Navbar() -> impl IntoView {
             </nav>
             <div class="sidebar-note"><span class="eyebrow">"YOUR IDENTITY. YOUR WORDS."</span><p>"Signed by you."<br/>"Recorded on-chain."</p></div>
             <div class="network-switcher">
-                <Menu class="network-menu" position=MenuPosition::TopStart on_select=|_| {}>
+                <Menu class="network-menu" position=MenuPosition::TopStart on_select=|_selected: String| ()>
                     <MenuTrigger slot>
                         <button type="button" class="network-trigger" aria-label="Select network">
                             <img class="network-logo" src="/assets/litecoin.svg" alt="" width="16" height="16"/>

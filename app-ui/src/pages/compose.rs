@@ -1,5 +1,7 @@
 use crate::components::BackToFeed;
 use crate::components::ComposeBox;
+use crate::components::PageHeader;
+use crate::components::PublicationPanel;
 use crate::state::AppState;
 use leptos::prelude::expect_context;
 use leptos::prelude::ClassAttribute;
@@ -16,19 +18,11 @@ pub fn ComposePage() -> impl IntoView {
     view! {
         <section class="page-container compose-page">
             <BackToFeed />
-
-            <div class="compose-page-header">
-                <span class="eyebrow">"YOUR VOICE. ON RECORD."</span>
-                <h1 class="page-title">"Make your " <span class="accent-text">"mark."</span></h1>
-                <p class="page-subtitle">
-                    "Write, review the exact cost, then publish to " <strong>{chain_name}</strong> "."
-                </p>
-            </div>
-
-            <div class="compose-wrapper">
-                <ComposeBox />
-            </div>
-
+            <PageHeader eyebrow="YOUR VOICE. ON RECORD." title="Make your" accent="mark.">
+                "Write, review the exact cost, then publish to " <strong>{chain_name}</strong> "."
+            </PageHeader>
+            <ComposeBox />
+            <PublicationPanel />
             <div class="info-box">
                 <h4>"Before you publish"</h4>
                 <ul>

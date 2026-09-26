@@ -17,7 +17,7 @@ use leptos::prelude::PropAttribute;
 use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
 use leptos::prelude::{component, event_target_value, view};
-use wire_app_shared::topic_labels::Kind;
+use wire_app_core::topics::Kind;
 
 #[component]
 pub fn LabelField(
@@ -79,7 +79,7 @@ pub fn LabelField(
 }
 
 #[component]
-fn Offered(
+pub fn Offered(
     ranked: Vec<Suggestion>,
     highlighted: RwSignal<usize>,
     accept: Callback<Suggestion>,
@@ -107,7 +107,7 @@ fn Offered(
     }
 }
 
-fn walk(
+pub fn walk(
     event: &leptos::ev::KeyboardEvent,
     ranked: Vec<Suggestion>,
     highlighted: RwSignal<usize>,

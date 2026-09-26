@@ -1,40 +1,37 @@
-use crate::components::markdown::stored_autoload;
-use crate::components::Said;
+use crate::config::PUBLICATION_POLL_MS;
 use crate::data::chain;
-use crate::data::failure::Failure;
 use crate::data::identity;
+use crate::data::preferences::{stored_autoload, stored_replies_shown};
 use crate::data::publication;
-use crate::data::publication::Pending;
 use crate::data::records;
+use crate::data::storage::Complaint;
 use crate::data::topics;
-use crate::data::topics::Recalled;
 use crate::data::topics::Remembered;
-use crate::limits::PUBLICATION_POLL_MS;
 use crate::state::addressing::Speaking;
+use crate::state::said::Said;
 use leptos::prelude::Get;
 use leptos::prelude::GetUntracked;
 use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
 use leptos::prelude::Update;
 use leptos::prelude::With;
+use leptos::prelude::WithUntracked;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use tracing::warn;
-use wire_app_shared::connection::ConnectionHealth;
-use wire_app_shared::live_model::matches_topic;
-use wire_app_shared::live_model::Publication;
-use wire_app_shared::public_identity::PublicIdentity;
-use wire_app_shared::topic_labels::seen_in;
-use wire_app_shared::AuthorId;
-use wire_app_shared::Chain;
-use wire_app_shared::IdentityStatus;
-use wire_app_shared::Post;
-use wire_app_shared::WalletSummary;
+use wire_app_core::connection::{ConnectionHealth, Trouble};
+use wire_app_core::errors::Fault;
+use wire_app_core::feed::{conversations, following, Conversation, PublicIdentity};
+use wire_app_core::model::{AuthorId, Chain, Post, WalletSummary};
+use wire_app_core::publication::{Pending, Publication};
+use wire_app_core::session::{IdentityStatus, Session};
+use wire_app_core::topics::seen_in;
 
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub active_chain: RwSignal<Chain>,
     pub autoload_images: RwSignal<bool>,
+    pub replies_shown: RwSignal<usize>,
     pub media_epoch: RwSignal<u64>,
     pub media_inflight: RwSignal<usize>,
     pub media_bytes: RwSignal<usize>,
@@ -42,12 +39,12 @@ pub struct AppState {
     pub identity: RwSignal<Option<IdentityStatus>>,
     pub identity_error: RwSignal<Said>,
     pub feed: RwSignal<Vec<Post>>,
-    pub post_draft: RwSignal<String>,
+    pub drafts: RwSignal<BTreeMap<String, String>>,
     pub public_identities: RwSignal<BTreeMap<String, PublicIdentity>>,
     pub is_loading_feed: RwSignal<bool>,
     pub is_loading_wallet: RwSignal<bool>,
     pub status_message: RwSignal<Said>,
-    pub feed_status: RwSignal<String>,
+    pub synced: RwSignal<Synced>,
     pub publication: RwSignal<Option<Publication>>,
     pub following: RwSignal<bool>,
     pub pause_requested: RwSignal<bool>,
@@ -60,18 +57,19 @@ pub struct AppState {
     pub only_followed: RwSignal<bool>,
 }
 
+fn voiced(fault: Fault) -> Said {
+    Said::Something(fault.message)
+}
+
 impl AppState {
     pub fn started() -> Self {
-        let preference = stored_autoload();
+        let autoload = stored_autoload();
+        let replies = stored_replies_shown();
         let recalled = topics::load();
-        let topic_trouble = match &recalled {
-            Recalled::Unreadable(reason) => Said::Something(reason.clone()),
-            Recalled::Topics(_) => Said::Nothing,
-            Recalled::Empty => Said::Nothing,
-        };
         let state = Self {
             active_chain: RwSignal::new(Chain::Litecoin),
-            autoload_images: RwSignal::new(preference.wanted()),
+            autoload_images: RwSignal::new(autoload.value),
+            replies_shown: RwSignal::new(replies.value),
             media_epoch: RwSignal::new(0),
             media_inflight: RwSignal::new(0),
             media_bytes: RwSignal::new(0),
@@ -79,12 +77,12 @@ impl AppState {
             identity: RwSignal::new(None),
             identity_error: RwSignal::new(Said::Nothing),
             feed: RwSignal::new(Vec::new()),
-            post_draft: RwSignal::new(String::new()),
+            drafts: RwSignal::new(BTreeMap::new()),
             public_identities: RwSignal::new(BTreeMap::new()),
             is_loading_feed: RwSignal::new(false),
             is_loading_wallet: RwSignal::new(false),
-            status_message: RwSignal::new(preference.complaint()),
-            feed_status: RwSignal::new(String::new()),
+            status_message: RwSignal::new(Said::Nothing),
+            synced: RwSignal::new(Synced::Unchecked),
             publication: RwSignal::new(None),
             following: RwSignal::new(false),
             pause_requested: RwSignal::new(false),
@@ -93,35 +91,23 @@ impl AppState {
             connection_last_success_ms: RwSignal::new(None),
             is_checking_connection: RwSignal::new(false),
             speaking: RwSignal::new(Speaking::Freely),
-            topics: RwSignal::new(recalled.remembered()),
+            topics: RwSignal::new(recalled.value),
             only_followed: RwSignal::new(false),
         };
-        match topic_trouble {
-            Said::Something(reason) => state.status_message.set(Said::Something(reason)),
-            Said::Nothing => (),
+        for complaint in [autoload.complaint, replies.complaint, recalled.complaint] {
+            match complaint {
+                Complaint::Unreadable(reason) => state.status_message.set(Said::Something(reason)),
+                Complaint::Nothing => (),
+            }
         }
         state.load_identity();
-        state.load_feed();
-        state.load_pending_publication();
-        state
-    }
-
-    fn load_pending_publication(&self) {
-        let state = *self;
+        let chain = state.active_chain.get_untracked();
+        state.is_loading_feed.set(true);
         leptos::task::spawn_local(async move {
-            match publication::pending().await {
-                Ok(Pending::Awaiting(found)) => state.publication.set(Some(found)),
-                Ok(Pending::Settled) => state.publication.set(None),
-                Err(failure) => {
-                    warn!(failure = %failure, "pending publication unavailable");
-                    state.publication_error.set(state.voiced(failure));
-                }
-            }
+            sync_feed(state, chain).await;
+            load_pending(state).await;
         });
-    }
-
-    fn voiced(&self, failure: Failure) -> Said {
-        Said::Something(failure.reported())
+        state
     }
 
     pub fn set_chain(&self, chain: Chain) {
@@ -144,11 +130,11 @@ impl AppState {
         leptos::task::spawn_local(async move {
             match chain::health(chain).await {
                 Ok(health) => state.connection_health.set(Some(carried(health, state))),
-                Err(failure) => {
-                    warn!(failure = %failure, "connection check could not complete");
+                Err(fault) => {
+                    warn!(fault = %fault, "connection check could not complete");
                     state
                         .connection_health
-                        .set(Some(unreachable(chain, failure)));
+                        .set(Some(unreachable(chain, fault)));
                 }
             }
             state.is_checking_connection.set(false);
@@ -160,7 +146,7 @@ impl AppState {
         leptos::task::spawn_local(async move {
             match identity::status().await {
                 Ok(status) => {
-                    let unlocked = status.unlocked;
+                    let unlocked = status.unlocked();
                     state.identity.set(Some(status));
                     state.identity_error.set(Said::Nothing);
                     match unlocked {
@@ -168,17 +154,26 @@ impl AppState {
                         false => state.wallet_summary.set(None),
                     }
                 }
-                Err(failure) => {
-                    warn!(failure = %failure, "identity status unavailable");
-                    state.identity_error.set(state.voiced(failure));
+                Err(fault) => {
+                    warn!(fault = %fault, "identity status unavailable");
+                    state.identity_error.set(voiced(fault));
                 }
             }
         });
     }
 
     pub fn refresh_all(&self) {
-        self.load_feed();
-        self.load_wallet();
+        if self.is_loading_feed.get_untracked() {
+            self.load_wallet();
+            return;
+        }
+        let state = *self;
+        let chain = state.active_chain.get_untracked();
+        state.is_loading_feed.set(true);
+        leptos::task::spawn_local(async move {
+            sync_feed(state, chain).await;
+            state.load_wallet();
+        });
     }
 
     pub fn load_feed(&self) {
@@ -188,26 +183,7 @@ impl AppState {
         let state = *self;
         let chain = state.active_chain.get_untracked();
         state.is_loading_feed.set(true);
-        leptos::task::spawn_local(async move {
-            match records::feed(chain).await {
-                Ok(result) => {
-                    if state.active_chain.get_untracked() == chain {
-                        state.public_identities.set(result.identities);
-                        state.feed.set(result.posts);
-                        state.feed_status.set(indexed_range(
-                            result.start,
-                            result.tip,
-                            result.complete_to_tip,
-                        ));
-                    }
-                }
-                Err(failure) => {
-                    warn!(failure = %failure, "feed sync failed; cached posts stand");
-                    state.feed_status.set(sync_failed(failure));
-                }
-            }
-            state.is_loading_feed.set(false);
-        });
+        leptos::task::spawn_local(sync_feed(state, chain));
     }
 
     pub fn load_wallet(&self) {
@@ -229,10 +205,10 @@ impl AppState {
                     state.wallet_summary.set(Some(summary));
                     state.status_message.set(Said::Nothing);
                 }
-                Err(failure) => {
-                    warn!(failure = %failure, "funding summary unavailable");
+                Err(fault) => {
+                    warn!(fault = %fault, "funding summary unavailable");
                     state.wallet_summary.set(None);
-                    state.status_message.set(state.voiced(failure));
+                    state.status_message.set(voiced(fault));
                 }
             }
             state.is_loading_wallet.set(false);
@@ -250,7 +226,7 @@ impl AppState {
         leptos::task::spawn_local(async move {
             let mut approval = approve;
             while !state.pause_requested.get_untracked() {
-                match publication::advance(&id, approval).await {
+                match publication::advance(id.clone(), approval).await {
                     Ok(result) => {
                         let complete = result.complete;
                         state.publication.set(Some(result));
@@ -259,9 +235,9 @@ impl AppState {
                             break;
                         }
                     }
-                    Err(failure) => {
-                        warn!(failure = %failure, "publication paused on a source failure");
-                        state.publication_error.set(state.voiced(failure));
+                    Err(fault) => {
+                        warn!(fault = %fault, "publication paused on a source failure");
+                        state.publication_error.set(voiced(fault));
                         break;
                     }
                 }
@@ -278,6 +254,43 @@ impl AppState {
 
     pub fn stop_replying(&self) {
         self.speaking.set(Speaking::Freely);
+    }
+
+    pub fn toggle_reply_to(&self, post: Post) {
+        match self.speaking.with(|speaking| speaking.replies_to(post.txid)) {
+            true => self.stop_replying(),
+            false => self.reply_to(post),
+        }
+    }
+
+    pub fn draft(&self, key: &str) -> String {
+        self.drafts.with(|drafts| {
+            let Some(held) = drafts.get(key) else {
+                return String::new();
+            };
+            held.clone()
+        })
+    }
+
+    pub fn draft_untracked(&self, key: &str) -> String {
+        self.drafts.with_untracked(|drafts| {
+            let Some(held) = drafts.get(key) else {
+                return String::new();
+            };
+            held.clone()
+        })
+    }
+
+    pub fn set_draft(&self, key: &str, text: String) {
+        self.drafts.update(|drafts| {
+            drafts.insert(key.to_owned(), text);
+        });
+    }
+
+    pub fn clear_draft(&self, key: &str) {
+        self.drafts.update(|drafts| {
+            drafts.remove(key);
+        });
     }
 
     pub fn remember_topics(&self, wire: &str, hashtags: &[String]) {
@@ -302,41 +315,80 @@ impl AppState {
         self.only_followed.update(|only| *only = !*only);
     }
 
-    pub fn shown_feed(&self) -> Vec<Post> {
-        let posts = self.feed.get();
+    pub fn conversations(&self) -> Vec<Conversation> {
+        let preview = self.replies_shown.get();
+        self.feed
+            .with(|everything| conversations(self.shown(everything), everything, preview))
+    }
+
+    fn shown(&self, everything: &[Post]) -> Vec<Post> {
         if !self.only_followed.get() {
-            return posts;
+            return everything.to_vec();
         }
         let followed = self.topics.get().followed_labels();
         if followed.is_empty() {
-            return posts;
+            return everything.to_vec();
         }
-        let mut shown = Vec::new();
-        for post in posts {
-            if followed.iter().any(|label| matches_topic(&post, label)) {
-                shown.push(post);
+        following(everything, &followed)
+    }
+
+    pub fn named(&self, author: AuthorId) -> Named {
+        self.public_identities.with(|identities| {
+            let Some(identity) = identities.get(&author.to_hex()) else {
+                return Named::Unnamed;
+            };
+            let Some(nickname) = identity.nickname.as_ref() else {
+                return Named::Unnamed;
+            };
+            match nickname.is_empty() {
+                true => Named::Unnamed,
+                false => Named::Nickname(nickname.clone()),
             }
-        }
-        shown
+        })
     }
 
     pub fn display_name(&self, author: AuthorId) -> String {
-        let named = self.public_identities.with(|identities| {
-            let Some(identity) = identities.get(&author.to_hex()) else {
-                return None;
-            };
-            let Some(nickname) = identity.nickname.as_ref() else {
-                return None;
-            };
-            match nickname.is_empty() {
-                true => None,
-                false => Some(nickname.clone()),
+        match self.named(author) {
+            Named::Nickname(nickname) => nickname,
+            Named::Unnamed => author.fingerprint(),
+        }
+    }
+}
+
+pub enum Named {
+    Nickname(String),
+    Unnamed,
+}
+
+async fn sync_feed(state: AppState, chain: Chain) {
+    match records::feed(chain).await {
+        Ok(result) => {
+            if state.active_chain.get_untracked() == chain {
+                state.public_identities.set(result.identities);
+                state.feed.set(result.posts);
+                state.synced.set(Synced::Indexed {
+                    start: result.start,
+                    tip: result.tip,
+                    complete: result.complete_to_tip,
+                });
             }
-        });
-        let Some(nickname) = named else {
-            return author.fingerprint();
-        };
-        nickname
+        }
+        Err(fault) => {
+            warn!(fault = %fault, "feed sync failed; cached posts stand");
+            state.synced.set(Synced::Failed(fault.message));
+        }
+    }
+    state.is_loading_feed.set(false);
+}
+
+async fn load_pending(state: AppState) {
+    match publication::pending().await {
+        Ok(Pending::Awaiting(found)) => state.publication.set(Some(found)),
+        Ok(Pending::Settled) => state.publication.set(None),
+        Err(fault) => {
+            warn!(fault = %fault, "pending publication unavailable");
+            state.publication_error.set(voiced(fault));
+        }
     }
 }
 
@@ -349,47 +401,57 @@ pub fn signing_author(state: AppState) -> Signer {
     let Some(status) = state.identity.get() else {
         return Signer::Locked;
     };
-    let Some(author) = status.author_pubkey else {
-        return Signer::Locked;
-    };
-    match AuthorId::from_hex(&author) {
-        Ok(id) => Signer::Author(id),
-        Err(error) => {
-            warn!(error = %error, "session author key is not valid hex");
-            Signer::Locked
-        }
+    match status.session {
+        Session::Unlocked(author) => Signer::Author(author),
+        Session::Locked => Signer::Locked,
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
-enum Holder {
-    Key(String),
-    None,
-}
-
-fn signed_by(state: AppState) -> Holder {
+fn signed_by(state: AppState) -> Session {
     let Some(status) = state.identity.get_untracked() else {
-        return Holder::None;
+        return Session::Locked;
     };
-    let Some(author) = status.author_pubkey else {
-        return Holder::None;
-    };
-    Holder::Key(author)
+    status.session
 }
 
-fn indexed_range(start: u64, tip: u64, complete: bool) -> String {
-    let tail = match complete {
-        true => "Up to date at last refresh.",
-        false => "More history remains; refresh to continue.",
-    };
-    format!("Verified history from block {start} through {tip}. {tail}")
+#[derive(Clone, PartialEq, Eq)]
+pub enum Synced {
+    Unchecked,
+    Indexed {
+        start: u64,
+        tip: u64,
+        complete: bool,
+    },
+    Failed(String),
 }
 
-fn sync_failed(failure: Failure) -> String {
-    format!(
-        "Sync failed; displayed posts are cached: {}",
-        failure.reported()
-    )
+impl Synced {
+    pub fn summary(&self) -> String {
+        match self {
+            Synced::Unchecked => String::new(),
+            Synced::Indexed {
+                start,
+                tip,
+                complete: true,
+            } => format!("Blocks {start}–{tip} · up to date"),
+            Synced::Indexed {
+                start,
+                tip,
+                complete: false,
+            } => format!("Blocks {start}–{tip} · more history remains"),
+            Synced::Failed(_) => "Sync failed · cached records shown".to_owned(),
+        }
+    }
+
+    pub fn trouble(&self) -> Said {
+        match self {
+            Synced::Failed(reason) => Said::Something(format!(
+                "Sync failed; displayed records are cached: {reason}"
+            )),
+            Synced::Unchecked => Said::Nothing,
+            Synced::Indexed { .. } => Said::Nothing,
+        }
+    }
 }
 
 fn carried(mut health: ConnectionHealth, state: AppState) -> ConnectionHealth {
@@ -409,7 +471,7 @@ fn carried(mut health: ConnectionHealth, state: AppState) -> ConnectionHealth {
     health
 }
 
-fn unreachable(chain: Chain, failure: Failure) -> ConnectionHealth {
+fn unreachable(chain: Chain, fault: Fault) -> ConnectionHealth {
     ConnectionHealth {
         network: chain.network_name().to_owned(),
         source_type: "Unknown".to_owned(),
@@ -418,6 +480,6 @@ fn unreachable(chain: Chain, failure: Failure) -> ConnectionHealth {
         remote_height: None,
         local_start: None,
         local_height: None,
-        error: Some(failure.reported()),
+        trouble: Trouble::SourceUnverified(fault.message),
     }
 }

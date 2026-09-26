@@ -1,6 +1,10 @@
-use crate::components::DescribedGroup;
+use crate::components::Fact;
+use crate::components::Facts;
 use crate::components::PageHeader;
 use crate::components::SettingsGroup;
+use crate::components::Status;
+use crate::components::Tone;
+use crate::config::{NEVER_CHECKED, NO_INDEXED_RANGE, UNKNOWN_HEIGHT};
 use crate::state::AppState;
 use leptos::prelude::expect_context;
 use leptos::prelude::ClassAttribute;
@@ -13,7 +17,7 @@ use leptos::prelude::OnAttribute;
 use leptos::prelude::{component, view};
 #[cfg(target_arch = "wasm32")]
 use tracing::warn;
-use wire_app_shared::connection::ConnectionHealth;
+use wire_app_core::connection::{ConnectionHealth, Trouble};
 
 #[component]
 pub fn ConnectionPage() -> impl IntoView {
@@ -23,25 +27,22 @@ pub fn ConnectionPage() -> impl IntoView {
 
     view! {
         <section class="page-container connection-page">
-            <PageHeader
-                eyebrow="CHAIN STATUS."
-                title="Your"
-                accent="connection."
-                subtitle="A read-only check of the selected chain source and your locally indexed history."
-            />
+            <PageHeader eyebrow="CHAIN STATUS." title="Your" accent="connection.">
+                "A read-only check of the selected chain source and your locally indexed history."
+            </PageHeader>
             <div class="connection-actions">
                 <button type="button" class="btn btn-primary" disabled=checking
                     on:click=move |_clicked| state.check_connection()>
-                    {move || match checking() { true => "Checking...", false => "Refresh connection" }}
+                    {move || match checking() { true => "Checking…", false => "Refresh connection" }}
                 </button>
-                <span role="status">{move || match checking() { true => "Checking source height...", false => "" }}</span>
+                <span class="sync-status" role="status">{move || match checking() { true => "Checking source height…", false => "" }}</span>
             </div>
             {move || match state.connection_health.get() {
                 Some(health) => view! { <Health health=health /> }.into_any(),
                 None => view! {
-                    <DescribedGroup title="Never checked" description="Refresh to check the chain source." >
-                        <span />
-                    </DescribedGroup>
+                    <SettingsGroup title="Chain source">
+                        <p class="group-desc">"Not checked yet. Refresh to query the source."</p>
+                    </SettingsGroup>
                 }.into_any(),
             }}
             <p class="connection-hint">"Checking does not index new blocks. Open the " <a href="/">"Feed"</a> " to refresh indexed posts."</p>
@@ -52,68 +53,60 @@ pub fn ConnectionPage() -> impl IntoView {
 #[component]
 fn Health(health: ConnectionHealth) -> impl IntoView {
     let state = expect_context::<AppState>();
-    let trouble = Trouble::read(&health);
-    let remote = height_label(health.remote_height, "Unknown", trouble.stale());
+    let stale = matches!(health.trouble, Trouble::SourceUnverified(_));
+    let remote = height_label(health.remote_height, UNKNOWN_HEIGHT, stale);
     let local = height_label(health.local_height, "No blocks indexed", false);
     let range = indexed_range(health.local_start, health.local_height);
     let checked = time_label(health.checked_at_ms);
     view! {
         <SettingsGroup title="Chain source">
-            <p class="group-title">{health.status()}</p>
-            <p class="group-desc">{trouble.explained()}</p>
-            {match health.error {
-                Some(error) => view! { <p class="alert alert-info" role="alert">{error}</p> }.into_any(),
-                None => ().into_any(),
+            <div class="state-line">
+                <Status tone=tone(&health.trouble) text=health.status() />
+                <p class="group-desc">{explained(&health.trouble)}</p>
+            </div>
+            {match &health.trouble {
+                Trouble::Clear => ().into_any(),
+                trouble => view! { <p class="alert alert-info" role="alert">{trouble.message().to_owned()}</p> }.into_any(),
             }}
-            <dl class="connection-details">
-                <div><dt>"Network"</dt><dd>{health.network}</dd></div>
-                <div><dt>"Source"</dt><dd>{health.source_type}</dd></div>
-                <div><dt>"Endpoint"</dt><dd>{health.endpoint}</dd></div>
-                <div><dt>"Remote block height"</dt><dd>{remote}</dd></div>
-                <div><dt>"Locally indexed height"</dt><dd>{local}</dd></div>
-                <div><dt>"Indexed range"</dt><dd>{range}</dd></div>
-                <div><dt>"Last check"</dt><dd>{checked}</dd></div>
-                <div><dt>"Last successful check"</dt><dd>{move || match state.connection_last_success_ms.get() {
-                    Some(ms) => time_label(ms),
-                    None => "Never".to_owned(),
-                }}</dd></div>
-            </dl>
+            <Facts>
+                <Fact label="Network">{health.network}</Fact>
+                <Fact label="Source">{health.source_type}</Fact>
+                <Fact label="Endpoint" wide=true>{health.endpoint}</Fact>
+                <Fact label="Remote block height">{remote}</Fact>
+                <Fact label="Locally indexed height">{local}</Fact>
+                <Fact label="Indexed range">{range}</Fact>
+                <Fact label="Last check">{checked}</Fact>
+                <Fact label="Last successful check">{move || last_success(state)}</Fact>
+            </Facts>
         </SettingsGroup>
     }
 }
 
-enum Trouble {
-    SourceUnverified,
-    IndexUnreadable,
-    Healthy,
+fn tone(trouble: &Trouble) -> Tone {
+    match trouble {
+        Trouble::Clear => Tone::Live,
+        Trouble::IndexUnreadable(_message) => Tone::Trouble,
+        Trouble::SourceUnverified(_message) => Tone::Trouble,
+    }
 }
 
-impl Trouble {
-    fn read(health: &ConnectionHealth) -> Self {
-        let Some(error) = health.error.as_deref() else {
-            return Trouble::Healthy;
-        };
-        match error == "Local index unavailable" {
-            true => Trouble::IndexUnreadable,
-            false => Trouble::SourceUnverified,
+fn explained(trouble: &Trouble) -> &'static str {
+    match trouble {
+        Trouble::SourceUnverified(_message) => {
+            "The source could not be verified at this check. Any earlier height is stale."
         }
-    }
-
-    fn stale(&self) -> bool {
-        matches!(self, Trouble::SourceUnverified)
-    }
-
-    fn explained(&self) -> &'static str {
-        match self {
-            Trouble::SourceUnverified => {
-                "The source could not be verified at this check. Any earlier height is stale."
-            }
-            Trouble::IndexUnreadable => {
-                "Source height was checked, but the local index could not be read."
-            }
-            Trouble::Healthy => "Source height was checked now. Index height is a local snapshot.",
+        Trouble::IndexUnreadable(_message) => {
+            "Source height was checked, but the local index could not be read."
         }
+        Trouble::Clear => "Source height was checked now. Index height is a local snapshot.",
     }
+}
+
+fn last_success(state: AppState) -> String {
+    let Some(ms) = state.connection_last_success_ms.get() else {
+        return NEVER_CHECKED.to_owned();
+    };
+    time_label(ms)
 }
 
 fn height_label(height: Option<u64>, absent: &str, stale: bool) -> String {
@@ -128,10 +121,10 @@ fn height_label(height: Option<u64>, absent: &str, stale: bool) -> String {
 
 fn indexed_range(start: Option<u64>, end: Option<u64>) -> String {
     let Some(start) = start else {
-        return "None".to_owned();
+        return NO_INDEXED_RANGE.to_owned();
     };
     let Some(end) = end else {
-        return "None".to_owned();
+        return NO_INDEXED_RANGE.to_owned();
     };
     format!("#{start}–#{end}")
 }
@@ -139,7 +132,7 @@ fn indexed_range(start: Option<u64>, end: Option<u64>) -> String {
 #[cfg(target_arch = "wasm32")]
 fn time_label(ms: u64) -> String {
     if ms == 0 {
-        return "Never".to_owned();
+        return NEVER_CHECKED.to_owned();
     }
     match u32::try_from(ms / 1000) {
         Ok(seconds) => connection_time(f64::from(seconds) * 1000.0),
@@ -153,7 +146,7 @@ fn time_label(ms: u64) -> String {
 #[cfg(not(target_arch = "wasm32"))]
 fn time_label(ms: u64) -> String {
     if ms == 0 {
-        return "Never".to_owned();
+        return NEVER_CHECKED.to_owned();
     }
     ms.to_string()
 }

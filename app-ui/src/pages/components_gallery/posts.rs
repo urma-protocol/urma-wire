@@ -1,5 +1,10 @@
 use leptos::prelude::*;
-use wire_app_shared::{render_identicon_svg, Post};
+use wire_app_core::avatar::render_identicon_svg;
+use wire_app_core::model::Post;
+
+fn short_key(hex: &str) -> String {
+    format!("{}...{}", &hex[..6], &hex[hex.len() - 4..])
+}
 
 /// Variant A: Baseline V0 Post Card
 /// Standard URMA Wire feed card with author meta, block status, topic labels, and reply count.
@@ -156,7 +161,7 @@ pub fn PostVariantC(post: Post) -> impl IntoView {
                         <span class="author-org">"[OSINT Analyst · Corroborated]"</span>
                     </div>
                     <code class="bip340-key-mono" title=author_hex.clone()>
-                        "pubkey: " {author.short_display()} " (" {author_fingerprint} ")"
+                        "pubkey: " {short_key(&author.to_hex())} " (" {author_fingerprint} ")"
                     </code>
                 </div>
                 <div class="wire-channel-tag">

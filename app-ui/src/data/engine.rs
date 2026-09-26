@@ -1,11 +1,15 @@
-use crate::data::failure::Failure;
-use crate::platform::tauri_call;
-use serde::de::DeserializeOwned;
-use serde_json::Value;
+use wire_app_core::contract::{Request, Response};
+use wire_app_core::errors::Fault;
 
-pub async fn ask<T: DeserializeOwned>(command: &str, arguments: &Value) -> Result<T, Failure> {
-    match tauri_call::<T>(command, arguments).await {
-        Ok(answer) => Ok(answer),
-        Err(message) => Err(Failure::Engine(message)),
-    }
+#[cfg(target_arch = "wasm32")]
+pub async fn ask(request: Request) -> Result<Response, Fault> {
+    wire_app_engine::client::ask(request).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn ask(request: Request) -> Result<Response, Fault> {
+    Err(Fault::new(
+        wire_app_core::errors::FaultKind::Unsupported,
+        format!("The Wire engine serves {} only inside the WASM frontend", request.name()),
+    ))
 }

@@ -1,4 +1,14 @@
-use wire_app_shared::{AuthorId, Chain, ConfirmedStatus, Post, Reply, Txid};
+use wire_app_core::model::{AuthorId, Chain, ConfirmedStatus, Placement, Post, Txid};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reply {
+    pub txid: Txid,
+    pub author: AuthorId,
+    pub chain: Chain,
+    pub target_txid: Txid,
+    pub text: String,
+    pub status: ConfirmedStatus,
+}
 
 pub fn mock_author_investigator() -> (AuthorId, &'static str, &'static str) {
     let mut bytes = [0x3bu8; 32];
@@ -72,6 +82,7 @@ pub fn mock_post_investigative() -> Post {
         text: "Initial satellite imagery corroborates naval repositioning off the Constanța corridor (44.128° N, 28.654° E). Merkle commitment verified at block #4892707.\n\nFull sensor logs and AIS cross-references anchored permanently on-chain. Witness proof status: 100% verified.".to_string(),
         wire: "rosint".to_string(),
         hashtags: vec!["investigation".into(), "satellites".into(), "maritime".into()],
+        placement: Placement::Root,
         status: ConfirmedStatus {
             block_height: 4_892_707,
             block_hash: "3a8f10bc92d8471e55c0299aa14bc8fe9210c4d8123019847182746190abcf12".to_string(),
@@ -91,6 +102,7 @@ pub fn mock_post_breaking() -> Post {
         text: "URMA Protocol Alert: Transient 2-block reorg detected at height #4892715. Local transparent index rewound checkpoint cleanly. Verified feed resumed with zero data loss.".to_string(),
         wire: "alerts".to_string(),
         hashtags: vec!["reorg".into(), "network_health".into()],
+        placement: Placement::Root,
         status: ConfirmedStatus {
             block_height: 4_892_716,
             block_hash: "9102cba841029471928374619028374619208374619028374619028374619283".to_string(),
@@ -110,6 +122,7 @@ pub fn mock_post_editorial() -> Post {
         text: "### Sovereign Journalism Without Middlemen\n\nEvery character published here is signed by an ephemeral BIP-340 key held in user session memory. No cookies, no trackers, no centralized feed algorithm.\n\n> When news is anchored in the ledger, censorship becomes mathematically intractable.\n\nArchival reference: `ipfs://bafybeic...` cross-indexed.".to_string(),
         wire: "deepdive".to_string(),
         hashtags: vec!["sovereignty".into(), "journalism".into(), "cryptography".into()],
+        placement: Placement::Root,
         status: ConfirmedStatus {
             block_height: 4_892_680,
             block_hash: "beef102938475610293847561029384756102938475610293847561029384756".to_string(),

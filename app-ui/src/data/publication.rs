@@ -1,157 +1,116 @@
 use crate::data::engine::ask;
-use crate::data::failure::Failure;
-use crate::limits::MAX_POST_BYTES;
-use crate::limits::MAX_REPLY_BYTES;
-use serde_json::json;
-use wire_app_shared::live_model::Publication;
-use wire_app_shared::topic_labels::read_hashtags;
-use wire_app_shared::topic_labels::read_label;
-use wire_app_shared::topic_labels::Label;
-use wire_app_shared::Chain;
-use wire_app_shared::Txid;
+use tracing::warn;
+use wire_app_core::composed::scan;
+use wire_app_core::contract::{Request, Response};
+use wire_app_core::errors::{ComposeError, Fault};
+use wire_app_core::model::Chain;
+use wire_app_core::publication::{Addressed, Content, Pending, Publication};
+use wire_app_core::topics::{read_hashtags, read_label, Label};
 
-pub enum Pending {
-    Awaiting(Publication),
-    Settled,
+#[derive(Clone, PartialEq, Eq)]
+pub enum Overridden {
+    Field(String),
+    Nothing,
 }
 
-#[derive(Clone, Copy)]
-pub enum Addressed {
-    Thread(Txid),
-    Standalone,
-}
-
-impl Addressed {
-    fn target_hex(&self) -> Option<String> {
-        match self {
-            Addressed::Thread(txid) => Some(txid.to_display_hex()),
-            Addressed::Standalone => None,
-        }
-    }
-
-    pub fn max_bytes(&self) -> usize {
-        match self {
-            Addressed::Thread(_) => MAX_REPLY_BYTES,
-            Addressed::Standalone => MAX_POST_BYTES,
-        }
-    }
-
-    pub fn label(&self) -> &'static str {
-        match self {
-            Addressed::Thread(_) => "Reply text",
-            Addressed::Standalone => "Post text",
-        }
-    }
-
-    pub fn placeholder(&self) -> &'static str {
-        match self {
-            Addressed::Thread(_) => "Write a reply…",
-            Addressed::Standalone => "What's on your mind?",
-        }
-    }
-}
-
-pub struct Draft {
-    pub text: String,
+#[derive(Clone, PartialEq, Eq)]
+pub struct Meant {
     pub wire: String,
     pub hashtags: Vec<String>,
-    pub addressed: Addressed,
+    pub overridden_wire: Overridden,
+    pub extra_wires: Vec<String>,
+    pub dropped_hashtags: Vec<String>,
 }
 
-pub enum Spoken {
-    Draft(Draft),
-    Rejected(String),
+enum Written {
+    Wire(String),
+    Nothing,
 }
 
-impl Draft {
-    pub fn spoken(text: String, wire: &str, hashtags: &str, addressed: Addressed) -> Spoken {
-        let typed = wire.trim();
-        let wire = match typed.is_empty() {
-            true => String::new(),
-            false => match read_label(typed) {
-                Label::Valid(label) => label,
-                Label::Rejected(reason) => return Spoken::Rejected(format!("Wire: {reason}")),
-            },
+fn typed_wire(wire: &str) -> Written {
+    let typed = wire.trim();
+    if typed.is_empty() {
+        return Written::Nothing;
+    }
+    match read_label(typed) {
+        Label::Valid(label) => Written::Wire(label),
+        Label::Rejected(reason) => {
+            warn!(reason = %reason, "typed wire is not a protocol label");
+            Written::Nothing
+        }
+    }
+}
+
+impl Meant {
+    pub fn read(text: &str, wire: &str, hashtags: &str) -> Result<Self, ComposeError> {
+        let composed = scan(text)?;
+        let written = composed.wire();
+        let (wire, overridden_wire) = match (written.is_empty(), typed_wire(wire)) {
+            (true, Written::Wire(typed)) => (typed, Overridden::Nothing),
+            (true, Written::Nothing) => (String::new(), Overridden::Nothing),
+            (false, Written::Wire(typed)) if typed != written => {
+                (written, Overridden::Field(typed))
+            }
+            (false, _kept) => (written, Overridden::Nothing),
         };
-        Spoken::Draft(Self {
-            text,
+        let mut labels = composed.hashtag_labels();
+        for label in read_hashtags(hashtags) {
+            if labels.contains(&label) {
+                continue;
+            }
+            labels.push(label);
+        }
+        labels.sort();
+        let dropped = labels.split_off(Label::MAX_HASHTAGS.min(labels.len()));
+        let mut dropped_hashtags = composed.dropped_hashtags();
+        for label in dropped {
+            if dropped_hashtags.contains(&label) {
+                continue;
+            }
+            dropped_hashtags.push(label);
+        }
+        Ok(Self {
             wire,
-            hashtags: read_hashtags(hashtags),
-            addressed,
+            hashtags: labels,
+            overridden_wire,
+            extra_wires: composed.extra_wires(),
+            dropped_hashtags,
         })
     }
-}
 
-pub enum Profile {
-    Nickname(String),
-    Avatar(Vec<u8>),
-}
-
-impl Profile {
-    fn kind(&self) -> &'static str {
-        match self {
-            Profile::Nickname(_) => "profile",
-            Profile::Avatar(_) => "avatar",
-        }
+    pub fn conflicted(&self) -> bool {
+        self.overridden_wire != Overridden::Nothing
+            || !self.extra_wires.is_empty()
+            || !self.dropped_hashtags.is_empty()
     }
 
-    fn text(&self) -> String {
-        match self {
-            Profile::Nickname(nickname) => nickname.clone(),
-            Profile::Avatar(_) => String::new(),
-        }
-    }
-
-    fn pixels(&self) -> Option<Vec<u8>> {
-        match self {
-            Profile::Nickname(_) => None,
-            Profile::Avatar(pixels) => Some(pixels.clone()),
+    pub fn spoken(self, text: String, addressed: Addressed) -> Content {
+        Content::Post {
+            text,
+            wire: self.wire,
+            hashtags: self.hashtags,
+            addressed,
         }
     }
 }
 
-pub async fn quote(chain: Chain, draft: Draft) -> Result<Publication, Failure> {
-    ask(
-        "quote_publication",
-        &json!({
-            "chain": chain.code(),
-            "text": draft.text,
-            "wire": draft.wire,
-            "hashtags": draft.hashtags,
-            "target": draft.addressed.target_hex(),
-        }),
-    )
-    .await
+pub async fn quote(chain: Chain, content: Content) -> Result<Publication, Fault> {
+    match ask(Request::Quote { chain, content }).await? {
+        Response::Publication(publication) => Ok(publication),
+        other => Err(other.unexpected("publication quote")),
+    }
 }
 
-pub async fn quote_profile(chain: Chain, profile: Profile) -> Result<Publication, Failure> {
-    ask(
-        "quote_publication",
-        &json!({
-            "chain": chain.code(),
-            "kind": profile.kind(),
-            "text": profile.text(),
-            "avatar": profile.pixels(),
-            "target": null,
-            "wire": "",
-            "hashtags": [],
-        }),
-    )
-    .await
+pub async fn pending() -> Result<Pending, Fault> {
+    match ask(Request::PublicationStatus).await? {
+        Response::Pending(pending) => Ok(pending),
+        other => Err(other.unexpected("publication status")),
+    }
 }
 
-pub async fn pending() -> Result<Pending, Failure> {
-    let found: Option<Publication> = ask("publication_status", &json!({})).await?;
-    let Some(publication) = found else {
-        return Ok(Pending::Settled);
-    };
-    Ok(Pending::Awaiting(publication))
-}
-
-pub async fn advance(id: &str, approve: bool) -> Result<Publication, Failure> {
-    ask(
-        "advance_publication",
-        &json!({ "id": id, "approve": approve }),
-    )
-    .await
+pub async fn advance(id: String, approve: bool) -> Result<Publication, Fault> {
+    match ask(Request::Advance { id, approve }).await? {
+        Response::Publication(publication) => Ok(publication),
+        other => Err(other.unexpected("publication advance")),
+    }
 }

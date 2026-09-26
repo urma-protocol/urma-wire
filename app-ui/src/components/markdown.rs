@@ -1,13 +1,13 @@
 use crate::components::budget::Budget;
 use crate::components::budget::Room;
-use crate::components::Said;
+use crate::components::FollowChip;
+use crate::components::FollowToken;
+use crate::config::CONCURRENT_IMAGE_FETCHES;
+use crate::config::MAX_IMAGES_PER_POST;
 use crate::data::media;
-use crate::limits::autoload_images_when_unset;
-use crate::limits::CONCURRENT_IMAGE_FETCHES;
-use crate::limits::IMAGE_PREFERENCE_KEY;
-use crate::limits::MAX_IMAGES_PER_POST;
-use crate::platform::use_platform_bridge;
-use crate::state::session::AppState;
+use crate::platform::use_platform;
+use crate::state::AppState;
+use crate::state::Said;
 use leptos::prelude::expect_context;
 use leptos::prelude::ClassAttribute;
 use leptos::prelude::CollectView;
@@ -25,123 +25,44 @@ use leptos::prelude::StoredValue;
 use leptos::prelude::Update;
 use leptos::prelude::{component, on_cleanup, view};
 use tracing::warn;
-use wire_app_shared::markdown::browser_image_error;
-use wire_app_shared::markdown::image_url;
-use wire_app_shared::markdown::segments;
-use wire_app_shared::markdown::FetchedImage;
-use wire_app_shared::markdown::Segment;
+use wire_app_core::body::{body, Piece};
+use wire_app_core::markdown::browser_image_error;
+use wire_app_core::markdown::image_url;
+use wire_app_core::markdown::FetchedImage;
 
-pub enum Preference {
-    Autoload,
-    Withhold,
-    Unreadable(String),
-}
-
-impl Preference {
-    pub fn wanted(&self) -> bool {
-        match self {
-            Preference::Autoload => true,
-            Preference::Withhold => false,
-            Preference::Unreadable(_) => autoload_images_when_unset(),
-        }
+#[component]
+pub fn PostText(text: String, wire: String, hashtags: Vec<String>) -> impl IntoView {
+    let read = body(&text, &wire, &hashtags);
+    let mut count = 0;
+    view! {
+        <Unwritten labels=read.unwritten />
+        <div class="post-text markdown-content">
+            {read.pieces.into_iter().map(|piece| match piece {
+                Piece::Text(text) => view! { <span>{text}</span> }.into_any(),
+                Piece::Label { written, spelled } => view! { <FollowToken spelled=spelled written=written /> }.into_any(),
+                Piece::Image { url, alt } => {
+                    count += 1;
+                    match count > MAX_IMAGES_PER_POST {
+                        true => view! { <span class="media-placeholder">{format!("Image: {alt} — display limit: 2 images per post")}</span> }.into_any(),
+                        false => view! { <ExternalImage url=url alt=alt /> }.into_any(),
+                    }
+                }
+            }).collect_view()}
+        </div>
     }
-
-    pub fn complaint(&self) -> Said {
-        match self {
-            Preference::Autoload => Said::Nothing,
-            Preference::Withhold => Said::Nothing,
-            Preference::Unreadable(reason) => Said::Something(reason.clone()),
-        }
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-enum Kept {
-    Storage(web_sys::Storage),
-    Unavailable(String),
-}
-
-#[cfg(target_arch = "wasm32")]
-fn preference_storage() -> Kept {
-    let Some(window) = web_sys::window() else {
-        return Kept::Unavailable("Browser storage unavailable".to_owned());
-    };
-    let stored = match window.local_storage() {
-        Ok(stored) => stored,
-        Err(error) => {
-            warn!(error = ?error, "image preference storage unavailable");
-            return Kept::Unavailable("Image preference storage unavailable".to_owned());
-        }
-    };
-    let Some(storage) = stored else {
-        return Kept::Unavailable("Image preference storage unavailable".to_owned());
-    };
-    Kept::Storage(storage)
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn stored_autoload() -> Preference {
-    let storage = match preference_storage() {
-        Kept::Storage(storage) => storage,
-        Kept::Unavailable(reason) => return Preference::Unreadable(reason),
-    };
-    match storage.get_item(IMAGE_PREFERENCE_KEY) {
-        Ok(Some(value)) => match value.as_str() {
-            "true" => Preference::Withhold,
-            _ => Preference::Autoload,
-        },
-        Ok(None) => Preference::Withhold,
-        Err(error) => {
-            warn!(error = ?error, "image preference could not be read");
-            Preference::Unreadable("Cannot read image preference".to_owned())
-        }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn stored_autoload() -> Preference {
-    Preference::Autoload
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn remember_autoload(enabled: bool) -> Result<(), Said> {
-    let storage = match preference_storage() {
-        Kept::Storage(storage) => storage,
-        Kept::Unavailable(reason) => return Err(Said::Something(reason)),
-    };
-    let value = match enabled {
-        true => "false",
-        false => "true",
-    };
-    match storage.set_item(IMAGE_PREFERENCE_KEY, value) {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            warn!(error = ?error, "image preference could not be saved");
-            Err(Said::Something("Cannot save image preference".to_owned()))
-        }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn remember_autoload(_enabled: bool) -> Result<(), Said> {
-    Ok(())
 }
 
 #[component]
-pub fn Markdown(text: String) -> impl IntoView {
-    let mut count = 0;
-    view! { <div class="post-text markdown-content">
-        {segments(&text).into_iter().map(|segment| match segment {
-            Segment::Text(text) => view! { <span>{text}</span> }.into_any(),
-            Segment::Image { url, alt } => {
-                count += 1;
-                match count > MAX_IMAGES_PER_POST {
-                    true => view! { <span class="media-placeholder">{format!("Image: {alt} — display limit: 2 images per post")}</span> }.into_any(),
-                    false => view! { <ExternalImage url=url alt=alt /> }.into_any(),
-                }
-            }
-        }).collect_view()}
-    </div> }
+fn Unwritten(labels: Vec<String>) -> impl IntoView {
+    if labels.is_empty() {
+        return ().into_any();
+    }
+    view! {
+        <p class="topic-labels">
+            {labels.into_iter().map(|label| view! { <FollowChip spelled=label /> }).collect_view()}
+        </p>
+    }
+    .into_any()
 }
 
 enum Reachable {
@@ -150,13 +71,12 @@ enum Reachable {
 }
 
 fn reachability(url: &str) -> Reachable {
-    let platform = use_platform_bridge();
-    match platform.can_autoload_images() {
+    match use_platform().can_autoload_images() {
         true => match image_url(url) {
             Ok(_checked) => Reachable::Fetchable,
             Err(reason) => {
                 warn!(reason = %reason, "image link refused before any request");
-                Reachable::Refused(reason)
+                Reachable::Refused(reason.to_string())
             }
         },
         false => Reachable::Refused(browser_image_error(url, secure_origin().https())),
@@ -272,9 +192,9 @@ fn fetch_image(state: AppState, showing: Showing, url: StoredValue<String>, perm
         }
         match result {
             Ok(image) => keep(state, image, showing.data, showing.message),
-            Err(failure) => {
-                warn!(failure = %failure, "external image could not be fetched");
-                showing.message.set(Said::Something(failure.reported()));
+            Err(fault) => {
+                warn!(fault = %fault, "external image could not be fetched");
+                showing.message.set(Said::Something(fault.message));
             }
         }
     });
@@ -305,17 +225,7 @@ fn ExternalImage(url: String, alt: String) -> impl IntoView {
     let load = move |_clicked: leptos::ev::MouseEvent| {
         showing.requested.set(true);
     };
-    on_cleanup(move || {
-        let held = data.get_untracked();
-        let Some(previous) = held else {
-            return;
-        };
-        state.media_bytes.update(|bytes| {
-            *bytes = Budget::of(*bytes)
-                .releasing(previous.display_bytes())
-                .spent()
-        });
-    });
+    on_cleanup(move || release(state, data.get_untracked()));
     let placeholder_alt = alt.clone();
     let offers_load = move || match message.get() {
         Said::Something(_) => permitted && !loading.get(),
@@ -356,6 +266,18 @@ fn released(count: &mut usize) {
     *count = left;
 }
 
+fn release(state: AppState, held: Option<FetchedImage>) {
+    let Some(previous) = held else {
+        return;
+    };
+    match previous.display_bytes() {
+        Ok(bytes) => state
+            .media_bytes
+            .update(|spent| *spent = Budget::of(*spent).releasing(bytes).spent()),
+        Err(error) => warn!(error = %error, "released image carries no display size"),
+    }
+}
+
 fn keep(
     state: AppState,
     image: FetchedImage,
@@ -363,7 +285,14 @@ fn keep(
     message: RwSignal<Said>,
 ) {
     let held = Budget::of(state.media_bytes.get_untracked());
-    match held.holding(image.display_bytes()) {
+    let room = match image.display_bytes() {
+        Ok(bytes) => held.holding(bytes),
+        Err(error) => {
+            warn!(error = %error, "fetched image size overflows the display budget");
+            Room::Exhausted
+        }
+    };
+    match room {
         Room::Fits(total) => {
             state.media_bytes.set(total.spent());
             data.set(Some(image));

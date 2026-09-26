@@ -12,7 +12,7 @@ if (URMA_DEV_SERVE && 'serviceWorker' in navigator) {
 if (!URMA_DEV_SERVE && !(window.__TAURI__ || window.__TAURI_INTERNALS__)) {
     const status = document.createElement('aside');
     status.setAttribute('role', 'status');
-    status.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:1000;background:#17221b;color:#fff;padding:8px 16px;font:12px sans-serif';
+    status.className = 'offline-status';
     const text = document.createElement('span');
     let ready = false;
     let chainStatus = 'Chain operations require a reachable public source.';
@@ -22,7 +22,6 @@ if (!URMA_DEV_SERVE && !(window.__TAURI__ || window.__TAURI_INTERNALS__)) {
     status.append(text);
     const persist = document.createElement('button');
     persist.textContent = 'Keep browser storage';
-    persist.style.marginLeft = '12px';
     persist.onclick = async () => {
         try {
             const granted = !!(navigator.storage?.persist && await navigator.storage.persist());

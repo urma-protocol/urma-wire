@@ -1,0 +1,18 @@
+[package]
+name = "wire-app-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "URMA Wire domain types and the typed contract between the interface and its engines"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+hex = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+urma-core = "0.2.0"
+tracing = "0.1"
+pulldown-cmark = { version = "0.13", default-features = false }
+url = "2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }

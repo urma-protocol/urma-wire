@@ -1,10 +1,12 @@
 """Nonvisual local browser checks. Requires existing chromium + chromedriver.
-Run after: NO_COLOR=true trunk build --features browser-fixture-test --offline
+Run after: NO_COLOR=true trunk build --features fixture-harness --offline
 Uses only the committed public fixture and a disposable browser profile.
+WIRE_DIST selects another build output, so a running `trunk serve` keeps its dist/.
 """
 import functools
 import http.server
 import json
+import os
 from pathlib import Path
 import socket
 import subprocess
@@ -19,7 +21,7 @@ if "--public-probe" in sys.argv and "--chain" in sys.argv:
 
 ROOT = Path(__file__).resolve().parents[1]
 PASSWORD = "URMA public test password 2026"
-VAULT = list((ROOT / "app-shared/tests/fixtures/valid.vault").read_bytes())
+VAULT = list((ROOT / "app-engine/tests/fixtures/valid.vault").read_bytes())
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -27,7 +29,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietHandler, directory=str(ROOT / "dist")))
+DIST = Path(os.environ.get("WIRE_DIST", ROOT / "dist"))
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietHandler, directory=str(DIST)))
 threading.Thread(target=server.serve_forever, daemon=True).start()
 origin = f"http://127.0.0.1:{server.server_port}"
 with socket.socket() as sock:
@@ -73,14 +76,48 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
                 time.sleep(.1)
             raise AssertionError("Application/worker did not load")
 
+        def engine_request(cmd, args):
+            chain = "litecoin"
+            requests = {
+                "identity_status": lambda: "IdentityStatus",
+                "import_identity": lambda: {"ImportIdentity": {"vault": args["vaultBytes"], "password": args["password"]}},
+                "unlock_wallet": lambda: {"Unlock": {"Password": args["password"]}},
+                "lock_wallet": lambda: "Lock",
+                "set_chain_source": lambda: {"AdoptSource": {"url": args["url"]}},
+                "get_wallet_summary": lambda: {"Wallet": {"chain": chain}},
+                "get_feed": lambda: {"Feed": {"chain": chain}},
+                "quote_publication": lambda: {"Quote": {"chain": chain, "content": {"Post": {
+                    "text": args["text"], "wire": args.get("wire", ""),
+                    "hashtags": args.get("hashtags", []), "addressed": "Standalone"}}}},
+                "advance_publication": lambda: {"Advance": {"id": args["id"], "approve": args["approve"]}},
+                "publication_status": lambda: "PublicationStatus",
+            }
+            return requests[cmd]()
+
+        def engine_response(answer):
+            if isinstance(answer, str):
+                return answer
+            (variant, value), = answer.items()
+            if variant == "Identity":
+                value["unlocked"] = value["session"] != "Locked"
+            if variant == "Pending":
+                return None if value == "Settled" else value["Awaiting"]
+            return value
+
         def command(cmd, args=None, failure=False):
-            result = request(base + "/execute/async", {"script": "const done=arguments[2]; window.wasmBindings.browser_fixture_command(arguments[0],JSON.stringify(arguments[1])).then(value=>done({value}),error=>done({error:String(error)}));", "args": [cmd, args or {}]})
+            args = dict(args or {})
+            fixture = cmd.startswith("fixture-")
+            if cmd == "fixture-block":
+                args.setdefault("nonce", 201)
+            name, payload = (cmd, args) if fixture else ("engine", engine_request(cmd, args))
+            result = request(base + "/execute/async", {"script": "const done=arguments[2]; window.wasmBindings.browser_fixture_command(arguments[0],JSON.stringify(arguments[1])).then(value=>done({value}),error=>done({error:String(error)}));", "args": [name, payload]})
             assert ("error" in result) == failure, result
             if failure:
                 return result["error"]
             if cmd == "fixture-sign":
                 return result["value"]
-            return json.loads(result["value"])
+            answer = json.loads(result["value"])
+            return answer if fixture else engine_response(answer)
 
         request(base + "/url", {"url": origin})
         wait_loaded()
@@ -90,7 +127,7 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
             probe = command("fixture-source-probe", {"url": probe_url})
             print("PASS: read-only direct browser public genesis/tip/block integrity probe", probe)
             js("window.fetch=window.blockedFixtureFetch")
-        assert command("identity_status")["source"] == "none"
+        assert command("identity_status")["source"] == "missing"
         command("import_identity", {"vaultBytes": VAULT, "password": "wrong"}, failure=True)
         assert not command("identity_status")["vault_available"]
         imported = command("import_identity", {"vaultBytes": VAULT, "password": PASSWORD})

@@ -1,19 +1,89 @@
+use crate::components::Actions;
+use crate::components::PublicationPanel;
+use crate::components::Warning;
+use crate::config::avatar_when_unset;
+use crate::config::nickname_when_unset;
+use crate::config::AVATAR_BACKGROUND;
+use crate::config::AVATAR_PREVIEW_PIXELS;
+use crate::config::CARD_AVATAR_PIXELS;
+use crate::config::MAX_NICKNAME_BYTES;
+use crate::config::PROFILE_AVATAR_PIXELS;
+use crate::data::publication;
 use crate::state::session::signing_author;
 use crate::state::session::Signer;
-use crate::{platform::tauri_call, state::AppState};
-use leptos::prelude::*;
-use serde_json::json;
-use wire_app_shared::{
-    avatar::encode_avatar_pixels, decode_avatar_pixels, live_model::Publication, render_avatar_svg,
-    AvatarPalette,
+use crate::state::AppState;
+use crate::state::Said;
+use leptos::prelude::expect_context;
+use leptos::prelude::window_event_listener;
+use leptos::prelude::AriaAttributes;
+use leptos::prelude::Callable;
+use leptos::prelude::Callback;
+use leptos::prelude::ClassAttribute;
+use leptos::prelude::CollectView;
+use leptos::prelude::CustomAttribute;
+use leptos::prelude::ElementChild;
+use leptos::prelude::Get;
+use leptos::prelude::GetUntracked;
+use leptos::prelude::GlobalAttributes;
+use leptos::prelude::InnerHtmlAttribute;
+use leptos::prelude::IntoView;
+use leptos::prelude::OnAttribute;
+use leptos::prelude::PropAttribute;
+use leptos::prelude::Read;
+use leptos::prelude::RwSignal;
+use leptos::prelude::Set;
+use leptos::prelude::Signal;
+use leptos::prelude::StyleAttribute;
+use leptos::prelude::Update;
+use leptos::prelude::With;
+use leptos::prelude::WithUntracked;
+use leptos::prelude::{component, event_target_value, view};
+use std::collections::VecDeque;
+use tracing::warn;
+use wire_app_core::avatar::{
+    decode_avatar_pixels, encode_avatar_pixels, render_avatar_svg, AvatarPalette,
 };
+use wire_app_core::publication::Content;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
     Pencil,
-    Eraser,
     Bucket,
+    Eraser,
     Eyedropper,
+}
+
+impl Tool {
+    const ALL: [Tool; 4] = [Tool::Pencil, Tool::Bucket, Tool::Eraser, Tool::Eyedropper];
+
+    fn name(self) -> &'static str {
+        match self {
+            Tool::Pencil => "Pencil",
+            Tool::Bucket => "Bucket",
+            Tool::Eraser => "Eraser",
+            Tool::Eyedropper => "Picker",
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Tool::Pencil => "Pencil: paint with the selected color",
+            Tool::Bucket => "Bucket: flood-fill a connected area",
+            Tool::Eraser => "Eraser: paint the white background",
+            Tool::Eyedropper => "Picker: take a color from the canvas",
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            Tool::Pencil => "m15 4 5 5-11 11H4v-5ZM12 7l5 5",
+            Tool::Bucket => {
+                "M3 11l8-8 8 8-8 8ZM3 11h16M20 14c1.3 1.7 2 3 2 4a2 2 0 0 1-4 0c0-1 .7-2.3 2-4Z"
+            }
+            Tool::Eraser => "M13 4l7 7-8 8H8l-4-4ZM8 19h12M9 10l5 5",
+            Tool::Eyedropper => "M3 21l1-4 9-9 3 3-9 9ZM15 5l4 4M17 3l4 4-3 3-4-4Z",
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -24,75 +94,345 @@ pub enum BrushShape {
     Cross,
 }
 
-pub fn apply_brush(
-    pixels: &mut [u8; 1024],
-    cx: usize,
-    cy: usize,
-    brush: BrushShape,
-    color_val: u8,
-) {
-    let mut paint = |x: i32, y: i32| {
-        if (0..32).contains(&x) && (0..32).contains(&y) {
-            pixels[(y as usize) * 32 + (x as usize)] = color_val;
-        }
-    };
+impl BrushShape {
+    const ALL: [BrushShape; 4] = [
+        BrushShape::Single,
+        BrushShape::Square2,
+        BrushShape::Square3,
+        BrushShape::Cross,
+    ];
 
-    let x = cx as i32;
-    let y = cy as i32;
+    fn label(self) -> &'static str {
+        match self {
+            BrushShape::Single => "1px",
+            BrushShape::Square2 => "2×2",
+            BrushShape::Square3 => "3×3",
+            BrushShape::Cross => "Cross",
+        }
+    }
 
-    match brush {
-        BrushShape::Single => {
-            paint(x, y);
+    fn title(self) -> &'static str {
+        match self {
+            BrushShape::Single => "Single pixel",
+            BrushShape::Square2 => "2×2 block",
+            BrushShape::Square3 => "3×3 block",
+            BrushShape::Cross => "Cross shape",
         }
-        BrushShape::Square2 => {
-            paint(x, y);
-            paint(x + 1, y);
-            paint(x, y + 1);
-            paint(x + 1, y + 1);
+    }
+
+    fn preview_class(self) -> &'static str {
+        match self {
+            BrushShape::Single => "brush-preview-dot dot-1",
+            BrushShape::Square2 => "brush-preview-dot dot-2",
+            BrushShape::Square3 => "brush-preview-dot dot-3",
+            BrushShape::Cross => "brush-preview-cross",
         }
-        BrushShape::Square3 => {
-            for dy in -1..=1 {
-                for dx in -1..=1 {
-                    paint(x + dx, y + dy);
-                }
-            }
+    }
+
+    fn glyph(self) -> &'static str {
+        match self {
+            BrushShape::Cross => "+",
+            BrushShape::Single => "",
+            BrushShape::Square2 => "",
+            BrushShape::Square3 => "",
         }
-        BrushShape::Cross => {
-            paint(x, y);
-            paint(x - 1, y);
-            paint(x + 1, y);
-            paint(x, y - 1);
-            paint(x, y + 1);
+    }
+
+    fn covers(self, x: usize, y: usize, px: usize, py: usize) -> bool {
+        let near_x = px + 1 >= x && px <= x + 1;
+        let near_y = py + 1 >= y && py <= y + 1;
+        match self {
+            BrushShape::Single => px == x && py == y,
+            BrushShape::Square2 => px >= x && px <= x + 1 && py >= y && py <= y + 1,
+            BrushShape::Square3 => near_x && near_y,
+            BrushShape::Cross => (px == x && near_y) || (py == y && near_x),
         }
     }
 }
 
-pub fn flood_fill(pixels: &mut [u8; 1024], start_x: usize, start_y: usize, fill_color: u8) {
-    let target_color = pixels[start_y * 32 + start_x];
-    if target_color == fill_color {
+pub fn apply_brush(pixels: &mut [u8; 1024], x: usize, y: usize, brush: BrushShape, color: u8) {
+    for (index, pixel) in pixels.iter_mut().enumerate() {
+        if brush.covers(x, y, index % 32, index / 32) {
+            *pixel = color;
+        }
+    }
+}
+
+fn adjacent(index: usize) -> Vec<usize> {
+    let x = index % 32;
+    let y = index / 32;
+    let mut cells = Vec::with_capacity(4);
+    if x > 0 {
+        cells.push(index - 1);
+    }
+    if x + 1 < 32 {
+        cells.push(index + 1);
+    }
+    if y > 0 {
+        cells.push(index - 32);
+    }
+    if y + 1 < 32 {
+        cells.push(index + 32);
+    }
+    cells
+}
+
+pub fn flood_fill(pixels: &mut [u8; 1024], x: usize, y: usize, fill: u8) {
+    let start = y * 32 + x;
+    let target = pixels[start];
+    if target == fill {
         return;
     }
-
-    let mut queue = std::collections::VecDeque::new();
+    let mut queue = VecDeque::from([start]);
     let mut visited = [false; 1024];
+    visited[start] = true;
+    loop {
+        let Some(index) = queue.pop_front() else {
+            break;
+        };
+        pixels[index] = fill;
+        for next in adjacent(index) {
+            if !visited[next] && pixels[next] == target {
+                visited[next] = true;
+                queue.push_back(next);
+            }
+        }
+    }
+}
 
-    queue.push_back((start_x as i32, start_y as i32));
-    visited[start_y * 32 + start_x] = true;
+#[derive(Clone, Copy)]
+struct Studio {
+    pixels: RwSignal<[u8; 1024]>,
+    color: RwSignal<u8>,
+    tool: RwSignal<Tool>,
+    brush: RwSignal<BrushShape>,
+    history: RwSignal<Vec<[u8; 1024]>>,
+    future: RwSignal<Vec<[u8; 1024]>>,
+}
 
-    while let Some((x, y)) = queue.pop_front() {
-        let idx = (y as usize) * 32 + (x as usize);
-        pixels[idx] = fill_color;
+impl Studio {
+    const HISTORY_DEPTH: usize = 60;
 
-        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-            let nx = x + dx;
-            let ny = y + dy;
-            if (0..32).contains(&nx) && (0..32).contains(&ny) {
-                let nidx = (ny as usize) * 32 + (nx as usize);
-                if !visited[nidx] && pixels[nidx] == target_color {
-                    visited[nidx] = true;
-                    queue.push_back((nx, ny));
+    fn opened() -> Self {
+        Self {
+            pixels: RwSignal::new(avatar_when_unset()),
+            color: RwSignal::new(0),
+            tool: RwSignal::new(Tool::Pencil),
+            brush: RwSignal::new(BrushShape::Single),
+            history: RwSignal::new(Vec::new()),
+            future: RwSignal::new(Vec::new()),
+        }
+    }
+
+    fn remember(&self) {
+        let current = self.pixels.get_untracked();
+        self.history.update(|held| {
+            if held.len() >= Studio::HISTORY_DEPTH {
+                held.remove(0);
+            }
+            held.push(current);
+        });
+        self.future.set(Vec::new());
+    }
+
+    fn undo(&self) {
+        let mut held = self.history.get_untracked();
+        let Some(previous) = held.pop() else {
+            return;
+        };
+        self.history.set(held);
+        let current = self.pixels.get_untracked();
+        self.future.update(|next| next.push(current));
+        self.pixels.set(previous);
+    }
+
+    fn redo(&self) {
+        let mut held = self.future.get_untracked();
+        let Some(next) = held.pop() else {
+            return;
+        };
+        self.future.set(held);
+        let current = self.pixels.get_untracked();
+        self.history.update(|previous| previous.push(current));
+        self.pixels.set(next);
+    }
+
+    fn fill(&self, color: u8) {
+        self.remember();
+        self.pixels.set([color; 1024]);
+    }
+
+    fn load(&self, pixels: [u8; 1024]) {
+        self.remember();
+        self.pixels.set(pixels);
+    }
+
+    fn stroke(&self, index: usize, color: u8) {
+        let brush = self.brush.get_untracked();
+        self.pixels
+            .update(|pixels| apply_brush(pixels, index % 32, index / 32, brush, color));
+    }
+
+    fn press(&self, index: usize) {
+        match self.tool.get_untracked() {
+            Tool::Eyedropper => {
+                let picked = self.pixels.with_untracked(|pixels| pixels[index]);
+                self.color.set(picked);
+                self.tool.set(Tool::Pencil);
+            }
+            Tool::Bucket => {
+                self.remember();
+                let color = self.color.get_untracked();
+                self.pixels
+                    .update(|pixels| flood_fill(pixels, index % 32, index / 32, color));
+            }
+            Tool::Eraser => {
+                self.remember();
+                self.stroke(index, AVATAR_BACKGROUND);
+            }
+            Tool::Pencil => {
+                self.remember();
+                self.stroke(index, self.color.get_untracked());
+            }
+        }
+    }
+
+    fn drag(&self, index: usize) {
+        match self.tool.get_untracked() {
+            Tool::Pencil => self.stroke(index, self.color.get_untracked()),
+            Tool::Eraser => self.stroke(index, AVATAR_BACKGROUND),
+            Tool::Bucket => (),
+            Tool::Eyedropper => (),
+        }
+    }
+
+    fn choose(&self, color: u8) {
+        self.color.set(color);
+        if self.tool.get_untracked() == Tool::Eraser {
+            self.tool.set(Tool::Pencil);
+        }
+    }
+
+    fn shortcut(&self, event: &web_sys::KeyboardEvent) {
+        if editing_text() {
+            return;
+        }
+        match Shortcut::read(event) {
+            Shortcut::Undo => {
+                event.prevent_default();
+                self.undo();
+            }
+            Shortcut::Redo => {
+                event.prevent_default();
+                self.redo();
+            }
+            Shortcut::Other => (),
+        }
+    }
+
+    fn preview(&self, size: u32) -> String {
+        render_avatar_svg(&encode_avatar_pixels(&self.pixels.get()), size)
+    }
+}
+
+enum Shortcut {
+    Undo,
+    Redo,
+    Other,
+}
+
+impl Shortcut {
+    fn read(event: &web_sys::KeyboardEvent) -> Self {
+        if !(event.ctrl_key() || event.meta_key()) {
+            return Shortcut::Other;
+        }
+        match (event.key().as_str(), event.shift_key()) {
+            ("z" | "Z", false) => Shortcut::Undo,
+            ("z" | "Z", true) => Shortcut::Redo,
+            ("y" | "Y", false) => Shortcut::Redo,
+            ("y" | "Y", true) => Shortcut::Redo,
+            _ => Shortcut::Other,
+        }
+    }
+}
+
+fn editing_text() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Some(document) = window.document() else {
+        return false;
+    };
+    let Some(active) = document.active_element() else {
+        return false;
+    };
+    let tag = active.tag_name().to_lowercase();
+    tag == "input" || tag == "textarea"
+}
+
+#[derive(Clone, Copy)]
+struct Review {
+    state: AppState,
+    busy: RwSignal<bool>,
+    trouble: RwSignal<Said>,
+}
+
+impl Review {
+    fn disabled(&self) -> bool {
+        self.busy.get()
+            || self.state.following.get()
+            || matches!(signing_author(self.state), Signer::Locked)
+    }
+
+    fn quote(&self, content: Content) {
+        if self.busy.get_untracked() || self.state.following.get_untracked() {
+            return;
+        }
+        let review = *self;
+        review.busy.set(true);
+        review.trouble.set(Said::Nothing);
+        let chain = review.state.active_chain.get_untracked();
+        leptos::task::spawn_local(async move {
+            match publication::quote(chain, content).await {
+                Ok(quote) => review.state.publication.set(Some(quote)),
+                Err(fault) => {
+                    warn!(fault = %fault, "profile quote refused");
+                    review.trouble.set(Said::Something(fault.message));
                 }
             }
+            review.busy.set(false);
+        });
+    }
+}
+
+fn load_confirmed(state: AppState, studio: Studio, nickname: RwSignal<String>) {
+    let Signer::Author(author) = signing_author(state) else {
+        return;
+    };
+    let identities = state.public_identities.get_untracked();
+    let Some(identity) = identities.get(&author.to_hex()) else {
+        return;
+    };
+    nickname.set(confirmed_nickname(identity.nickname.clone()));
+    studio.load(confirmed_pixels(identity.avatar.as_ref()));
+}
+
+fn confirmed_nickname(nickname: Option<String>) -> String {
+    let Some(name) = nickname else {
+        return nickname_when_unset();
+    };
+    name
+}
+
+fn confirmed_pixels(avatar: Option<&Vec<u8>>) -> [u8; 1024] {
+    let Some(bytes) = avatar else {
+        return avatar_when_unset();
+    };
+    match <&[u8; 512]>::try_from(bytes.as_slice()) {
+        Ok(packed) => decode_avatar_pixels(packed),
+        Err(error) => {
+            warn!(error = %error, "confirmed avatar is not 512 packed bytes; starting blank");
+            avatar_when_unset()
         }
     }
 }
@@ -100,407 +440,210 @@ pub fn flood_fill(pixels: &mut [u8; 1024], start_x: usize, start_y: usize, fill_
 #[component]
 pub fn ProfileEditor() -> impl IntoView {
     let state = expect_context::<AppState>();
+    let studio = Studio::opened();
+    let review = Review {
+        state,
+        busy: RwSignal::new(false),
+        trouble: RwSignal::new(Said::Nothing),
+    };
     let nickname = RwSignal::new(String::new());
-    let pixels = RwSignal::new([15u8; 1024]);
-    let color = RwSignal::new(0u8);
-    let tool = RwSignal::new(Tool::Pencil);
-    let brush = RwSignal::new(BrushShape::Single);
-
-    let history = RwSignal::new(Vec::<[u8; 1024]>::new());
-    let future = RwSignal::new(Vec::<[u8; 1024]>::new());
-
-    let busy = RwSignal::new(false);
-    let error = RwSignal::new(Option::<String>::None);
-
-    let push_undo = move |prev: [u8; 1024]| {
-        history.update(|h| {
-            if h.len() >= 60 {
-                h.remove(0);
-            }
-            h.push(prev);
-        });
-        future.set(Vec::new());
-    };
-
-    let undo = move || {
-        history.update(|h| {
-            if let Some(prev) = h.pop() {
-                let current = pixels.get_untracked();
-                future.update(|f| f.push(current));
-                pixels.set(prev);
-            }
-        });
-    };
-
-    let redo = move || {
-        future.update(|f| {
-            if let Some(next) = f.pop() {
-                let current = pixels.get_untracked();
-                history.update(|h| h.push(current));
-                pixels.set(next);
-            }
-        });
-    };
-
-    // Global keyboard shortcuts: Ctrl+Z (Undo), Ctrl+Y / Ctrl+Shift+Z (Redo)
-    window_event_listener(leptos::ev::keydown, move |ev: web_sys::KeyboardEvent| {
-        // If active focus is inside a text input or textarea, leave default browser undo/redo intact
-        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
-            if let Some(active) = doc.active_element() {
-                let tag = active.tag_name().to_lowercase();
-                if tag == "input" || tag == "textarea" {
-                    return;
-                }
-            }
-        }
-
-        let is_ctrl = ev.ctrl_key() || ev.meta_key();
-        let key = ev.key();
-
-        if is_ctrl {
-            if key == "z" || key == "Z" {
-                ev.prevent_default();
-                if ev.shift_key() {
-                    redo();
-                } else {
-                    undo();
-                }
-            } else if key == "y" || key == "Y" {
-                ev.prevent_default();
-                redo();
-            }
-        }
-    });
-
-    let fill_canvas = move |fill_color: u8| {
-        push_undo(pixels.get_untracked());
-        pixels.set([fill_color; 1024]);
-    };
-
-    let clear_canvas = move |_| {
-        fill_canvas(15); // 15 is white in AvatarPalette
-    };
-
-    let prepare = move |kind: &'static str| {
-        if busy.get_untracked() || state.following.get_untracked() {
-            return;
-        }
-        busy.set(true);
-        error.set(None);
-        let text = if kind == "profile" {
-            nickname.get_untracked()
-        } else {
-            String::new()
-        };
-        let avatar =
-            (kind == "avatar").then(|| encode_avatar_pixels(&pixels.get_untracked()).to_vec());
-        let chain = state.active_chain.get_untracked();
-        leptos::task::spawn_local(async move {
-            match tauri_call::<Publication>(
-                "quote_publication",
-                &json!({
-                    "chain": chain.code(), "kind": kind, "text": text, "avatar": avatar,
-                    "target": null, "wire": "", "hashtags": []
-                }),
-            )
-            .await
-            {
-                Ok(quote) => state.publication.set(Some(quote)),
-                Err(message) => error.set(Some(message)),
-            }
-            busy.set(false);
-        });
-    };
-
-    let load_confirmed = move |_| {
-        let Signer::Author(author) = signing_author(state) else {
-            return;
-        };
-        let identities = state.public_identities.get_untracked();
-        let Some(identity) = identities.get(&author.to_hex()) else {
-            return;
-        };
-        nickname.set(identity.nickname.clone().unwrap_or_default());
-        let loaded_pixels = identity
-            .avatar
-            .as_ref()
-            .and_then(|bytes| bytes.as_slice().try_into().ok())
-            .map(decode_avatar_pixels)
-            .unwrap_or([15; 1024]);
-        push_undo(pixels.get_untracked());
-        pixels.set(loaded_pixels);
-    };
-
-    let disabled = move || {
-        busy.get() || state.following.get() || matches!(signing_author(state), Signer::Locked)
-    };
-    let can_undo = move || !history.with(|h| h.is_empty());
-    let can_redo = move || !future.with(|f| f.is_empty());
+    window_event_listener(leptos::ev::keydown, move |event| studio.shortcut(&event));
+    let disabled = Signal::derive(move || review.disabled());
+    let quote = Callback::new(move |content: Content| review.quote(content));
 
     view! {
         <div class="settings-group">
             <h3 class="group-title">"Public profile"</h3>
             <p>"Your nickname and drawing are public, separate transactions signed by your active identity. Names are not unique. Confirmed updates appear after indexing."</p>
-            <button class="btn btn-secondary" disabled=disabled on:click=load_confirmed>"Load confirmed profile"</button>
-            <label>"Nickname"
-                <textarea class="input" rows="2" prop:value=move || nickname.get() on:input=move |event| nickname.set(event_target_value(&event)) />
-            </label>
-            <p class="action-desc">{move || nickname.read().len()} " / 32760 UTF-8 bytes. Empty uses your key fingerprint. Whitespace and Unicode are preserved exactly."</p>
-            <button class="btn btn-primary" disabled=move || { disabled() || nickname.read().len() > 32760 }
-                on:click=move |_| prepare("profile")>"Review nickname & fee"</button>
+            <Actions>
+                <button class="btn btn-secondary btn-sm" disabled=disabled
+                    on:click=move |_clicked| load_confirmed(state, studio, nickname)>"Load confirmed profile"</button>
+            </Actions>
+            <NicknameEditor nickname=nickname disabled=disabled quote=quote />
 
             <h3 class="group-title">"Draw your avatar"</h3>
             <p>"Create your 32 × 32 pixel identity. Choose tools, brush sizes, and 16 URMA colors. Full keyboard undo (Ctrl+Z) and redo (Ctrl+Y / Ctrl+Shift+Z) supported."</p>
-
-            // Drawing Toolbar: Tools, Brushes, and History Controls
-            <div class="avatar-studio-controls">
-                // Tool Selection
-                <div class="control-section">
-                    <span class="control-label">"Tool"</span>
-                    <div class="tool-btn-group" role="group" aria-label="Drawing tools">
-                        <button
-                            type="button"
-                            class=move || if tool.get() == Tool::Pencil { "avatar-tool-btn active" } else { "avatar-tool-btn" }
-                            on:click=move |_| tool.set(Tool::Pencil)
-                            title="Pencil / Paintbrush"
-                        >
-                            <span class="tool-icon">"✏️"</span>
-                            <span class="tool-name">"Pencil"</span>
-                        </button>
-                        <button
-                            type="button"
-                            class=move || if tool.get() == Tool::Bucket { "avatar-tool-btn active" } else { "avatar-tool-btn" }
-                            on:click=move |_| tool.set(Tool::Bucket)
-                            title="Flood Fill Bucket"
-                        >
-                            <span class="tool-icon">"🪣"</span>
-                            <span class="tool-name">"Bucket"</span>
-                        </button>
-                        <button
-                            type="button"
-                            class=move || if tool.get() == Tool::Eraser { "avatar-tool-btn active" } else { "avatar-tool-btn" }
-                            on:click=move |_| tool.set(Tool::Eraser)
-                            title="Eraser (paint background white)"
-                        >
-                            <span class="tool-icon">"🧹"</span>
-                            <span class="tool-name">"Eraser"</span>
-                        </button>
-                        <button
-                            type="button"
-                            class=move || if tool.get() == Tool::Eyedropper { "avatar-tool-btn active" } else { "avatar-tool-btn" }
-                            on:click=move |_| tool.set(Tool::Eyedropper)
-                            title="Eyedropper / Color Picker"
-                        >
-                            <span class="tool-icon">"💧"</span>
-                            <span class="tool-name">"Picker"</span>
-                        </button>
-                    </div>
-                </div>
-
-                // Brush Shapes & Sizes
-                <div class="control-section">
-                    <span class="control-label">"Brush Shape"</span>
-                    <div class="brush-btn-group" role="group" aria-label="Brush sizes">
-                        <button
-                            type="button"
-                            class=move || if brush.get() == BrushShape::Single { "avatar-brush-btn active" } else { "avatar-brush-btn" }
-                            on:click=move |_| brush.set(BrushShape::Single)
-                            title="1×1 Single Pixel"
-                        >
-                            <span class="brush-preview-dot dot-1"></span>
-                            <span>"1px"</span>
-                        </button>
-                        <button
-                            type="button"
-                            class=move || if brush.get() == BrushShape::Square2 { "avatar-brush-btn active" } else { "avatar-brush-btn" }
-                            on:click=move |_| brush.set(BrushShape::Square2)
-                            title="2×2 Block Brush"
-                        >
-                            <span class="brush-preview-dot dot-2"></span>
-                            <span>"2×2"</span>
-                        </button>
-                        <button
-                            type="button"
-                            class=move || if brush.get() == BrushShape::Square3 { "avatar-brush-btn active" } else { "avatar-brush-btn" }
-                            on:click=move |_| brush.set(BrushShape::Square3)
-                            title="3×3 Wide Brush"
-                        >
-                            <span class="brush-preview-dot dot-3"></span>
-                            <span>"3×3"</span>
-                        </button>
-                        <button
-                            type="button"
-                            class=move || if brush.get() == BrushShape::Cross { "avatar-brush-btn active" } else { "avatar-brush-btn" }
-                            on:click=move |_| brush.set(BrushShape::Cross)
-                            title="Cross Shape Brush"
-                        >
-                            <span class="brush-preview-cross">"+"</span>
-                            <span>"Cross"</span>
-                        </button>
-                    </div>
-                </div>
-
-                // Undo, Redo, and Canvas Actions
-                <div class="control-section">
-                    <span class="control-label">"History & Canvas"</span>
-                    <div class="history-btn-group">
-                        <button
-                            type="button"
-                            class="avatar-action-btn"
-                            disabled=move || !can_undo()
-                            on:click=move |_| undo()
-                            title="Undo last action (Ctrl+Z)"
-                        >
-                            <span>"↶ Undo"</span>
-                            <small>"Ctrl+Z"</small>
-                        </button>
-                        <button
-                            type="button"
-                            class="avatar-action-btn"
-                            disabled=move || !can_redo()
-                            on:click=move |_| redo()
-                            title="Redo action (Ctrl+Y / Ctrl+Shift+Z)"
-                        >
-                            <span>"↷ Redo"</span>
-                            <small>"Ctrl+Y"</small>
-                        </button>
-                        <button
-                            type="button"
-                            class="avatar-action-btn"
-                            on:click=move |_| fill_canvas(color.get_untracked())
-                            title="Fill entire canvas with currently selected color"
-                        >
-                            <span>"🎨 Fill All"</span>
-                        </button>
-                        <button
-                            type="button"
-                            class="avatar-action-btn"
-                            on:click=clear_canvas
-                            title="Reset canvas to blank white"
-                        >
-                            <span>"🗑️ Clear"</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            // 16-Color Palette
-            <div class="palette-container">
-                <div class="palette-meta">
-                    <span class="control-label">"16-Color Reference Palette"</span>
-                    <span class="active-color-badge">
-                        <span class="active-color-swatch" style=move || format!("background:{}", AvatarPalette::hex(color.get()))></span>
-                        <code class="active-color-hex">{move || format!("Color {:X}: {}", color.get(), AvatarPalette::hex(color.get()))}</code>
-                    </span>
-                </div>
-                <div class="avatar-palette" role="group" aria-label="Avatar colors">
-                    {(0u8..16).map(|index| view! {
-                        <button
-                            type="button"
-                            class="avatar-swatch"
-                            style=format!("background:{}", AvatarPalette::hex(index))
-                            aria-label=format!("Color {index:X}: {}", AvatarPalette::hex(index))
-                            aria-pressed=move || color.get() == index
-                            on:click=move |_| {
-                                color.set(index);
-                                if tool.get_untracked() == Tool::Eraser {
-                                    tool.set(Tool::Pencil);
-                                }
-                            }
-                        />
-                    }).collect_view()}
-                </div>
-            </div>
-
-            // Canvas & Multi-Size Preview Layout
+            <Toolbar studio=studio />
+            <Palette studio=studio />
             <div class="avatar-editor-layout">
-                <div class="canvas-wrapper">
-                    <div class="avatar-canvas" role="group" aria-label="32 by 32 avatar drawing canvas">
-                        {(0usize..1024).map(|index| {
-                            let x = index % 32;
-                            let y = index / 32;
-                            view! {
-                                <button
-                                    type="button"
-                                    class="avatar-pixel"
-                                    aria-label=format!("Pixel {}, {}", x + 1, y + 1)
-                                    style=move || format!("background:{}", AvatarPalette::hex(pixels.with(|p| p[index])))
-                                    on:pointerdown=move |event| {
-                                        event.prevent_default();
-                                        match tool.get_untracked() {
-                                            Tool::Eyedropper => {
-                                                let picked = pixels.with(|p| p[index]);
-                                                color.set(picked);
-                                                tool.set(Tool::Pencil);
-                                            }
-                                            Tool::Bucket => {
-                                                push_undo(pixels.get_untracked());
-                                                let c = color.get_untracked();
-                                                pixels.update(|p| flood_fill(p, x, y, c));
-                                            }
-                                            Tool::Eraser => {
-                                                push_undo(pixels.get_untracked());
-                                                let b = brush.get_untracked();
-                                                pixels.update(|p| apply_brush(p, x, y, b, 15));
-                                            }
-                                            Tool::Pencil => {
-                                                push_undo(pixels.get_untracked());
-                                                let c = color.get_untracked();
-                                                let b = brush.get_untracked();
-                                                pixels.update(|p| apply_brush(p, x, y, b, c));
-                                            }
-                                        }
-                                    }
-                                    on:pointerenter=move |event| {
-                                        if event.buttons() & 1 != 0 {
-                                            match tool.get_untracked() {
-                                                Tool::Pencil => {
-                                                    let c = color.get_untracked();
-                                                    let b = brush.get_untracked();
-                                                    pixels.update(|p| apply_brush(p, x, y, b, c));
-                                                }
-                                                Tool::Eraser => {
-                                                    let b = brush.get_untracked();
-                                                    pixels.update(|p| apply_brush(p, x, y, b, 15));
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                    }
-                                />
-                            }
-                        }).collect_view()}
-                    </div>
-                    <div class="canvas-coords-hint">
-                        <span>"32 × 32 Grid"</span>
-                        <span>"Click or drag to paint"</span>
-                    </div>
-                </div>
+                <Canvas studio=studio />
+                <Previews studio=studio />
+            </div>
+            <p class="action-desc">"512 pixel bytes · 520-byte URMA record (transaction overhead extra). Pixel data is encoded high-nibble first and signed atomically on-chain."</p>
+            <Actions>
+                <button class="btn btn-primary" disabled=disabled
+                    on:click=move |_clicked| quote.run(Content::Avatar(encode_avatar_pixels(&studio.pixels.get_untracked()).to_vec()))>
+                    "Review avatar & fee"
+                </button>
+            </Actions>
+            <Warning message=review.trouble.into() />
+        </div>
+        <PublicationPanel />
+    }
+}
 
-                // Multi-Scale Preview Gallery
-                <div class="avatar-preview-column">
-                    <div class="preview-card-section">
-                        <span class="preview-title">"Preview: Large (96px)"</span>
-                        <div class="avatar-preview-frame large" inner_html=move || render_avatar_svg(&encode_avatar_pixels(&pixels.get()), 96) />
-                    </div>
+#[component]
+fn NicknameEditor(
+    nickname: RwSignal<String>,
+    disabled: Signal<bool>,
+    quote: Callback<Content>,
+) -> impl IntoView {
+    let too_long = move || nickname.read().len() > MAX_NICKNAME_BYTES;
+    view! {
+        <label class="field">"Nickname"
+            <textarea rows="2" prop:value=move || nickname.get()
+                on:input=move |event| nickname.set(event_target_value(&event)) />
+            <span class="field-hint">
+                {move || nickname.read().len()} " / " {MAX_NICKNAME_BYTES}
+                " UTF-8 bytes. Empty uses your key fingerprint. Whitespace and Unicode are preserved exactly."
+            </span>
+        </label>
+        <Actions>
+            <button class="btn btn-primary" disabled=move || disabled.get() || too_long()
+                on:click=move |_clicked| quote.run(Content::Nickname(nickname.get_untracked()))>
+                "Review nickname & fee"
+            </button>
+        </Actions>
+    }
+}
 
-                    <div class="preview-scales-row">
-                        <div class="preview-card-section mini">
-                            <span class="preview-title">"Feed (36px)"</span>
-                            <div class="avatar-preview-frame" inner_html=move || render_avatar_svg(&encode_avatar_pixels(&pixels.get()), 36) />
-                        </div>
-                        <div class="preview-card-section mini">
-                            <span class="preview-title">"Reply (24px)"</span>
-                            <div class="avatar-preview-frame" inner_html=move || render_avatar_svg(&encode_avatar_pixels(&pixels.get()), 24) />
-                        </div>
-                    </div>
+#[component]
+fn Toolbar(studio: Studio) -> impl IntoView {
+    let can_undo = move || studio.history.with(|held| !held.is_empty());
+    let can_redo = move || studio.future.with(|held| !held.is_empty());
+    view! {
+        <div class="avatar-studio-controls">
+            <div class="control-section">
+                <span class="control-label">"Tool"</span>
+                <div class="tool-btn-group" role="group" aria-label="Drawing tools">
+                    {Tool::ALL.into_iter().map(|tool| view! { <ToolButton studio=studio tool=tool /> }).collect_view()}
                 </div>
             </div>
-
-            <p class="action-desc">"512 pixel bytes · 520-byte URMA record (transaction overhead extra). Pixel data is encoded high-nibble first and signed atomically on-chain."</p>
-            <button class="btn btn-primary" disabled=disabled on:click=move |_| prepare("avatar")>"Review avatar & fee"</button>
-            {move || error.get().map(|message| view! { <div class="alert alert-error">{message}</div> })}
+            <div class="control-section">
+                <span class="control-label">"Brush"</span>
+                <div class="brush-btn-group" role="group" aria-label="Brush sizes">
+                    {BrushShape::ALL.into_iter().map(|brush| view! { <BrushButton studio=studio brush=brush /> }).collect_view()}
+                </div>
+            </div>
+            <div class="control-section">
+                <span class="control-label">"History & canvas"</span>
+                <div class="history-btn-group">
+                    <button type="button" class="avatar-action-btn" title="Undo (Ctrl+Z)"
+                        disabled=move || !can_undo() on:click=move |_clicked| studio.undo()>
+                        <span>"↶ Undo"</span><small>"Ctrl+Z"</small>
+                    </button>
+                    <button type="button" class="avatar-action-btn" title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
+                        disabled=move || !can_redo() on:click=move |_clicked| studio.redo()>
+                        <span>"↷ Redo"</span><small>"Ctrl+Y"</small>
+                    </button>
+                    <button type="button" class="avatar-action-btn" title="Fill the whole canvas with the selected color"
+                        on:click=move |_clicked| studio.fill(studio.color.get_untracked())>
+                        <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></span>
+                        <span>"Fill all"</span>
+                    </button>
+                    <button type="button" class="avatar-action-btn" title="Reset the canvas to white"
+                        on:click=move |_clicked| studio.fill(AVATAR_BACKGROUND)>
+                        <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg></span>
+                        <span>"Clear"</span>
+                    </button>
+                </div>
+            </div>
         </div>
-        <super::compose_box::PublicationPanel />
+    }
+}
+
+#[component]
+fn ToolButton(studio: Studio, tool: Tool) -> impl IntoView {
+    view! {
+        <button type="button"
+            class=move || match studio.tool.get() == tool { true => "avatar-tool-btn active", false => "avatar-tool-btn" }
+            aria-pressed=move || (studio.tool.get() == tool).to_string()
+            title=tool.title()
+            on:click=move |_clicked| studio.tool.set(tool)>
+            <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d=tool.icon()/></svg></span>
+            <span class="tool-name">{tool.name()}</span>
+        </button>
+    }
+}
+
+#[component]
+fn BrushButton(studio: Studio, brush: BrushShape) -> impl IntoView {
+    view! {
+        <button type="button"
+            class=move || match studio.brush.get() == brush { true => "avatar-brush-btn active", false => "avatar-brush-btn" }
+            aria-pressed=move || (studio.brush.get() == brush).to_string()
+            title=brush.title()
+            on:click=move |_clicked| studio.brush.set(brush)>
+            <span class=brush.preview_class()>{brush.glyph()}</span>
+            <span>{brush.label()}</span>
+        </button>
+    }
+}
+
+#[component]
+fn Palette(studio: Studio) -> impl IntoView {
+    let hex = move || AvatarPalette::hex(studio.color.get());
+    view! {
+        <div class="palette-container">
+            <div class="palette-meta">
+                <span class="control-label">"16-color reference palette"</span>
+                <span class="active-color-badge">
+                    <span class="active-color-swatch" style=move || format!("background:{}", hex())></span>
+                    <code class="active-color-hex">{move || format!("Color {:X}: {}", studio.color.get(), hex())}</code>
+                </span>
+            </div>
+            <div class="avatar-palette" role="group" aria-label="Avatar colors">
+                {(0u8..16).map(|index| view! {
+                    <button type="button" class="avatar-swatch"
+                        style=format!("background:{}", AvatarPalette::hex(index))
+                        aria-label=format!("Color {index:X}: {}", AvatarPalette::hex(index))
+                        aria-pressed=move || (studio.color.get() == index).to_string()
+                        on:click=move |_clicked| studio.choose(index) />
+                }).collect_view()}
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn Canvas(studio: Studio) -> impl IntoView {
+    view! {
+        <div class="canvas-wrapper">
+            <div class="avatar-canvas" role="group" aria-label="32 by 32 avatar drawing canvas">
+                {(0usize..1024).map(|index| view! {
+                    <button type="button" class="avatar-pixel"
+                        aria-label=format!("Pixel {}, {}", index % 32 + 1, index / 32 + 1)
+                        style=move || format!("background:{}", AvatarPalette::hex(studio.pixels.with(|pixels| pixels[index])))
+                        on:pointerdown=move |event| { event.prevent_default(); studio.press(index); }
+                        on:pointerenter=move |event| { if event.buttons() & 1 != 0 { studio.drag(index); } } />
+                }).collect_view()}
+            </div>
+            <div class="canvas-coords-hint">
+                <span>"32 × 32 grid"</span>
+                <span>"Click or drag to paint"</span>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn Previews(studio: Studio) -> impl IntoView {
+    view! {
+        <div class="avatar-preview-column">
+            <div class="preview-card-section">
+                <span class="preview-title">{format!("Preview · {AVATAR_PREVIEW_PIXELS} px")}</span>
+                <div class="avatar-preview-frame large" inner_html=move || studio.preview(AVATAR_PREVIEW_PIXELS) />
+            </div>
+            <div class="preview-scales-row">
+                <div class="preview-card-section mini">
+                    <span class="preview-title">{format!("Profile · {PROFILE_AVATAR_PIXELS} px")}</span>
+                    <div class="avatar-preview-frame" inner_html=move || studio.preview(PROFILE_AVATAR_PIXELS) />
+                </div>
+                <div class="preview-card-section mini">
+                    <span class="preview-title">{format!("Card · {CARD_AVATAR_PIXELS} px")}</span>
+                    <div class="avatar-preview-frame" inner_html=move || studio.preview(CARD_AVATAR_PIXELS) />
+                </div>
+            </div>
+        </div>
     }
 }
