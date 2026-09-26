@@ -65,7 +65,21 @@ pub fn ComposeBox(#[prop(default = Speaking::Freely)] speaking: Speaking) -> imp
     let (held_wire, held_hashtags) = state.draft_labels(&key.get_value());
     let wire = RwSignal::new(held_wire);
     let hashtags = RwSignal::new(held_hashtags);
-    Effect::new(move |_previous: Option<()>| state.set_draft_labels(&key.get_value(), wire.get(), hashtags.get()));
+    let labels_revision = RwSignal::new(state.draft_clear_revision(&key.get_value()));
+    Effect::new(move |_previous: Option<()>| {
+        if labels_revision.get() == state.draft_clear_revision(&key.get_value()) {
+            state.set_draft_labels(&key.get_value(), wire.get(), hashtags.get());
+        }
+    });
+    Effect::new(move |previous: Option<u64>| {
+        let revision = state.draft_clear_revision(&key.get_value());
+        if previous.is_some_and(|before| before != revision) {
+            wire.set(String::new());
+            hashtags.set(String::new());
+            labels_revision.set(revision);
+        }
+        revision
+    });
     let busy = RwSignal::new(false);
     let trouble = RwSignal::new(Said::Nothing);
     let text = move || state.draft(&key.get_value());
@@ -150,14 +164,20 @@ fn quote_draft(quoting: Quoting) {
     trouble.set(Said::Nothing);
     let draft_key = key.get_value();
     let revision = state.draft_version(&draft_key);
-    let text = match compose(&state.draft(&draft_key), &state.photos(&draft_key), addressed.max_bytes(), MAX_IMAGES_PER_POST) {
+    let manual_text = state.draft(&draft_key);
+    let text = match compose(
+        &manual_text,
+        &state.photos(&draft_key),
+        addressed.max_bytes(),
+        MAX_IMAGES_PER_POST,
+    ) {
         Ok(text) => text,
         Err(error) => {
             trouble.set(Said::Something(error.to_string()));
             return;
         }
     };
-    let meant = match read_topics(&text, &wire.get_untracked(), &hashtags.get_untracked()) {
+    let meant = match read_topics(&manual_text, &wire.get_untracked(), &hashtags.get_untracked()) {
         Reading::Topics(meant) => meant,
         Reading::Unreadable(reason) => {
             trouble.set(Said::Something(reason));

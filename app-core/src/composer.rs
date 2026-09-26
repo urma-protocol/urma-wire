@@ -22,6 +22,8 @@ pub enum PhotoError {
         "Image URL or alt text cannot be represented safely. Try a simpler URL or description."
     )]
     Syntax,
+    #[error("Your text prevents this photo from rendering. Close any unfinished Markdown block before adding it.")]
+    Context,
     #[error("This post can display at most {limit} photos. Remove one before adding another.")]
     Count { limit: usize },
     #[error("This post or reply exceeds its {limit}-byte text limit.")]
@@ -93,12 +95,15 @@ pub fn compose(
     max_bytes: usize,
     max_photos: usize,
 ) -> Result<String, PhotoError> {
+    let original_images: Vec<_> = segments(text)
+        .into_iter()
+        .filter_map(|part| match part {
+            Segment::Image { url, alt } => Some((url, alt)),
+            Segment::Text(_) => None,
+        })
+        .collect();
     if !photos.is_empty() {
-        let existing = segments(text)
-            .into_iter()
-            .filter(|part| matches!(part, Segment::Image { .. }))
-            .count();
-        if existing.saturating_add(photos.len()) > max_photos {
+        if original_images.len().saturating_add(photos.len()) > max_photos {
             return Err(PhotoError::Count { limit: max_photos });
         }
     }
@@ -111,6 +116,24 @@ pub fn compose(
     }
     if result.len() > max_bytes {
         return Err(PhotoError::Bytes { limit: max_bytes });
+    }
+    if !photos.is_empty() {
+        let mut expected = original_images;
+        expected.extend(
+            photos
+                .iter()
+                .map(|photo| (photo.url.clone(), photo.alt.clone())),
+        );
+        let actual: Vec<_> = segments(&result)
+            .into_iter()
+            .filter_map(|part| match part {
+                Segment::Image { url, alt } => Some((url, alt)),
+                Segment::Text(_) => None,
+            })
+            .collect();
+        if actual != expected {
+            return Err(PhotoError::Context);
+        }
     }
     Ok(result)
 }

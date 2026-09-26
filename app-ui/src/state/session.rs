@@ -44,6 +44,7 @@ pub struct AppState {
     pub draft_photos: RwSignal<BTreeMap<String, Vec<Photo>>>,
     pub draft_labels: RwSignal<BTreeMap<String, (String, String)>>,
     pub draft_versions: RwSignal<BTreeMap<String, u64>>,
+    pub draft_clears: RwSignal<BTreeMap<String, u64>>,
     pub invalidated_reviews: RwSignal<BTreeSet<String>>,
     pub public_identities: RwSignal<BTreeMap<String, PublicIdentity>>,
     pub is_loading_feed: RwSignal<bool>,
@@ -81,38 +82,7 @@ impl AppState {
         let autoload = stored_autoload();
         let replies = stored_replies_shown();
         let recalled = topics::load();
-        let state = Self {
-            active_chain: RwSignal::new(Chain::Litecoin),
-            autoload_images: RwSignal::new(autoload.value),
-            replies_shown: RwSignal::new(replies.value),
-            media_epoch: RwSignal::new(0),
-            media_inflight: RwSignal::new(0),
-            media_bytes: RwSignal::new(0),
-            wallet_summary: RwSignal::new(None),
-            identity: RwSignal::new(None),
-            identity_error: RwSignal::new(Said::Nothing),
-            feed: RwSignal::new(Vec::new()),
-            drafts: RwSignal::new(BTreeMap::new()),
-            draft_photos: RwSignal::new(BTreeMap::new()),
-            draft_labels: RwSignal::new(BTreeMap::new()),
-            draft_versions: RwSignal::new(BTreeMap::new()),
-            invalidated_reviews: RwSignal::new(BTreeSet::new()),
-            public_identities: RwSignal::new(BTreeMap::new()),
-            is_loading_feed: RwSignal::new(false),
-            is_loading_wallet: RwSignal::new(false),
-            status_message: RwSignal::new(Said::Nothing),
-            synced: RwSignal::new(Synced::Unchecked),
-            publication: RwSignal::new(None),
-            following: RwSignal::new(false),
-            pause_requested: RwSignal::new(false),
-            publication_error: RwSignal::new(Said::Nothing),
-            connection_health: RwSignal::new(None),
-            connection_last_success_ms: RwSignal::new(None),
-            is_checking_connection: RwSignal::new(false),
-            speaking: RwSignal::new(Speaking::Freely),
-            topics: RwSignal::new(recalled.value),
-            only_followed: RwSignal::new(false),
-        };
+        let state = Self::empty(autoload.value, replies.value, recalled.value);
         for complaint in [autoload.complaint, replies.complaint, recalled.complaint] {
             match complaint {
                 Complaint::Unreadable(reason) => state.status_message.set(Said::Something(reason)),
@@ -127,6 +97,42 @@ impl AppState {
             load_pending(state).await;
         });
         state
+    }
+
+    fn empty(autoload: bool, replies: usize, remembered: Remembered) -> Self {
+        Self {
+            active_chain: RwSignal::new(Chain::Litecoin),
+            autoload_images: RwSignal::new(autoload),
+            replies_shown: RwSignal::new(replies),
+            media_epoch: RwSignal::new(0),
+            media_inflight: RwSignal::new(0),
+            media_bytes: RwSignal::new(0),
+            wallet_summary: RwSignal::new(None),
+            identity: RwSignal::new(None),
+            identity_error: RwSignal::new(Said::Nothing),
+            feed: RwSignal::new(Vec::new()),
+            drafts: RwSignal::new(BTreeMap::new()),
+            draft_photos: RwSignal::new(BTreeMap::new()),
+            draft_labels: RwSignal::new(BTreeMap::new()),
+            draft_versions: RwSignal::new(BTreeMap::new()),
+            draft_clears: RwSignal::new(BTreeMap::new()),
+            invalidated_reviews: RwSignal::new(BTreeSet::new()),
+            public_identities: RwSignal::new(BTreeMap::new()),
+            is_loading_feed: RwSignal::new(false),
+            is_loading_wallet: RwSignal::new(false),
+            status_message: RwSignal::new(Said::Nothing),
+            synced: RwSignal::new(Synced::Unchecked),
+            publication: RwSignal::new(None),
+            following: RwSignal::new(false),
+            pause_requested: RwSignal::new(false),
+            publication_error: RwSignal::new(Said::Nothing),
+            connection_health: RwSignal::new(None),
+            connection_last_success_ms: RwSignal::new(None),
+            is_checking_connection: RwSignal::new(false),
+            speaking: RwSignal::new(Speaking::Freely),
+            topics: RwSignal::new(remembered),
+            only_followed: RwSignal::new(false),
+        }
     }
 
     pub fn set_chain(&self, chain: Chain) {
@@ -245,6 +251,17 @@ impl AppState {
             return;
         }
         let state = *self;
+        let reviewed_draft = if approve {
+            self.publication
+                .get_untracked()
+                .and_then(|review| post_draft_key(&review.content))
+                .map(|key| {
+                    let version = self.draft_version(&key);
+                    (key, version)
+                })
+        } else {
+            None
+        };
         state.following.set(true);
         state.pause_requested.set(false);
         state.publication_error.set(Said::Nothing);
@@ -254,12 +271,9 @@ impl AppState {
                 match publication::advance(id.clone(), approval).await {
                     Ok(result) => {
                         let complete = result.complete;
-                        if approval && result.approved {
-                            if let Some(key) = post_draft_key(&result.content) {
-                                state.clear_draft(&key);
-                            }
+                        if !state.apply_advance_result(result, approval, reviewed_draft.as_ref()) {
+                            break;
                         }
-                        state.publication.set(Some(result));
                         if complete {
                             state.refresh_all();
                             break;
@@ -276,6 +290,31 @@ impl AppState {
             }
             state.following.set(false);
         });
+    }
+
+    fn apply_advance_result(
+        &self,
+        result: Publication,
+        approval: bool,
+        reviewed_draft: Option<&(String, u64)>,
+    ) -> bool {
+        if !result.approved && self.invalidated_reviews.get_untracked().contains(&result.id) {
+            return false;
+        }
+        if result.approved {
+            self.accept_review(&result.id);
+            if approval {
+                if let Some((key, version)) = reviewed_draft {
+                    if post_draft_key(&result.content).as_deref() == Some(key.as_str())
+                        && self.draft_version(key) == *version
+                    {
+                        self.clear_draft(key);
+                    }
+                }
+            }
+        }
+        self.publication.set(Some(result));
+        true
     }
 
     pub fn reply_to(&self, post: Post) {
@@ -334,13 +373,24 @@ impl AppState {
     }
 
     pub fn set_draft_labels(&self, key: &str, wire: String, hashtags: String) {
-        if self.draft_labels(key) == (wire.clone(), hashtags.clone()) {
+        let held = self
+            .draft_labels
+            .with_untracked(|drafts| drafts.get(key).cloned().unwrap_or_default());
+        if held == (wire.clone(), hashtags.clone()) {
             return;
         }
         self.draft_labels.update(|drafts| {
-            drafts.insert(key.to_owned(), (wire, hashtags));
+            if wire.is_empty() && hashtags.is_empty() {
+                drafts.remove(key);
+            } else {
+                drafts.insert(key.to_owned(), (wire, hashtags));
+            }
         });
         self.changed_draft(key);
+    }
+
+    pub fn draft_clear_revision(&self, key: &str) -> u64 {
+        self.draft_clears.with(|clears| clears.get(key).copied().unwrap_or(0))
     }
 
     pub fn draft_version(&self, key: &str) -> u64 {
@@ -382,6 +432,10 @@ impl AppState {
         });
         self.draft_labels.update(|drafts| {
             drafts.remove(key);
+        });
+        self.draft_clears.update(|clears| {
+            let revision = clears.entry(key.to_owned()).or_default();
+            *revision = revision.wrapping_add(1);
         });
     }
 
@@ -577,5 +631,74 @@ fn unreachable(chain: Chain, fault: Fault) -> ConnectionHealth {
         local_start: None,
         local_height: None,
         trouble: Trouble::SourceUnverified(fault.message),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use leptos::prelude::Owner;
+
+    fn approved(id: &str) -> Publication {
+        Publication {
+            content: Content::Post {
+                text: "Reviewed text".into(),
+                wire: "original".into(),
+                hashtags: vec![],
+                addressed: Addressed::Standalone,
+            },
+            id: id.into(),
+            txid: String::new(),
+            fee: 0,
+            selected_funding: 0,
+            returned: 0,
+            approved: true,
+            confirmed: 0,
+            mempool: 0,
+            message: String::new(),
+            complete: false,
+        }
+    }
+
+    #[test]
+    fn delayed_approval_keeps_new_edits_and_clears_only_the_unchanged_draft() {
+        Owner::new().with(|| {
+            let state = AppState::empty(false, 0, Remembered::default());
+            state.set_draft("", "Reviewed text".into());
+            state.set_photos(
+                "",
+                vec![Photo::new("https://cdn.example/old.png", "Old").unwrap()],
+            );
+            state.set_draft_labels("", "original".into(), "first".into());
+            let reviewed = (String::new(), state.draft_version(""));
+
+            state.set_draft("", "New text while approval was pending".into());
+            let new_photo = Photo::new("https://cdn.example/new.png", "New").unwrap();
+            state.set_photos("", vec![new_photo.clone()]);
+            state.set_draft_labels("", "new-wire".into(), "second".into());
+            state.invalidated_reviews.update(|ids| {
+                ids.insert("old-plan".into());
+            });
+            assert!(state.apply_advance_result(approved("old-plan"), true, Some(&reviewed)));
+            assert_eq!(state.draft(""), "New text while approval was pending");
+            assert_eq!(state.photos(""), vec![new_photo]);
+            assert_eq!(state.draft_labels(""), ("new-wire".into(), "second".into()));
+            assert!(state.publication.get_untracked().unwrap().approved);
+            assert!(!state.invalidated_reviews.get_untracked().contains("old-plan"));
+
+            let clean = AppState::empty(false, 0, Remembered::default());
+            clean.set_draft("", "Reviewed text".into());
+            clean.set_photos(
+                "",
+                vec![Photo::new("https://cdn.example/old.png", "Old").unwrap()],
+            );
+            clean.set_draft_labels("", "original".into(), "first".into());
+            let reviewed = (String::new(), clean.draft_version(""));
+            assert!(clean.apply_advance_result(approved("clean-plan"), true, Some(&reviewed)));
+            assert_eq!(clean.draft(""), "");
+            assert!(clean.photos("").is_empty());
+            assert_eq!(clean.draft_labels(""), (String::new(), String::new()));
+            assert_eq!(clean.draft_clear_revision(""), 1);
+        });
     }
 }
