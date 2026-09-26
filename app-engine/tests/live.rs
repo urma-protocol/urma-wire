@@ -85,7 +85,13 @@ fn publication_roundtrip(kind: &str, structured: bool) {
         .unlock(Credential::Password(PASSWORD.into()))
         .unwrap();
     let expected = content(kind, structured);
-    let quote = service.quote(&expected).unwrap();
+    let mut quote = service.quote(&expected).unwrap();
+    if kind == "post" && !structured {
+        service.discard_quote(&quote.id).unwrap();
+        assert!(matches!(service.status().unwrap(), Pending::Settled));
+        assert!(service.advance(&quote.id, true).is_err(), "an edited draft cannot approve its discarded review");
+        quote = service.quote(&expected).unwrap();
+    }
     assert_eq!(quote.content, expected);
     assert_eq!(quote.selected_funding - quote.returned, quote.fee);
     assert!(!quote.approved);
@@ -94,6 +100,9 @@ fn publication_roundtrip(kind: &str, structured: bool) {
     assert!(service.advance(&quote.id, false).is_err());
     assert!(mock.state.lock().unwrap().submissions.is_empty());
     let first = service.advance(&quote.id, true).unwrap();
+    if kind == "post" && !structured {
+        assert!(service.discard_quote(&quote.id).is_err(), "an approved plan cannot be discarded by a draft edit");
+    }
     assert_eq!((first.confirmed, first.mempool), (0, 2));
     assert!(!first.complete);
     assert!(service

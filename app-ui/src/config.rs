@@ -4,8 +4,6 @@ pub const MAX_NICKNAME_BYTES: usize = 32_760;
 
 pub const MAX_DISPLAY_BYTES: usize = 64 * 1024 * 1024;
 
-pub const MAX_IMAGES_PER_POST: usize = 2;
-
 pub const CONCURRENT_IMAGE_FETCHES: usize = 2;
 
 pub const FEED_PAGE_SIZE: usize = 100;

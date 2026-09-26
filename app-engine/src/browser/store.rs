@@ -31,6 +31,15 @@ export async function app_write(key, value) {
         tx.onabort = tx.onerror = () => reject(new Error('Saving browser state failed; no publication authorized'));
     }); } finally { db.close(); }
 }
+export async function app_delete(key) {
+    const db = await app_database();
+    try { await new Promise((resolve,reject) => {
+        const tx = db.transaction('private','readwrite');
+        tx.objectStore('private').delete(key);
+        tx.oncomplete = resolve;
+        tx.onabort = tx.onerror = () => reject(new Error('Discarding browser quote failed'));
+    }); } finally { db.close(); }
+}
 let release, held;
 export async function acquire_app_lock() {
     if (!navigator.locks) throw new Error('This browser lacks Web Locks required for safe publication');
@@ -50,6 +59,8 @@ extern "C" {
     async fn app_read(key: &str) -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch)]
     async fn app_write(key: &str, value: &str) -> Result<(), JsValue>;
+    #[wasm_bindgen(catch)]
+    async fn app_delete(key: &str) -> Result<(), JsValue>;
     #[wasm_bindgen(catch)]
     async fn acquire_app_lock() -> Result<(), JsValue>;
     fn release_app_lock();
@@ -74,6 +85,10 @@ pub async fn write(key: &str, value: &impl Serialize) -> Result<(), BrowserError
         return Err(BrowserError::StateCapacity);
     }
     Ok(app_write(key, &text).await?)
+}
+
+pub async fn delete(key: &str) -> Result<(), BrowserError> {
+    Ok(app_delete(key).await?)
 }
 
 pub async fn source() -> Result<String, BrowserError> {

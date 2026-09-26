@@ -77,6 +77,10 @@ async fn chain_request(request: Request) -> Result<Response, BrowserError> {
         Request::Quote { content, .. } => Ok(Response::Publication(
             publish::quote(&connected().await?, &content).await?,
         )),
+        Request::DiscardQuote { id } => {
+            publish::discard(&id).await?;
+            Ok(Response::Discarded)
+        }
         Request::Advance { id, approve } => Ok(Response::Publication(
             publish::advance(&connected().await?, &id, approve).await?,
         )),

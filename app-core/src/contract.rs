@@ -21,6 +21,7 @@ pub enum Request {
     Source,
     AdoptSource { url: String },
     Quote { chain: Chain, content: Content },
+    DiscardQuote { id: String },
     PublicationStatus,
     Advance { id: String, approve: bool },
     FetchImage { url: String },
@@ -41,6 +42,7 @@ impl Request {
             Request::Source => "chain source",
             Request::AdoptSource { .. } => "chain source change",
             Request::Quote { .. } => "publication quote",
+            Request::DiscardQuote { .. } => "discard publication quote",
             Request::PublicationStatus => "publication status",
             Request::Advance { .. } => "publication advance",
             Request::FetchImage { .. } => "external image",
@@ -61,6 +63,7 @@ pub enum Response {
     Source(String),
     SourceAdopted,
     Publication(Publication),
+    Discarded,
     Pending(Pending),
     Image(FetchedImage),
 }
@@ -79,6 +82,7 @@ impl Response {
             Response::Source(_url) => "chain source",
             Response::SourceAdopted => "chain source adopted",
             Response::Publication(_publication) => "publication",
+            Response::Discarded => "discarded publication quote",
             Response::Pending(_pending) => "pending publication",
             Response::Image(_image) => "external image",
         }

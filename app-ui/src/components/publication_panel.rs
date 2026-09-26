@@ -1,5 +1,6 @@
 use crate::components::Actions;
 use crate::components::Warning;
+use crate::components::markdown::PostText;
 use crate::config::AVATAR_PREVIEW_PIXELS;
 use crate::state::AppState;
 use leptos::prelude::expect_context;
@@ -24,6 +25,7 @@ use leptos::prelude::StoredValue;
 use leptos::prelude::{component, view};
 use tracing::warn;
 use wire_app_core::avatar::render_avatar_svg;
+use wire_app_core::markdown::{segments, Segment};
 use wire_app_core::publication::{Addressed, Content, Publication};
 
 #[component]
@@ -99,9 +101,29 @@ fn PublicationCard(publication: Publication) -> impl IntoView {
                     Target::Standalone => ().into_any(),
                 }}
             </div>
-            {match text.is_empty() {
-                true => ().into_any(),
-                false => view! { <p class="publication-text">{text}</p> }.into_any(),
+            {match &publication.content {
+                Content::Post { wire, hashtags, .. } => view! {
+                    <div class="publication-text"><PostText text=text wire=wire.clone() hashtags=hashtags.clone() /></div>
+                }.into_any(),
+                _ => match text.is_empty() {
+                    true => ().into_any(),
+                    false => view! { <p class="publication-text">{text}</p> }.into_any(),
+                },
+            }}
+            {match &publication.content {
+                Content::Post { text, .. } => {
+                    let photos: Vec<_> = segments(text).into_iter().filter_map(|piece| match piece {
+                        Segment::Image { url, alt } => Some((url, alt)),
+                        Segment::Text(_) => None,
+                    }).collect();
+                    if photos.is_empty() { ().into_any() } else { view! {
+                        <div class="publication-photos">
+                            <strong>"External photos in this signed record"</strong>
+                            <ul>{photos.into_iter().map(|(url, alt)| view! { <li><span>{alt}</span><code>{url}</code></li> }).collect_view()}</ul>
+                        </div>
+                    }.into_any() }
+                }
+                _ => ().into_any(),
             }}
             {match frozen_avatar(&publication.content) {
                 Frozen::Avatar(svg) => view! {

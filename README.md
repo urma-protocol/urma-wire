@@ -11,6 +11,12 @@ and browser builds.
 ## Run locally
 
 Feed and Publish reuse the same compact composer and session post draft.
+Use **Add photo** to paste an HTTPS image URL and describe it with alt text;
+added photos can be previewed, edited and removed before review. The composer
+keeps manually entered text and added photos while moving between Feed and
+Publish. Editing a draft invalidates its unapproved review; review again to
+approve the changed content. Photos remain on their external hosts. Wire does
+not upload, copy or preserve the image bytes in a published record.
 Wire/hashtag fields expand on demand; exact quote approval remains required.
 Feed refreshes confirmed posts on entry. Completed publication panels disappear;
 the Publish page retains its additional explanatory information.
@@ -222,7 +228,9 @@ the editor; drafts remain local and are not saved across page changes.
 
 ## External images
 
-`![alt](https://host/image.png)` uses native checked HTTP/HTTPS fetching, including
+Published photo references use the existing Markdown image representation
+internally; the **Add photo** control does not require writing that syntax.
+Native checked HTTP/HTTPS fetching, including
 public IP hosts. DNS answers must all be public unicast; each redirect destination
 is resolved and checked separately. Connections are pinned to those addresses,
 environment proxies are disabled, and redirects are bounded. HTTP connection and

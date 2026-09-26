@@ -2,6 +2,7 @@ use crate::components::label_field::walk;
 use crate::components::label_field::Offered;
 use crate::components::reveal::reveal;
 use crate::components::LabelField;
+use crate::components::markdown::PostText;
 use crate::components::Warning;
 use crate::config::METER_NEAR_PERCENT;
 use crate::config::REVEAL_DELAY_MS;
@@ -34,12 +35,15 @@ use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
 use leptos::prelude::Signal;
 use leptos::prelude::StoredValue;
+use leptos::prelude::Update;
 use leptos::prelude::{component, event_target, event_target_value, view};
 use tracing::warn;
 use wire_app_core::composed::accept_at;
 use wire_app_core::composed::typing_at;
 use wire_app_core::composed::Token;
 use wire_app_core::composed::Typed;
+use wire_app_core::composer::{compose, Photo};
+use wire_app_core::config::MAX_IMAGES_PER_POST;
 use wire_app_core::publication::Addressed;
 use wire_app_core::topics::Kind;
 
@@ -58,15 +62,18 @@ pub fn ComposeBox(#[prop(default = Speaking::Freely)] speaking: Speaking) -> imp
     let claiming = speaking.claims_focus();
     let text_label = speaking.text_label();
     let placeholder = speaking.placeholder();
-    let wire = RwSignal::new(String::new());
-    let hashtags = RwSignal::new(String::new());
+    let (held_wire, held_hashtags) = state.draft_labels(&key.get_value());
+    let wire = RwSignal::new(held_wire);
+    let hashtags = RwSignal::new(held_hashtags);
+    Effect::new(move |_previous: Option<()>| state.set_draft_labels(&key.get_value(), wire.get(), hashtags.get()));
     let busy = RwSignal::new(false);
     let trouble = RwSignal::new(Said::Nothing);
     let text = move || state.draft(&key.get_value());
+    let photos = move || state.photos(&key.get_value());
     let max_bytes = addressed.max_bytes();
     let meant = move || read_topics(&text(), &wire.get(), &hashtags.get());
     let blocked = move || {
-        busy.get() || state.following.get() || text().trim().is_empty() || text().len() > max_bytes
+        busy.get() || state.following.get() || (text().trim().is_empty() && photos().is_empty())
     };
     let submit = Callback::new(move |_asked: ()| {
         if blocked() {
@@ -82,7 +89,8 @@ pub fn ComposeBox(#[prop(default = Speaking::Freely)] speaking: Speaking) -> imp
             trouble,
         });
     });
-    let meter = move || match text().len() {
+    let bytes = move || compose(&text(), &photos(), usize::MAX, usize::MAX).map(|ready| ready.len()).unwrap_or(text().len());
+    let meter = move || match bytes() {
         len if len > max_bytes => "composer-meter over",
         len if len * 100 >= max_bytes * METER_NEAR_PERCENT => "composer-meter near",
         _ => "composer-meter",
@@ -91,12 +99,13 @@ pub fn ComposeBox(#[prop(default = Speaking::Freely)] speaking: Speaking) -> imp
         <div class="composer">
             <ReplyContext speaking=speaking />
             <ComposerText key=key text_label=text_label placeholder=placeholder claiming=claiming submit=submit />
+            <PhotoComposer key=key max_bytes=max_bytes />
             <TopicPreview meant=Signal::derive(meant) />
             <Warning message=trouble.into() />
             <div class="composer-bar">
                 <TopicFields wire=wire hashtags=hashtags />
                 <span class=meter>
-                    {move || text().len()}<span class="composer-meter-max">"/"{max_bytes}</span>
+                    {bytes}<span class="composer-meter-max">"/"{max_bytes}</span>
                 </span>
                 <button class="btn btn-primary btn-sm" title="Ctrl+Enter" disabled=blocked
                     on:click=move |_clicked| submit.run(())>
@@ -139,7 +148,15 @@ fn quote_draft(quoting: Quoting) {
         trouble,
     } = quoting;
     trouble.set(Said::Nothing);
-    let text = state.draft(&key.get_value());
+    let draft_key = key.get_value();
+    let revision = state.draft_version(&draft_key);
+    let text = match compose(&state.draft(&draft_key), &state.photos(&draft_key), addressed.max_bytes(), MAX_IMAGES_PER_POST) {
+        Ok(text) => text,
+        Err(error) => {
+            trouble.set(Said::Something(error.to_string()));
+            return;
+        }
+    };
     let meant = match read_topics(&text, &wire.get_untracked(), &hashtags.get_untracked()) {
         Reading::Topics(meant) => meant,
         Reading::Unreadable(reason) => {
@@ -163,10 +180,16 @@ fn quote_draft(quoting: Quoting) {
                 return;
             }
         };
+        if state.draft_version(&draft_key) != revision {
+            state.invalidated_reviews.update(|old| { old.insert(quote.id.clone()); });
+            if let Err(fault) = publication::discard(quote.id).await {
+                warn!(fault = %fault, "outdated quote could not be discarded");
+                trouble.set(Said::Something(fault.message));
+            }
+            return;
+        }
         state.remember_topics(&spoken_wire, &spoken_tags);
-        state.clear_draft(&key.get_value());
-        wire.set(String::new());
-        hashtags.set(String::new());
+        state.accept_review(&quote.id);
         state.publication_error.set(Said::Nothing);
         state.publication.set(Some(quote));
         match addressed {
@@ -192,6 +215,120 @@ fn TopicFields(wire: RwSignal<String>, hashtags: RwSignal<String>) -> impl IntoV
                 <LabelField label="Hashtags" placeholder="investigation documents" kind=Kind::Hashtag value=hashtags single=false />
             </div>
         </details>
+    }
+}
+
+#[component]
+fn PhotoComposer(key: StoredValue<String>, max_bytes: usize) -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let url_id = StoredValue::new(format!("composer-photo-url-{}", key.get_value()));
+    let alt_id = StoredValue::new(format!("composer-photo-alt-{}", key.get_value()));
+    let url_input: NodeRef<leptos::html::Input> = NodeRef::new();
+    let open = RwSignal::new(false);
+    let editing = RwSignal::new(None::<usize>);
+    let url = RwSignal::new(String::new());
+    let alt = RwSignal::new(String::new());
+    let error = RwSignal::new(None::<String>);
+    Effect::new(move |_previous: Option<()>| {
+        if open.get() {
+            if let Some(input) = url_input.get() {
+                if let Err(reason) = input.focus() {
+                    warn!(error = ?reason, "photo URL input could not take focus");
+                }
+            }
+        }
+    });
+    let save = move |_clicked: leptos::ev::MouseEvent| {
+        let photo = match Photo::new(&url.get_untracked(), &alt.get_untracked()) {
+            Ok(photo) => photo,
+            Err(reason) => {
+                error.set(Some(reason.to_string()));
+                return;
+            }
+        };
+        let held_key = key.get_value();
+        let mut photos = state.photos(&held_key);
+        match editing.get_untracked() {
+            Some(index) if index < photos.len() => photos[index] = photo,
+            _ => photos.push(photo),
+        }
+        if let Err(reason) = compose(&state.draft(&held_key), &photos, max_bytes, MAX_IMAGES_PER_POST) {
+            error.set(Some(reason.to_string()));
+            return;
+        }
+        state.set_photos(&held_key, photos);
+        error.set(None);
+        editing.set(None);
+        open.set(false);
+    };
+    view! {
+        <div class="composer-photos">
+            <button type="button" class="btn btn-secondary composer-photo-action"
+                on:click=move |_clicked| {
+                    editing.set(None);
+                    url.set(String::new());
+                    alt.set(String::new());
+                    error.set(None);
+                    open.set(true);
+                }>"Add photo"</button>
+            <span class="composer-photo-count">{move || format!("{} / {} photos", state.photos(&key.get_value()).len(), MAX_IMAGES_PER_POST)}</span>
+            {move || state.photos(&key.get_value()).into_iter().enumerate().map(|(index, photo)| {
+                let label = photo.alt.clone();
+                let address = photo.url.clone();
+                let preview = photo.markdown();
+                view! {
+                    <div class="composer-photo-card">
+                        <div class="composer-photo-info"><strong>{label.clone()}</strong><span>{address.clone()}</span></div>
+                        <div class="composer-photo-preview"><PostText text=preview wire=String::new() hashtags=Vec::new() /></div>
+                        <div class="composer-photo-actions">
+                            <button type="button" class="btn btn-secondary composer-photo-action" aria-label=format!("Edit photo: {label}")
+                                on:click=move |_clicked| {
+                                    editing.set(Some(index));
+                                    url.set(address.clone());
+                                    alt.set(label.clone());
+                                    error.set(None);
+                                    open.set(true);
+                                }>"Edit"</button>
+                            <button type="button" class="btn btn-secondary composer-photo-action" aria-label="Remove photo"
+                                on:click=move |_clicked| {
+                                    let held_key = key.get_value();
+                                    let mut photos = state.photos(&held_key);
+                                    if index < photos.len() {
+                                        photos.remove(index);
+                                        state.set_photos(&held_key, photos);
+                                    }
+                                    open.set(false);
+                                    error.set(None);
+                                }>"Remove"</button>
+                        </div>
+                    </div>
+                }
+            }).collect_view()}
+            {move || match open.get() {
+                false => ().into_any(),
+                true => view! {
+                    <div class="composer-photo-form">
+                        <label for=url_id.get_value()>"HTTPS image URL"</label>
+                        <input id=url_id.get_value() node_ref=url_input type="url" inputmode="url" autocomplete="url"
+                            placeholder="https://cdn.example/photo.jpg" prop:value=move || url.get()
+                            on:input=move |event| url.set(event_target_value(&event)) />
+                        <label for=alt_id.get_value()>"Alt text"</label>
+                        <input id=alt_id.get_value() type="text" autocomplete="off"
+                            placeholder="Describe the photo" prop:value=move || alt.get()
+                            on:input=move |event| alt.set(event_target_value(&event)) />
+                        <p class="composer-photo-note">"Paste a direct HTTPS image link. Images stay on their external host; loading follows your media setting."</p>
+                        {move || error.get().map(|message| view! { <p class="alert alert-error" role="alert">{message}</p> })}
+                        <div class="composer-photo-actions">
+                            <button type="button" class="btn btn-primary composer-photo-action" on:click=save>
+                                {move || match editing.get() { Some(_) => "Save photo", None => "Add photo" }}
+                            </button>
+                            <button type="button" class="btn btn-secondary composer-photo-action"
+                                on:click=move |_clicked| { open.set(false); error.set(None); }>"Cancel"</button>
+                        </div>
+                    </div>
+                }.into_any(),
+            }}
+        </div>
     }
 }
 

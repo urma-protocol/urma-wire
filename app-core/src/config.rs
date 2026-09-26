@@ -6,4 +6,6 @@ pub const MAX_REPLY_BYTES: usize = 32_728;
 
 pub const MAX_IMAGE_URL_BYTES: usize = 4096;
 
+pub const MAX_IMAGES_PER_POST: usize = 2;
+
 pub const HIDDEN_ENDPOINT: &str = "Endpoint hidden";

@@ -19,11 +19,12 @@ use leptos::prelude::WithUntracked;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use tracing::warn;
+use wire_app_core::composer::Photo;
 use wire_app_core::connection::{ConnectionHealth, Trouble};
 use wire_app_core::errors::Fault;
 use wire_app_core::feed::{conversations, following, Conversation, PublicIdentity};
 use wire_app_core::model::{AuthorId, Chain, Post, WalletSummary};
-use wire_app_core::publication::{Pending, Publication};
+use wire_app_core::publication::{Addressed, Content, Pending, Publication};
 use wire_app_core::session::{IdentityStatus, Session};
 use wire_app_core::topics::seen_in;
 
@@ -40,6 +41,10 @@ pub struct AppState {
     pub identity_error: RwSignal<Said>,
     pub feed: RwSignal<Vec<Post>>,
     pub drafts: RwSignal<BTreeMap<String, String>>,
+    pub draft_photos: RwSignal<BTreeMap<String, Vec<Photo>>>,
+    pub draft_labels: RwSignal<BTreeMap<String, (String, String)>>,
+    pub draft_versions: RwSignal<BTreeMap<String, u64>>,
+    pub invalidated_reviews: RwSignal<BTreeSet<String>>,
     pub public_identities: RwSignal<BTreeMap<String, PublicIdentity>>,
     pub is_loading_feed: RwSignal<bool>,
     pub is_loading_wallet: RwSignal<bool>,
@@ -61,6 +66,16 @@ fn voiced(fault: Fault) -> Said {
     Said::Something(fault.message)
 }
 
+fn post_draft_key(content: &Content) -> Option<String> {
+    let Content::Post { addressed, .. } = content else {
+        return None;
+    };
+    Some(match addressed {
+        Addressed::Standalone => String::new(),
+        Addressed::Thread(txid) => txid.to_display_hex(),
+    })
+}
+
 impl AppState {
     pub fn started() -> Self {
         let autoload = stored_autoload();
@@ -78,6 +93,10 @@ impl AppState {
             identity_error: RwSignal::new(Said::Nothing),
             feed: RwSignal::new(Vec::new()),
             drafts: RwSignal::new(BTreeMap::new()),
+            draft_photos: RwSignal::new(BTreeMap::new()),
+            draft_labels: RwSignal::new(BTreeMap::new()),
+            draft_versions: RwSignal::new(BTreeMap::new()),
+            invalidated_reviews: RwSignal::new(BTreeSet::new()),
             public_identities: RwSignal::new(BTreeMap::new()),
             is_loading_feed: RwSignal::new(false),
             is_loading_wallet: RwSignal::new(false),
@@ -219,6 +238,12 @@ impl AppState {
         if self.following.get_untracked() {
             return;
         }
+        if self.invalidated_reviews.get_untracked().contains(&id)
+            || self.publication.get_untracked().as_ref().map(|held| &held.id) != Some(&id)
+        {
+            self.publication_error.set(Said::Something("This review changed. Review the current draft again before publishing.".into()));
+            return;
+        }
         let state = *self;
         state.following.set(true);
         state.pause_requested.set(false);
@@ -229,6 +254,11 @@ impl AppState {
                 match publication::advance(id.clone(), approval).await {
                     Ok(result) => {
                         let complete = result.complete;
+                        if approval && result.approved {
+                            if let Some(key) = post_draft_key(&result.content) {
+                                state.clear_draft(&key);
+                            }
+                        }
                         state.publication.set(Some(result));
                         if complete {
                             state.refresh_all();
@@ -285,10 +315,72 @@ impl AppState {
         self.drafts.update(|drafts| {
             drafts.insert(key.to_owned(), text);
         });
+        self.changed_draft(key);
+    }
+
+    pub fn photos(&self, key: &str) -> Vec<Photo> {
+        self.draft_photos.with(|drafts| drafts.get(key).cloned().unwrap_or_default())
+    }
+
+    pub fn set_photos(&self, key: &str, photos: Vec<Photo>) {
+        self.draft_photos.update(|drafts| {
+            drafts.insert(key.to_owned(), photos);
+        });
+        self.changed_draft(key);
+    }
+
+    pub fn draft_labels(&self, key: &str) -> (String, String) {
+        self.draft_labels.with(|drafts| drafts.get(key).cloned().unwrap_or_default())
+    }
+
+    pub fn set_draft_labels(&self, key: &str, wire: String, hashtags: String) {
+        if self.draft_labels(key) == (wire.clone(), hashtags.clone()) {
+            return;
+        }
+        self.draft_labels.update(|drafts| {
+            drafts.insert(key.to_owned(), (wire, hashtags));
+        });
+        self.changed_draft(key);
+    }
+
+    pub fn draft_version(&self, key: &str) -> u64 {
+        self.draft_versions.with_untracked(|versions| versions.get(key).copied().unwrap_or(0))
+    }
+
+    pub fn accept_review(&self, id: &str) {
+        self.invalidated_reviews.update(|old| { old.remove(id); });
+    }
+
+    fn changed_draft(&self, key: &str) {
+        self.draft_versions.update(|versions| {
+            let version = versions.entry(key.to_owned()).or_default();
+            *version = version.wrapping_add(1);
+        });
+        let Some(review) = self.publication.get_untracked() else {
+            return;
+        };
+        if review.approved || post_draft_key(&review.content).as_deref() != Some(key) {
+            return;
+        }
+        self.invalidated_reviews.update(|old| { old.insert(review.id.clone()); });
+        self.publication.set(None);
+        let state = *self;
+        leptos::task::spawn_local(async move {
+            if let Err(fault) = publication::discard(review.id).await {
+                warn!(fault = %fault, "old unapproved quote could not be discarded");
+                state.publication_error.set(voiced(fault));
+            }
+        });
     }
 
     pub fn clear_draft(&self, key: &str) {
         self.drafts.update(|drafts| {
+            drafts.remove(key);
+        });
+        self.draft_photos.update(|drafts| {
+            drafts.remove(key);
+        });
+        self.draft_labels.update(|drafts| {
             drafts.remove(key);
         });
     }
@@ -383,7 +475,11 @@ async fn sync_feed(state: AppState, chain: Chain) {
 
 async fn load_pending(state: AppState) {
     match publication::pending().await {
-        Ok(Pending::Awaiting(found)) => state.publication.set(Some(found)),
+        Ok(Pending::Awaiting(found)) => {
+            if !state.invalidated_reviews.get_untracked().contains(&found.id) {
+                state.publication.set(Some(found));
+            }
+        }
         Ok(Pending::Settled) => state.publication.set(None),
         Err(fault) => {
             warn!(fault = %fault, "pending publication unavailable");

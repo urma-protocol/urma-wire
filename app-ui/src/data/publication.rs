@@ -101,6 +101,13 @@ pub async fn quote(chain: Chain, content: Content) -> Result<Publication, Fault>
     }
 }
 
+pub async fn discard(id: String) -> Result<(), Fault> {
+    match ask(Request::DiscardQuote { id }).await? {
+        Response::Discarded => Ok(()),
+        other => Err(other.unexpected("discard publication quote")),
+    }
+}
+
 pub async fn pending() -> Result<Pending, Fault> {
     match ask(Request::PublicationStatus).await? {
         Response::Pending(pending) => Ok(pending),

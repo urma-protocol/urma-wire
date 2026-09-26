@@ -7,6 +7,7 @@
 pub mod avatar;
 pub mod body;
 pub mod composed;
+pub mod composer;
 pub mod config;
 pub mod connection;
 pub mod contract;

@@ -98,6 +98,20 @@ impl Service {
         Ok(Pending::Awaiting(observe(&node, &plan, &directory)?))
     }
 
+    pub fn discard_quote(&self, id: &str) -> Result<(), NativeError> {
+        let Standing::Planned(plan, directory) = self.standing()? else {
+            return Ok(());
+        };
+        if plan.id()? != id {
+            return Ok(());
+        }
+        if directory.join(Self::APPROVAL_FILE).exists() {
+            return Err(NativeError::Unfinished);
+        }
+        std::fs::remove_file(self.directory.join(Self::ACTIVE_FILE))?;
+        Ok(())
+    }
+
     pub fn advance(&self, id: &str, approve: bool) -> Result<Publication, NativeError> {
         let Standing::Planned(plan, directory) = self.standing()? else {
             return Err(NativeError::NoPublication);

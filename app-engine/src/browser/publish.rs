@@ -67,6 +67,19 @@ pub async fn active() -> Result<Planned, BrowserError> {
     Ok(Planned::Active(active))
 }
 
+pub async fn discard(id: &str) -> Result<(), BrowserError> {
+    let Planned::Active(active) = active().await? else {
+        return Ok(());
+    };
+    if active.plan.id()? != id {
+        return Ok(());
+    }
+    if active.approved() {
+        return Err(BrowserError::Unfinished);
+    }
+    store::delete(ACTIVE_KEY).await
+}
+
 fn transaction(raw: &str) -> Result<Transaction, BrowserError> {
     Ok(deserialize(&hex::decode(raw)?)?)
 }

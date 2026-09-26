@@ -43,6 +43,10 @@ impl Service {
                 served(chain)?;
                 Ok(Response::Publication(self.quote(&content)?))
             }
+            Request::DiscardQuote { id } => {
+                self.discard_quote(&id)?;
+                Ok(Response::Discarded)
+            }
             Request::PublicationStatus => Ok(Response::Pending(self.status()?)),
             Request::Advance { id, approve } => {
                 Ok(Response::Publication(self.advance(&id, approve)?))
