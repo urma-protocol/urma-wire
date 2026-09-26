@@ -1,10 +1,12 @@
 # URMA Wire V0
 
 Tauri 2 desktop shell with a Leptos/WASM frontend. The current end-to-end
-milestone is **public text posts and replies on Litecoin Testnet**. URMA
-manifest dependencies retain version 0.2.0, including the structured
-wire/hashtag extension. The committed workspace patch table resolves URMA crates
-from the neighboring `../urma` checkout for both native and browser builds.
+milestone is **public text posts and replies on Litecoin Testnet**. The protocol
+remains URMA V0, including the structured
+wire/hashtag extension. Package versions are separate and recorded in the
+[crate manifests](app-engine/Cargo.toml). The committed workspace patch table
+resolves URMA crates from the neighboring `../urma` checkout for both native
+and browser builds.
 
 ## Run locally
 
@@ -37,7 +39,10 @@ or miner is started by the app.
 
 ## Browser offline operation
 
-Development status: the browser engine passes synthetic-chain publication,
+Historical evidence recorded in README revision
+`ef850ea09c6d50d352d35c4902e937c67424cafe` (not a claim of current verification;
+the execution date and tested source revision are not recorded here): the browser
+engine passed synthetic-chain publication,
 restart and offline tests. A direct browser read of Litecoin Testnet block
 4892707 passed transparent transaction Merkle and witness commitment verification
 with the shared Litecoin decoder. Esplora's transparent block encoding is handled
@@ -45,8 +50,9 @@ explicitly, separately from full node serialization. The result is a transparent
 read projection; it is not a full MWEB consensus verifier. Confidential MWEB
 transactions remain unsupported, and extension contents are not authenticated by
 this reader. This read-only check is not evidence of a live browser publication.
-Published 0.2.0 lacks these changes; committed local patches supply the integrated
-WASM portability and Litecoin decoding code.
+These observations concern the locally integrated implementation; the committed
+patches select the sibling core checkout rather than establish published-package
+equivalence.
 
 Serve the complete `trunk build --release` output at an origin's root over HTTPS
 (localhost is accepted for development). Python 3 is required by the Trunk
@@ -67,9 +73,9 @@ The storage button requests persistent storage and reports a denial honestly.
 Keep the original encrypted vault backup: browser data can still be deleted by
 the user, browser policy or storage eviction. No persistent auto-unlock exists.
 
-Settings selects a public Litecoin Testnet Esplora API URL. The default is
-`https://litecoinspace.org/testnet/api`; an alternative is
-`https://testnetscan.com/ltc-testnet/api`. Sources must support HTTPS and CORS.
+Settings selects a public Litecoin Testnet Esplora API URL. Sources must support
+HTTPS and CORS. See the [configuration sources](#configuration-and-state) for
+endpoint defaults.
 Wire checks genesis before using a source and never silently replaces a configured
 source. Fetch uses no cookies or backend proxy. Unreachable sources, CORS denial,
 rejections and malformed proofs produce explicit errors. Browser privacy policy
@@ -77,8 +83,8 @@ and endpoint availability can still prevent a connection.
 
 IndexedDB stores the recent-history starting height, contiguous block-hash
 checkpoints and verified records. Refresh resumes from the saved checkpoint,
-rolls back changed hashes, and saves each verified block before advancing, at
-most 100 blocks per refresh. Transparent block Merkle roots, witness commitments and URMA
+rolls back changed hashes, and saves each verified block before advancing, in
+bounded slices per refresh. Transparent block Merkle roots, witness commitments and URMA
 author proofs are checked with the shared library. Cached history remains
 readable offline with a stale-source notice; it is not marked caught up. This
 uses public-provider chain observations, not an independently validating node or
@@ -135,14 +141,15 @@ those sizes with `cargo tauri icon assets/urma-wire-icon.png`.
 2. Write a post/reply → **Review & publish** prepares and saves signed bytes,
    without broadcast. Optional wire and hashtag inputs are structured protocol
    fields. The review displays the exact frozen text, wire, hashtags, reply target,
-   total fee, selected funding and value returned. Fee rate is 1 litoshi/vbyte
-   for this milestone; there is no automatic fee increase. Funding currently
+   total fee, selected funding and value returned. See the
+   [configuration sources](#configuration-and-state) for the fee policy; there is
+   no automatic fee increase. Funding currently
    needs one adequate confirmed spendable output; total balance is insufficient
    to prove that such an output exists.
 3. **Approve fee & publish** approves that exact plan and begins submission.
    The commit is submitted first; once observed in the mempool or confirmed,
-   its reveal is submitted in the same pass. The frontend reconciles every
-   two seconds and reports both transactions; success requires both confirmed.
+   its reveal is submitted in the same pass. The frontend periodically reconciles
+   and reports both transactions; success requires both confirmed.
    A source error or rejection stops following with its reason. Resolve it and
    choose **Resume publication**; no generic infinite retry or fee bump occurs.
 4. Completion refreshes the confirmed feed. **Refresh confirmed feed** also
@@ -156,6 +163,11 @@ directory, preventing concurrent app plans from reusing funding.
 
 ## Configuration and state
 
+The configuration entry points are [app-core](app-core/src/config.rs),
+[app-engine](app-engine/src/config.rs) and [app-ui](app-ui/src/config.rs).
+Consult these sources for changing bounds, defaults and timing; the flows below describe
+their behavioral purpose.
+
 Reads `URMA_CONFIG`, or `~/.config/urma/config.json`: `rpc_url`, `node_auth_file`,
 `vault`, `unlock_file`. RPC/auth environment overrides are `URMA_RPC_URL` and
 `URMA_NODE_AUTH_FILE`. Both RPC fields must be supplied together; otherwise the
@@ -165,9 +177,10 @@ Settings are loaded at startup; restart after changing configuration.
 
 Default vault/unlock paths match the CLI. Passwords are never saved by Wire.
 The Identity page copies a validated encrypted vault into app-data `identity.urma`,
-with the URMA 0.2 limit of 4532 bytes. Import requires its password, validates its
-active author before writing, and never overwrites an existing imported vault or
-the CLI vault. The imported copy takes precedence for future unlocks. Its keys
+subject to the shared URMA vault format validation. Import requires its password,
+validates its active author before writing, and never overwrites an existing
+imported vault or the CLI vault. The imported copy takes precedence for future
+unlocks. Its keys
 stay in the running session until Lock or process exit; reloading the frontend
 only reads public session status and never automatically unlocks. A source or
 balance failure does not lock the identity or change its author.
@@ -176,8 +189,8 @@ State is under Tauri's platform app-data directory for `org.urma.wire`:
 `ltc-testnet-index.json` and `ltc-testnet-start.json`. Existing prototype
 `wire_store.json` is left untouched and not used as verified chain evidence.
 
-First sync starts 100 blocks before the current tip and remembers that height.
-Each refresh processes at most 100 blocks, with the indexed range and remaining
+First sync starts within a bounded recent range before the current tip and remembers
+that height. Each refresh processes a bounded slice, with the indexed range and remaining
 catch-up shown explicitly. This is a recent-history feed, not full-chain search.
 The library verifies record/author proofs and rolls back orphaned index entries.
 Posts and replies support an inert Markdown subset (text/code/paragraphs and
@@ -212,32 +225,33 @@ the editor; drafts remain local and are not saved across page changes.
 `![alt](https://host/image.png)` uses native checked HTTP/HTTPS fetching, including
 public IP hosts. DNS answers must all be public unicast; each redirect destination
 is resolved and checked separately. Connections are pinned to those addresses,
-environment proxies are disabled, and at most one redirect is followed. HTTP has
-a 5-second connect and 15-second request timeout; OS DNS resolution is separate
-and can outlast that timeout. No cookies, credentials or referring post URL are
+environment proxies are disabled, and redirects are bounded. HTTP connection and
+request timeouts are configured; OS DNS resolution is separate and can outlast
+the request timeout. No cookies, credentials or referring post URL are
 sent. Fetching still exposes the user's network address and request metadata.
 
 PNG, JPEG, WebP, GIF, BMP, ICO, TIFF and AVIF are enabled. The response must
 declare an `image/*` type, but the decoder is chosen from the signature, so a
-host that transcodes or mislabels its body cannot select the codec. Limits are
-4 MiB downloaded, 4096 pixels per dimension,
-4,194,304 pixels total, 32 MiB decoder allocation and 20 MiB re-encoded PNG.
+host that transcodes or mislabels its body cannot select the codec. Download,
+dimensions, total pixels, decoder allocation and re-encoded output are bounded;
+see the [configuration sources](#configuration-and-state).
 Limits also apply while reading image dimensions. Rendering re-encodes inert
 pixels and discards source metadata/animation; SVG and arbitrary embeds are
-unsupported. At most two image references per post and two concurrent requests
-are enabled; displayed data URLs plus estimated RGBA pixels share a 64 MiB
-budget (not a process-wide memory guarantee).
+unsupported. Image references, concurrent requests and displayed data URLs plus estimated
+RGBA pixels have bounded budgets (not a process-wide memory guarantee).
 
-Autoload defaults on. Wallet's **Don't autoload external images** persists in
-WebView localStorage; disabled images show an explicit **Load image** control.
+The **Don't autoload external images** preference persists in WebView
+localStorage; disabled images show an explicit **Load image** control. When
+autoload is enabled, opening a post can contact its image host and expose the
+user's network address.
 Preference failures are reported and a failed initial read disables autoload.
 The browser build explicitly disables image fetching because browsers cannot
 enforce DNS pinning and redirect checks; HTTPS pages additionally explain HTTP
 mixed-content refusal. It uses no media proxy. Profile/avatar publication and
 pixel rendering still work in both runtimes.
 
-Wire retains no HTTP, disk or application media cache (cache TTL and capacity
-are zero). Only currently displayed images live in memory. **Refresh image**
+Wire retains no HTTP, disk or application media cache. Only currently displayed
+images live in memory. **Refresh image**
 discards its display and requests the current resource again; **Clear displayed
 media** removes displayed data and invalidates in-flight results. Hosts can change
 or remove images; Wire does not claim historical preservation.
@@ -261,8 +275,8 @@ both together require a record to match both (AND). Selecting or clearing one
 does not change the other. Each Follow button subscribes only to its individual
 wire or hashtag, never a combined filter. Following remains a separate view of
 the union of locally followed labels (OR). Filters apply before taking the
-latest 100 results. Follows persist in WebView localStorage, keyed by chain and
-network name, with a local limit of 128; no transaction or payment is involved.
+bounded latest results. Follows persist in WebView localStorage, keyed by chain and
+network name, with a bounded local capacity; no transaction or payment is involved.
 They are tied to this local WebView profile. Storage failures are shown.
 The initial network options are fixed and only Litecoin Testnet is enabled.
 
@@ -275,7 +289,7 @@ No full-chain history or reduced blockchain scanning cost is implied.
 
 A reply whose parent is shown in the feed sits under that parent instead of
 the top-level stream. The newest replies appear first, up to Settings →
-**Replies shown per post** (default 5, 0 keeps them collapsed, persisted in
+**Replies shown per post** (0 keeps them collapsed, persisted in
 WebView localStorage); **View all N replies** opens the whole thread. A reply
 to a reply stays inside its parent reply's thread. A reply whose parent is
 outside the indexed history, or filtered out, stays top-level and names the
@@ -283,18 +297,24 @@ record it answers. Grouping is display only: records and the index are unchanged
 
 ## Focused local checks
 
+The commands below are reproduction instructions, not evidence that checks were
+rerun for this documentation update. Test coverage descriptions are recorded in
+README revision `ef850ea09c6d50d352d35c4902e937c67424cafe`; they do not establish
+the execution date or tested source revision.
+
 Coin tab logos are bundled locally: Litecoin from
 https://github.com/spothq/cryptocurrency-icons/blob/master/svg/color/ltc.svg
 (CC0), and Bitcoin from
 https://github.com/bitpay/bitcoin-brand/blob/master/bitcoin.svg.
 
-The UI uses Thaw 0.4 with Leptos 0.7. The network selector uses Thaw Menu;
+The [UI manifest](app-ui/Cargo.toml) records the Thaw and Leptos dependencies.
+The network selector uses Thaw Menu;
 the four choices remain visible while only Litecoin Testnet is enabled.
 
-The sidebar logo plays once on load, then once every five minutes. Future UI
+The sidebar logo plays on load and periodically thereafter. Future UI
 events can replay it with `window.dispatchEvent(new Event("urma:logo-animate"))`.
-Each replay uses the existing 3.8-second trace animation and rests on the repaired
-green mark. Reduced-motion preferences disable the animation. The timer and
+Each replay uses the trace animation and rests on the green mark. Reduced-motion
+preferences disable the animation. The timer and
 event listener are removed when the navigation component unmounts.
 
 ```sh
