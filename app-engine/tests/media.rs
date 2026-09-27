@@ -185,6 +185,25 @@ mod transport {
         .unwrap_err();
         assert!(error.to_string().contains("4 MiB"));
     }
+
+    #[test]
+    fn avif_policy_matches_the_compiled_platform_codecs() {
+        let avif_header = b"\0\0\0\x18ftypavif\0\0\0\0";
+        assert_eq!(
+            image::guess_format(avif_header).unwrap(),
+            ImageFormat::Avif
+        );
+        #[cfg(target_os = "android")]
+        {
+            assert!(!SUPPORTED_IMAGE_FORMATS.contains(&ImageFormat::Avif));
+            assert!(matches!(
+                decode_image("image/avif", avif_header),
+                Err(MediaError::Format)
+            ));
+        }
+        #[cfg(not(target_os = "android"))]
+        assert!(SUPPORTED_IMAGE_FORMATS.contains(&ImageFormat::Avif));
+    }
 }
 
 #[test]

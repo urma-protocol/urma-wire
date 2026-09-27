@@ -238,9 +238,11 @@ request timeouts are configured; OS DNS resolution is separate and can outlast
 the request timeout. No cookies, credentials or referring post URL are
 sent. Fetching still exposes the user's network address and request metadata.
 
-PNG, JPEG, WebP, GIF, BMP, ICO, TIFF and AVIF are enabled. The response must
-declare an `image/*` type, but the decoder is chosen from the signature, so a
-host that transcodes or mislabels its body cannot select the codec. Download,
+PNG, JPEG, WebP, GIF, BMP, ICO and TIFF are enabled on desktop and Android;
+desktop also supports AVIF. Android reports AVIF as an unsupported image format.
+A response must declare an `image/*` type, but the decoder is chosen from the
+signature, so a host that transcodes or mislabels its body cannot select the
+codec. Download,
 dimensions, total pixels, decoder allocation and re-encoded output are bounded;
 see the [configuration sources](#configuration-and-state).
 Limits also apply while reading image dimensions. Rendering re-encodes inert

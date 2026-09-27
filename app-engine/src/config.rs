@@ -51,6 +51,7 @@ pub const SUPPORTED_IMAGE_FORMATS: &[image::ImageFormat] = &[
     image::ImageFormat::Bmp,
     image::ImageFormat::Ico,
     image::ImageFormat::Tiff,
+    #[cfg(not(target_os = "android"))]
     image::ImageFormat::Avif,
 ];
 

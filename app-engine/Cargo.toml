@@ -30,8 +30,13 @@ urma-workflows = "0.2.0"
 fs2 = "0.4"
 url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "ico", "tiff", "avif-native"] }
 base64 = "0.22"
+
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))'.dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "ico", "tiff", "avif-native"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "ico", "tiff"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 bitcoin = { version = "0.32", features = ["serde"] }
