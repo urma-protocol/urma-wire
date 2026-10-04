@@ -140,6 +140,11 @@ those sizes with `cargo tauri icon assets/urma-wire-icon.png`.
 
 ## Testnet flow
 
+0. Chain source → Settings shows the selected source and the providers it
+   holds; **Public sources** is the default and works without a node. The
+   Connection page reports the source height, the locally indexed range and
+   the evidence tier of the provider that answered; see
+   [configuration and state](#configuration-and-state) for the tiers.
 1. Identity → explicitly import an encrypted URMA vault or unlock the configured
    active URMA identity with its vault password. Desktop also offers **Use
    configured unlock file** when present. No identity is created. Wallet shows
@@ -176,10 +181,33 @@ their behavioral purpose.
 
 Reads `URMA_CONFIG`, or `~/.config/urma/config.json`: `rpc_url`, `node_auth_file`,
 `vault`, `unlock_file`. RPC/auth environment overrides are `URMA_RPC_URL` and
-`URMA_NODE_AUTH_FILE`. Both RPC fields must be supplied together; otherwise the
-URMA public Litecoin Testnet source pool is used. Configured RPC failure never
-silently redirects credentials to a public endpoint. Genesis is checked.
-Settings are loaded at startup; restart after changing configuration.
+`URMA_NODE_AUTH_FILE`. Settings are loaded at startup; restart after changing
+configuration.
+
+The chain source is an explicit choice in Settings, stored in app-data
+`source.json`. **Public sources** needs no node, cookie, API key or paid plan:
+the shared `urma-runtime` transport routes each read through the Litecoin
+Testnet provider set, in order, a peer-to-peer light client, the Electrum-LTC
+servers, the litecoinspace Esplora API and the JSON-RPC gateway. A request goes
+to one provider at a time; failover moves to the next provider, and the
+Settings page lists the set the open connection actually holds. **Local node**
+is offered only when `rpc_url` and `node_auth_file` are both configured, uses
+cookie authentication on a loopback address, and a configured RPC failure never
+silently redirects to a public endpoint. Every source must return the Litecoin
+Testnet genesis hash before it serves anything. Wire holds one connection per
+run and reconnects only after a transport failure or a source change.
+
+Under app-data `runtime/` the public transport keeps its own state:
+`electrum-pins/<host>_<port>.sha256` holds the SHA-256 of each Electrum server's
+leaf certificate, pinned on first use and refused if it changes (remove the file
+only after confirming the new fingerprint with the operator), and the light
+client's header cache. The Connection page shows the evidence tier behind the
+last check: `Local validating node` (your node validated the blocks),
+`Light-client inclusion` (a proof-of-work header chain includes the
+transaction) or `Public provider observation` (third-party servers reported
+inclusion; bytes were verified against the requested ids, no block was
+validated locally), together with the light client's header and peer counts
+while it syncs. Record signatures are verified at every tier.
 
 Default vault/unlock paths match the CLI. Passwords are never saved by Wire.
 The Identity page copies a validated encrypted vault into app-data `identity.urma`,
