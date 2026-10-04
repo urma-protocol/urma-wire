@@ -19,6 +19,7 @@ use leptos::prelude::IntoView;
 use leptos::prelude::NodeRef;
 use leptos::prelude::NodeRefAttribute;
 use leptos::prelude::OnAttribute;
+use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
 use leptos::prelude::SetValue;
 use leptos::prelude::StoredValue;
@@ -82,10 +83,7 @@ fn PublicationCard(publication: Publication) -> impl IntoView {
     let state = expect_context::<AppState>();
     let id = publication.id.clone();
     let approve = !publication.approved;
-    let explained = match approve {
-        true => "Approval publishes exactly the record shown above and spends this fee. Editing requires a new review.",
-        false => "Resuming continues the same approved plan: the same signed bytes and the same fee.",
-    };
+    let explained = explained(approve);
     let text = frozen_text(&publication.content);
     view! {
         <section class="compose-card publication-card">
@@ -155,7 +153,46 @@ fn PublicationCard(publication: Publication) -> impl IntoView {
                     on:click=move |_clicked| state.pause_requested.set(true)>"Pause after current request"</button>
             </Actions>
             <p class="action-desc">"You can close Wire and resume later with the same plan and fee."</p>
+            <AbandonPlan id=publication.id.clone() abandonable=publication.abandonable />
         </section>
+    }
+}
+
+fn explained(approve: bool) -> &'static str {
+    match approve {
+        true => "Approval publishes exactly the record shown above and spends this fee. Editing requires a new review.",
+        false => "Resuming continues the same approved plan: the same signed bytes and the same fee.",
+    }
+}
+
+#[component]
+fn AbandonPlan(id: String, abandonable: bool) -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let confirming = RwSignal::new(false);
+    let abandon_id = id.clone();
+    view! {
+        {move || match (abandonable, confirming.get()) {
+            (false, _either) => ().into_any(),
+            (true, false) => view! {
+                <Actions>
+                    <button class="btn btn-secondary btn-sm" disabled=move || state.following.get()
+                        on:click=move |_clicked| confirming.set(true)>"Abandon this plan"</button>
+                </Actions>
+            }.into_any(),
+            (true, true) => {
+                let abandon_id = abandon_id.clone();
+                view! {
+                    <p class="alert alert-info" role="alert">
+                        "This approved plan never reached the network: no transaction was submitted or seen in a mempool. Abandoning it frees its funding for a new review. The signed bytes stay on disk and are never broadcast by Wire."
+                    </p>
+                    <Actions>
+                        <button class="btn btn-primary btn-sm" disabled=move || state.following.get()
+                            on:click=move |_clicked| state.abandon_publication(abandon_id.clone())>"Yes, abandon it"</button>
+                        <button class="btn btn-secondary btn-sm" on:click=move |_clicked| confirming.set(false)>"Keep it"</button>
+                    </Actions>
+                }.into_any()
+            }
+        }}
     }
 }
 

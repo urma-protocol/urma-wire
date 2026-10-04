@@ -44,6 +44,7 @@ use wire_app_core::composed::Token;
 use wire_app_core::composed::Typed;
 use wire_app_core::composer::{compose, Photo};
 use wire_app_core::config::MAX_IMAGES_PER_POST;
+use wire_app_core::errors::FaultKind;
 use wire_app_core::publication::Addressed;
 use wire_app_core::topics::Kind;
 
@@ -82,6 +83,7 @@ pub fn ComposeBox(#[prop(default = Speaking::Freely)] speaking: Speaking) -> imp
     });
     let busy = RwSignal::new(false);
     let trouble = RwSignal::new(Said::Nothing);
+    let unfinished = RwSignal::new(false);
     let text = move || state.draft(&key.get_value());
     let photos = move || state.photos(&key.get_value());
     let max_bytes = addressed.max_bytes();
@@ -101,6 +103,7 @@ pub fn ComposeBox(#[prop(default = Speaking::Freely)] speaking: Speaking) -> imp
             hashtags,
             busy,
             trouble,
+            unfinished,
         });
     });
     let bytes = move || compose(&text(), &photos(), usize::MAX, usize::MAX).map(|ready| ready.len()).unwrap_or(text().len());
@@ -116,6 +119,7 @@ pub fn ComposeBox(#[prop(default = Speaking::Freely)] speaking: Speaking) -> imp
             <PhotoComposer key=key max_bytes=max_bytes />
             <TopicPreview meant=Signal::derive(meant) />
             <Warning message=trouble.into() />
+            <PanelLink unfinished=unfinished />
             <div class="composer-bar">
                 <TopicFields wire=wire hashtags=hashtags />
                 <span class=meter>
@@ -127,6 +131,18 @@ pub fn ComposeBox(#[prop(default = Speaking::Freely)] speaking: Speaking) -> imp
                 </button>
             </div>
         </div>
+    }
+}
+
+#[component]
+fn PanelLink(unfinished: RwSignal<bool>) -> impl IntoView {
+    view! {
+        {move || match unfinished.get() {
+            true => view! {
+                <p class="action-desc"><a href="/compose">"Open your publication to resume or abandon it"</a></p>
+            }.into_any(),
+            false => ().into_any(),
+        }}
     }
 }
 
@@ -149,6 +165,7 @@ struct Quoting {
     hashtags: RwSignal<String>,
     busy: RwSignal<bool>,
     trouble: RwSignal<Said>,
+    unfinished: RwSignal<bool>,
 }
 
 fn quote_draft(quoting: Quoting) {
@@ -160,8 +177,10 @@ fn quote_draft(quoting: Quoting) {
         hashtags,
         busy,
         trouble,
+        unfinished,
     } = quoting;
     trouble.set(Said::Nothing);
+    unfinished.set(false);
     let draft_key = key.get_value();
     let revision = state.draft_version(&draft_key);
     let manual_text = state.draft(&draft_key);
@@ -196,6 +215,7 @@ fn quote_draft(quoting: Quoting) {
             Ok(quote) => quote,
             Err(fault) => {
                 warn!(fault = %fault, "publication quote refused");
+                unfinished.set(fault.kind == FaultKind::Publication);
                 trouble.set(Said::Something(fault.message));
                 return;
             }

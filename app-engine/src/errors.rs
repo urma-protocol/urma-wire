@@ -115,7 +115,7 @@ pub enum NativeError {
     InvalidPlanId,
     #[error("Active publication does not match its Litecoin Testnet plan")]
     ForeignPlan,
-    #[error("Finish the existing publication before preparing another; use Resume.")]
+    #[error("Finish the existing publication before preparing another: resume it from your publication panel, or abandon it there if it never reached the network.")]
     Unfinished,
     #[error("No prepared publication")]
     NoPublication,
@@ -294,7 +294,7 @@ pub enum BrowserError {
     SpendStatus,
     #[error("Balance overflow")]
     BalanceOverflow,
-    #[error("Finish the approved publication before preparing another; use Resume")]
+    #[error("Finish the approved publication before preparing another: resume it from your publication panel")]
     Unfinished,
     #[error("Funding budget overflow")]
     BudgetOverflow,

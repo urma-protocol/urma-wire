@@ -741,6 +741,7 @@ mod tests {
             mempool: 0,
             message: String::new(),
             complete: false,
+            abandonable: false,
         }
     }
 

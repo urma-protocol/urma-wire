@@ -42,6 +42,7 @@ pub struct Publication {
     pub mempool: usize,
     pub message: String,
     pub complete: bool,
+    pub abandonable: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

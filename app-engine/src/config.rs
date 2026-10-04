@@ -40,6 +40,9 @@ pub const PLAN_ID_FILE_BYTES: usize = 128;
 pub const APPROVAL_FILE_BYTES: usize = 64;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub const PROGRESS_FILE_BYTES: usize = 1024 * 1024;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub const MAX_IMAGE_DOWNLOAD_BYTES: u64 = 4 * 1024 * 1024;
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -199,6 +199,7 @@ fn reviewed(active: &Active, confirmed: usize, mempool: usize) -> Result<Publica
         mempool,
         complete: confirmed == 2,
         message: waiting(confirmed, approved).into(),
+        abandonable: false,
     })
 }
 

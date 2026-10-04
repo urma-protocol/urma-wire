@@ -1,4 +1,4 @@
-use crate::config::{APPROVAL_FILE_BYTES, FEE_RATE, PLAN_ID_FILE_BYTES};
+use crate::config::{APPROVAL_FILE_BYTES, FEE_RATE, PLAN_ID_FILE_BYTES, PROGRESS_FILE_BYTES};
 use crate::errors::NativeError;
 use crate::native::service::Service;
 use crate::record::{build, review};
@@ -10,7 +10,7 @@ use urma_core::envelope;
 use urma_identity::identity::IdentitySigner;
 use urma_runtime::node::{Node, Presence};
 use urma_runtime::plan::{self, PlanLimits, PublicationPlan};
-use urma_runtime::publish;
+use urma_runtime::publish::{self, PublishReport};
 use wire_app_core::publication::{Content, Pending, Publication};
 
 enum Standing {
@@ -104,7 +104,15 @@ impl Service {
             return Ok(());
         }
         if directory.join(Self::APPROVAL_FILE).exists() {
-            return Err(NativeError::Unfinished);
+            let publication = self.with_node(|node| observe(node, &plan, &directory))?;
+            if !publication.abandonable {
+                return Err(NativeError::Unfinished);
+            }
+            tracing::warn!(
+                id,
+                "abandoning an approved plan that never reached the network"
+            );
+            std::fs::remove_file(directory.join(Self::APPROVAL_FILE))?;
         }
         std::fs::remove_file(self.directory.join(Self::ACTIVE_FILE))?;
         Ok(())
@@ -180,7 +188,21 @@ fn observe(
         mempool,
         complete: confirmed == 2,
         message: observed(confirmed, approved).into(),
+        abandonable: approved && confirmed == 0 && mempool == 0 && never_submitted(directory)?,
     })
+}
+
+fn never_submitted(directory: &Path) -> Result<bool, NativeError> {
+    let journal = directory.join(Service::PROGRESS_FILE);
+    if !journal.try_exists()? {
+        return Ok(true);
+    }
+    let report: PublishReport =
+        serde_json::from_slice(&urma_io::read_bounded(&journal, PROGRESS_FILE_BYTES)?)?;
+    Ok(report
+        .transactions
+        .iter()
+        .all(|status| matches!(status.presence, Presence::Missing)))
 }
 
 fn observed(confirmed: usize, approved: bool) -> &'static str {
