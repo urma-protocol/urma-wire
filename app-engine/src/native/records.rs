@@ -1,11 +1,11 @@
-use crate::config::{HISTORY_BLOCKS, START_FILE_BYTES, SYNC_BLOCKS};
+use crate::config::{bounded_slice, HISTORY_BLOCKS, START_FILE_BYTES, SYNC_BLOCKS};
 use crate::errors::NativeError;
 use crate::native::reader::NodeReader;
 use crate::native::service::Service;
 use crate::projection::{lookup, project, replies};
 use urma_runtime::node::Node;
-use urma_wire::index::{self, Index};
-use wire_app_core::feed::{Feed, Lookup};
+use urma_wire::index::{self, Index, SyncReport};
+use wire_app_core::feed::{Feed, Lookup, SyncProgress};
 use wire_app_core::model::{Post, Txid};
 
 impl Service {
@@ -23,14 +23,29 @@ impl Service {
         Ok(start)
     }
 
-    pub fn sync(&self) -> Result<Feed, NativeError> {
+    fn scan(&self, max_blocks: u64) -> Result<(SyncReport, Index), NativeError> {
         let node = self.settings.connect()?;
         let start = self.start(&node)?;
-        let report = index::sync(&NodeReader(node), &self.index_path(), start, SYNC_BLOCKS)?;
-        Ok(project(
-            &Index::load(&self.index_path())?,
-            report.complete_to_tip,
-        )?)
+        let report = index::sync(&NodeReader(node), &self.index_path(), start, max_blocks)?;
+        Ok((report, Index::load(&self.index_path())?))
+    }
+
+    pub fn sync(&self) -> Result<Feed, NativeError> {
+        let (report, index) = self.scan(SYNC_BLOCKS)?;
+        Ok(project(&index, report.complete_to_tip)?)
+    }
+
+    pub fn sync_slice(&self, max_blocks: u64) -> Result<SyncProgress, NativeError> {
+        let (report, index) = self.scan(bounded_slice(max_blocks))?;
+        Ok(SyncProgress {
+            start: index.start,
+            indexed_to: index.blocks.last().map(|block| block.height),
+            tip: report.tip,
+            scanned: report.scanned,
+            records: u64::try_from(report.records)?,
+            rolled_back: report.rolled_back,
+            complete_to_tip: report.complete_to_tip,
+        })
     }
 
     pub fn post(&self, txid: Txid) -> Result<Lookup, NativeError> {

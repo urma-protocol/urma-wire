@@ -1,4 +1,4 @@
-use crate::config::PUBLICATION_POLL_MS;
+use crate::config::{PUBLICATION_POLL_MS, SYNC_SLICE_BLOCKS};
 use crate::data::chain;
 use crate::data::identity;
 use crate::data::preferences::{stored_autoload, stored_replies_shown};
@@ -22,7 +22,7 @@ use tracing::warn;
 use wire_app_core::composer::Photo;
 use wire_app_core::connection::{ConnectionHealth, Trouble};
 use wire_app_core::errors::Fault;
-use wire_app_core::feed::{conversations, following, Conversation, PublicIdentity};
+use wire_app_core::feed::{conversations, following, Conversation, PublicIdentity, SyncProgress};
 use wire_app_core::model::{AuthorId, Chain, Post, WalletSummary};
 use wire_app_core::publication::{Addressed, Content, Pending, Publication};
 use wire_app_core::session::{IdentityStatus, Session};
@@ -201,7 +201,7 @@ impl AppState {
         });
     }
 
-    pub fn load_feed(&self) {
+    pub fn refresh_feed(&self) {
         if self.is_loading_feed.get_untracked() {
             return;
         }
@@ -517,6 +517,67 @@ pub enum Named {
 }
 
 async fn sync_feed(state: AppState, chain: Chain) {
+    state.synced.set(Synced::Connecting);
+    match verify_history(state, chain).await {
+        Ok(()) => {
+            state.synced.set(Synced::Building);
+            build_feed(state, chain).await;
+        }
+        Err(fault) => {
+            warn!(fault = %fault, "history verification stopped; cached posts stand");
+            state.synced.set(Synced::Failed(fault.message));
+        }
+    }
+    state.is_loading_feed.set(false);
+}
+
+async fn verify_history(state: AppState, chain: Chain) -> Result<(), Fault> {
+    let mut latest = records::sync(chain, SYNC_SLICE_BLOCKS).await?;
+    let baseline = indexed_before(&latest);
+    let mut done = latest.scanned;
+    loop {
+        state.synced.set(Synced::Verifying {
+            done,
+            total: blocks_from(baseline, latest.tip),
+            height: height_of(&latest),
+            tip: latest.tip,
+        });
+        if latest.complete_to_tip || latest.scanned == 0 {
+            return Ok(());
+        }
+        if state.active_chain.get_untracked() != chain {
+            return Ok(());
+        }
+        latest = records::sync(chain, SYNC_SLICE_BLOCKS).await?;
+        done += latest.scanned;
+    }
+}
+
+fn indexed_before(first: &SyncProgress) -> u64 {
+    let Some(indexed_to) = first.indexed_to else {
+        return first.start;
+    };
+    let Some(before) = indexed_to.checked_sub(first.scanned) else {
+        return first.start;
+    };
+    before
+}
+
+fn blocks_from(baseline: u64, tip: u64) -> u64 {
+    let Some(total) = tip.checked_sub(baseline) else {
+        return 0;
+    };
+    total
+}
+
+fn height_of(progress: &SyncProgress) -> u64 {
+    let Some(height) = progress.indexed_to else {
+        return progress.start;
+    };
+    height
+}
+
+async fn build_feed(state: AppState, chain: Chain) {
     match records::feed(chain).await {
         Ok(result) => {
             if state.active_chain.get_untracked() == chain {
@@ -530,11 +591,10 @@ async fn sync_feed(state: AppState, chain: Chain) {
             }
         }
         Err(fault) => {
-            warn!(fault = %fault, "feed sync failed; cached posts stand");
+            warn!(fault = %fault, "feed build failed; cached posts stand");
             state.synced.set(Synced::Failed(fault.message));
         }
     }
-    state.is_loading_feed.set(false);
 }
 
 async fn load_pending(state: AppState) {
@@ -577,6 +637,14 @@ fn signed_by(state: AppState) -> Session {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Synced {
     Unchecked,
+    Connecting,
+    Verifying {
+        done: u64,
+        total: u64,
+        height: u64,
+        tip: u64,
+    },
+    Building,
     Indexed {
         start: u64,
         tip: u64,
@@ -589,6 +657,14 @@ impl Synced {
     pub fn summary(&self) -> String {
         match self {
             Synced::Unchecked => String::new(),
+            Synced::Connecting => "Connecting to chain source…".to_owned(),
+            Synced::Verifying {
+                done,
+                total,
+                height,
+                tip,
+            } => format!("Verifying blocks: {done}/{total} · at #{height} · tip #{tip}"),
+            Synced::Building => "Building feed…".to_owned(),
             Synced::Indexed {
                 start,
                 tip,
@@ -609,6 +685,9 @@ impl Synced {
                 "Sync failed; displayed records are cached: {reason}"
             )),
             Synced::Unchecked => Said::Nothing,
+            Synced::Connecting => Said::Nothing,
+            Synced::Verifying { .. } => Said::Nothing,
+            Synced::Building => Said::Nothing,
             Synced::Indexed { .. } => Said::Nothing,
         }
     }

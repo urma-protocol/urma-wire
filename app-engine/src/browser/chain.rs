@@ -1,19 +1,23 @@
 use crate::browser::source::Source;
 use crate::browser::store::{self, Stored};
 use crate::config::{
-    HISTORY_BLOCKS, INDEX_FORMAT, INDEX_KEY, MAX_CHECKPOINTS, MAX_ENTRIES, NETWORK, SYNC_BLOCKS,
+    bounded_slice, HISTORY_BLOCKS, INDEX_FORMAT, INDEX_KEY, MAX_CHECKPOINTS, MAX_ENTRIES, NETWORK,
 };
 use crate::errors::BrowserError;
-use crate::projection::project;
 use bitcoin::{Block, Transaction};
 use urma_core::envelope;
 use urma_core::format::RecordKind;
 use urma_wire::index::{Checkpoint, Entry, Index};
-use wire_app_core::feed::Feed;
+use wire_app_core::feed::SyncProgress;
 
 pub enum Cached {
     Index(Index),
     Empty,
+}
+
+pub struct Refreshed {
+    pub index: Index,
+    pub progress: SyncProgress,
 }
 
 pub async fn cached() -> Result<Cached, BrowserError> {
@@ -55,40 +59,53 @@ fn fresh(tip: u64) -> Result<Index, BrowserError> {
     })
 }
 
-pub async fn sync(source: &Source) -> Result<Feed, BrowserError> {
+pub async fn sync(source: &Source, max_blocks: u64) -> Result<Refreshed, BrowserError> {
     let (tip, anchor) = source.tip().await?;
     let mut index = match cached().await? {
         Cached::Index(index) => index,
         Cached::Empty => fresh(tip)?,
     };
-    roll_back(source, &mut index, tip).await?;
+    let rolled_back = roll_back(source, &mut index, tip).await?;
     store::write(INDEX_KEY, &index).await?;
     let next = index
         .start
         .checked_add(u64::try_from(index.blocks.len())?)
         .ok_or(BrowserError::HeightOverflow)?;
     let horizon = next
-        .checked_add(SYNC_BLOCKS - 1)
+        .checked_add(bounded_slice(max_blocks) - 1)
         .ok_or(BrowserError::HeightOverflow)?;
+    let mut scanned = 0;
     for height in next..=tip.min(horizon) {
         extend(source, &mut index, height).await?;
+        scanned += 1;
     }
     let stable = source.hash(tip).await? == anchor;
-    Ok(project(&index, stable && reached(&index, tip))?)
+    let progress = SyncProgress {
+        start: index.start,
+        indexed_to: index.blocks.last().map(|block| block.height),
+        tip,
+        scanned,
+        records: u64::try_from(index.entries.len())?,
+        rolled_back,
+        complete_to_tip: stable && reached(&index, tip),
+    };
+    Ok(Refreshed { index, progress })
 }
 
-async fn roll_back(source: &Source, index: &mut Index, tip: u64) -> Result<(), BrowserError> {
+async fn roll_back(source: &Source, index: &mut Index, tip: u64) -> Result<u64, BrowserError> {
+    let mut removed = 0;
     loop {
         let Some(last) = index.blocks.last() else {
-            return Ok(());
+            return Ok(removed);
         };
         if last.height <= tip && source.hash(last.height).await?.to_string() == last.hash {
-            return Ok(());
+            return Ok(removed);
         }
         let Some(dropped) = index.blocks.pop() else {
-            return Ok(());
+            return Ok(removed);
         };
         index.entries.retain(|entry| entry.height < dropped.height);
+        removed += 1;
     }
 }
 

@@ -22,7 +22,6 @@ use wire_app_core::connection::{ConnectionHealth, Trouble};
 #[component]
 pub fn ConnectionPage() -> impl IntoView {
     let state = expect_context::<AppState>();
-    state.check_connection();
     let checking = move || state.is_checking_connection.get();
 
     view! {

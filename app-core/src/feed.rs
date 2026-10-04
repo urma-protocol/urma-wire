@@ -19,6 +19,17 @@ pub struct Feed {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SyncProgress {
+    pub start: u64,
+    pub indexed_to: Option<u64>,
+    pub tip: u64,
+    pub scanned: u64,
+    pub records: u64,
+    pub rolled_back: u64,
+    pub complete_to_tip: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Lookup {
     Found(Post),
     Absent,

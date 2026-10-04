@@ -5,13 +5,13 @@ use crate::browser::publish::{self, Planned};
 use crate::browser::session;
 use crate::browser::source::Source;
 use crate::browser::store::{self, OperationLock};
-use crate::config::SOURCE_KEY;
+use crate::config::{SOURCE_KEY, SYNC_BLOCKS};
 use crate::errors::BrowserError;
 use crate::projection::{lookup, project, replies};
 use wasm_bindgen::prelude::wasm_bindgen;
 use wire_app_core::connection::SourceChoice;
 use wire_app_core::contract::{Request, Response};
-use wire_app_core::feed::{Feed, Lookup};
+use wire_app_core::feed::{Feed, Lookup, SyncProgress};
 use wire_app_core::model::{Chain, Post, Txid};
 use wire_app_core::publication::Pending;
 
@@ -45,6 +45,7 @@ fn served(request: &Request) -> Result<(), BrowserError> {
     let chain = match request {
         Request::Wallet { chain }
         | Request::Feed { chain }
+        | Request::Sync { chain, .. }
         | Request::Post { chain, .. }
         | Request::Replies { chain, .. }
         | Request::Health { chain }
@@ -76,6 +77,7 @@ async fn chain_request(request: Request) -> Result<Response, BrowserError> {
         Request::Post { txid, .. } => Ok(Response::Post(cached_post(txid).await?)),
         Request::Replies { txid, .. } => Ok(Response::Replies(cached_replies(txid).await?)),
         Request::Feed { .. } => Ok(Response::Feed(feed().await?)),
+        Request::Sync { max_blocks, .. } => Ok(Response::Sync(slice(max_blocks).await?)),
         Request::Wallet { .. } => Ok(Response::Wallet(funding::wallet(&connected().await?).await?)),
         Request::Quote { content, .. } => Ok(Response::Publication(
             publish::quote(&connected().await?, &content).await?,
@@ -116,16 +118,21 @@ async fn cached_replies(txid: Txid) -> Result<Vec<Post>, BrowserError> {
     Ok(replies(&index, txid)?)
 }
 
+async fn slice(max_blocks: u64) -> Result<SyncProgress, BrowserError> {
+    let source = connected().await?;
+    Ok(chain::sync(&source, max_blocks).await?.progress)
+}
+
 async fn feed() -> Result<Feed, BrowserError> {
     let connection = Source::connect(store::source().await?).await;
     let refreshed = match connection {
-        Ok(source) => chain::sync(&source).await,
+        Ok(source) => chain::sync(&source, SYNC_BLOCKS).await,
         Err(error) => Err(error),
     };
     match refreshed {
-        Ok(feed) => {
+        Ok(refreshed) => {
             chain_notice("Chain source connected. Confirmed records verified; recent-history catch-up is shown in the feed.");
-            Ok(feed)
+            Ok(project(&refreshed.index, refreshed.progress.complete_to_tip)?)
         }
         Err(error) => {
             tracing::warn!(error = %error, "feed refresh failed; cached history shown");

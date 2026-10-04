@@ -1,6 +1,6 @@
 use crate::connection::{ConnectionHealth, SourceChoice, SourceStatus};
 use crate::errors::Fault;
-use crate::feed::{Feed, Lookup};
+use crate::feed::{Feed, Lookup, SyncProgress};
 use crate::markdown::FetchedImage;
 use crate::model::{Chain, Post, Txid, WalletSummary};
 use crate::publication::{Content, Pending, Publication};
@@ -15,6 +15,7 @@ pub enum Request {
     Lock,
     Wallet { chain: Chain },
     Feed { chain: Chain },
+    Sync { chain: Chain, max_blocks: u64 },
     Post { chain: Chain, txid: Txid },
     Replies { chain: Chain, txid: Txid },
     Health { chain: Chain },
@@ -36,6 +37,7 @@ impl Request {
             Request::Lock => "lock",
             Request::Wallet { .. } => "wallet",
             Request::Feed { .. } => "feed",
+            Request::Sync { .. } => "history sync",
             Request::Post { .. } => "post",
             Request::Replies { .. } => "replies",
             Request::Health { .. } => "connection health",
@@ -57,6 +59,7 @@ pub enum Response {
     Locked,
     Wallet(WalletSummary),
     Feed(Feed),
+    Sync(SyncProgress),
     Post(Lookup),
     Replies(Vec<Post>),
     Health(ConnectionHealth),
@@ -76,6 +79,7 @@ impl Response {
             Response::Locked => "locked",
             Response::Wallet(_summary) => "wallet",
             Response::Feed(_feed) => "feed",
+            Response::Sync(_progress) => "history sync",
             Response::Post(_lookup) => "post",
             Response::Replies(_replies) => "replies",
             Response::Health(_health) => "connection health",

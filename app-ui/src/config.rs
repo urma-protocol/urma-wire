@@ -10,6 +10,8 @@ pub const FEED_PAGE_SIZE: usize = 100;
 
 pub const PUBLICATION_POLL_MS: u32 = 2000;
 
+pub const SYNC_SLICE_BLOCKS: u64 = 5;
+
 pub const AVATAR_PREVIEW_PIXELS: u32 = 128;
 
 pub const PROFILE_AVATAR_PIXELS: u32 = 72;

@@ -27,6 +27,10 @@ impl Service {
                 served(chain)?;
                 Ok(Response::Feed(self.sync()?))
             }
+            Request::Sync { chain, max_blocks } => {
+                served(chain)?;
+                Ok(Response::Sync(self.sync_slice(max_blocks)?))
+            }
             Request::Post { chain, txid } => {
                 served(chain)?;
                 Ok(Response::Post(self.post(txid)?))

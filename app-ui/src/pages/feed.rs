@@ -21,7 +21,6 @@ use leptos::prelude::{component, view};
 #[component]
 pub fn FeedPage() -> impl IntoView {
     let state = expect_context::<AppState>();
-    state.load_feed();
     state.stop_replying();
 
     view! {
@@ -35,7 +34,7 @@ pub fn FeedPage() -> impl IntoView {
                         <span class="sync-status" role="status">{move || state.synced.get().summary()}</span>
                         <button type="button" class="btn btn-secondary btn-sm"
                             disabled=move || state.is_loading_feed.get()
-                            on:click=move |_clicked| state.load_feed()>
+                            on:click=move |_clicked| state.refresh_feed()>
                             {move || match state.is_loading_feed.get() { true => "Syncing…", false => "Refresh" }}
                         </button>
                     </div>
@@ -62,7 +61,7 @@ fn Stream() -> impl IntoView {
                 }.into_any();
             }
             if state.is_loading_feed.get() {
-                return view! { <p class="loading-state" role="status">"Verifying recent history…"</p> }.into_any();
+                return view! { <p class="loading-state" role="status">{move || state.synced.get().summary()}</p> }.into_any();
             }
             match state.only_followed.get() {
                 true => view! {
