@@ -26,6 +26,7 @@ pub async fn health() -> Result<ConnectionHealth, BrowserError> {
         local_height: None,
         trouble: Trouble::Clear,
         evidence: BROWSER_EVIDENCE.into(),
+        light_client: String::new(),
     };
     match chain::cached().await {
         Ok(Cached::Index(index)) => {

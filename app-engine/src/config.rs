@@ -31,6 +31,9 @@ pub const RUNTIME_DIR: &str = "runtime";
 pub const EVIDENCE_UNAVAILABLE: &str = "unavailable";
 
 #[cfg(not(target_arch = "wasm32"))]
+pub const LIGHT_CLIENT_COLD: &str = "cold";
+
+#[cfg(not(target_arch = "wasm32"))]
 pub const PLAN_ID_FILE_BYTES: usize = 128;
 
 #[cfg(not(target_arch = "wasm32"))]

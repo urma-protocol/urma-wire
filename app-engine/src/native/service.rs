@@ -1,4 +1,4 @@
-use crate::config::{Settings, EVIDENCE_UNAVAILABLE};
+use crate::config::{Settings, EVIDENCE_UNAVAILABLE, LIGHT_CLIENT_COLD};
 use crate::errors::NativeError;
 use crate::native::wallet::{Balance, WireWallet};
 use fs2::FileExt;
@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use urma_identity::vault::{EncryptedVault, UnlockCredential};
 use urma_runtime::error::Error as RuntimeError;
+use urma_runtime::light::LightSync;
 use urma_runtime::node::Node;
 use urma_wire::index::Index;
 use wire_app_core::connection::{ConnectionHealth, Trouble};
@@ -80,7 +81,7 @@ impl Service {
         let mut link = self.link();
         if matches!(*link, Link::Closed) {
             let node = self.settings.connect()?;
-            tracing::info!(providers = ?node.provider_labels(), evidence = node.inclusion_evidence(), "chain link opened");
+            opened(&node);
             *link = Link::Open(node);
         }
         let Link::Open(node) = &*link else {
@@ -98,6 +99,7 @@ impl Service {
     }
 
     pub(super) fn replace_link(&self, node: Node) {
+        opened(&node);
         *self.link() = Link::Open(node);
     }
 
@@ -105,6 +107,13 @@ impl Service {
         match &*self.link() {
             Link::Open(node) => node.provider_labels(),
             Link::Closed => Vec::new(),
+        }
+    }
+
+    fn open_light_client(&self) -> String {
+        match &*self.link() {
+            Link::Open(node) => light_client_label(node.light_client_progress()),
+            Link::Closed => String::new(),
         }
     }
 
@@ -243,6 +252,7 @@ impl Service {
             local_height: None,
             trouble: Trouble::Clear,
             evidence: EVIDENCE_UNAVAILABLE.into(),
+            light_client: String::new(),
         };
         if self.index_path().exists() {
             match Index::load(&self.index_path()) {
@@ -268,6 +278,7 @@ impl Service {
                 );
             }
         }
+        health.light_client = self.open_light_client();
         Ok(health)
     }
 
@@ -282,6 +293,29 @@ impl Service {
             tracing::debug!(provider = %observed.provider, evidence = observed.evidence.label(), height, "tip observed");
             Ok((height, observed.evidence.label().to_owned()))
         })
+    }
+}
+
+fn opened(node: &Node) {
+    tracing::info!(providers = ?node.provider_labels(), evidence = node.inclusion_evidence(), "chain link opened");
+    match node.warm_light_client() {
+        Ok(()) => {
+            tracing::debug!(light_client = %light_client_label(node.light_client_progress()), "light client warming")
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "light client did not start; reads continue on public providers")
+        }
+    }
+}
+
+fn light_client_label(sync: LightSync) -> String {
+    match sync {
+        LightSync::Absent => String::new(),
+        LightSync::Cold(_progress) => LIGHT_CLIENT_COLD.to_owned(),
+        LightSync::Running(progress) => format!(
+            "Headers {}/{} · peers {}",
+            progress.headers_synced, progress.headers_target, progress.peers_connected
+        ),
     }
 }
 

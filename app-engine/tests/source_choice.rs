@@ -85,6 +85,7 @@ fn one_node_is_held_across_requests_and_handed_over_on_adoption() {
     let first = service.connection_health().unwrap();
     assert_eq!(first.remote_height, Some(100));
     assert_eq!(first.evidence, "local_validating_node");
+    assert_eq!(first.light_client, "");
     service.connection_health().unwrap();
     let genesis_checks = |methods: &[String]| {
         methods

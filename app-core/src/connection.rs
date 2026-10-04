@@ -45,6 +45,7 @@ pub struct ConnectionHealth {
     pub local_height: Option<u64>,
     pub trouble: Trouble,
     pub evidence: String,
+    pub light_client: String,
 }
 
 impl ConnectionHealth {

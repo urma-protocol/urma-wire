@@ -721,6 +721,7 @@ fn unreachable(chain: Chain, fault: Fault) -> ConnectionHealth {
         local_height: None,
         trouble: Trouble::SourceUnverified(fault.message),
         evidence: EVIDENCE_UNAVAILABLE.to_owned(),
+        light_client: String::new(),
     }
 }
 

@@ -72,6 +72,10 @@ fn Health(health: ConnectionHealth) -> impl IntoView {
                 <Fact label="Source">{health.source_type}</Fact>
                 <Fact label="Endpoint" wide=true>{health.endpoint}</Fact>
                 <Fact label="Evidence">{evidence_label(&health.evidence)}</Fact>
+                {match health.light_client.is_empty() {
+                    true => ().into_any(),
+                    false => view! { <Fact label="Light client">{health.light_client.clone()}</Fact> }.into_any(),
+                }}
                 <Fact label="Remote block height">{remote}</Fact>
                 <Fact label="Locally indexed height">{local}</Fact>
                 <Fact label="Indexed range">{range}</Fact>
