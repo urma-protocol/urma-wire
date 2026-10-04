@@ -63,7 +63,7 @@ pub struct AppState {
     pub only_followed: RwSignal<bool>,
 }
 
-fn voiced(fault: Fault) -> Said {
+pub(crate) fn voiced(fault: Fault) -> Said {
     Said::Something(fault.message)
 }
 
@@ -97,6 +97,10 @@ impl AppState {
             load_pending(state).await;
         });
         state
+    }
+
+    pub fn blank() -> Self {
+        Self::empty(false, 0, Remembered::default())
     }
 
     fn empty(autoload: bool, replies: usize, remembered: Remembered) -> Self {
@@ -157,9 +161,7 @@ impl AppState {
                 Ok(health) => state.connection_health.set(Some(carried(health, state))),
                 Err(fault) => {
                     warn!(fault = %fault, "connection check could not complete");
-                    state
-                        .connection_health
-                        .set(Some(unreachable(chain, fault)));
+                    state.connection_health.set(Some(unreachable(chain, fault)));
                 }
             }
             state.is_checking_connection.set(false);
@@ -221,43 +223,21 @@ impl AppState {
         self.refresh_all();
     }
 
-    pub fn load_wallet(&self) {
-        if self.is_loading_wallet.get_untracked() {
-            return;
-        }
-        let state = *self;
-        let chain = state.active_chain.get_untracked();
-        state.is_loading_wallet.set(true);
-        let author = signed_by(state);
-        leptos::task::spawn_local(async move {
-            let result = chain::wallet(chain).await;
-            if signed_by(state) != author {
-                state.is_loading_wallet.set(false);
-                return;
-            }
-            match result {
-                Ok(summary) => {
-                    state.wallet_summary.set(Some(summary));
-                    state.status_message.set(Said::Nothing);
-                }
-                Err(fault) => {
-                    warn!(fault = %fault, "funding summary unavailable");
-                    state.wallet_summary.set(None);
-                    state.status_message.set(voiced(fault));
-                }
-            }
-            state.is_loading_wallet.set(false);
-        });
-    }
-
     pub fn follow(&self, id: String, approve: bool) {
         if self.following.get_untracked() {
             return;
         }
         if self.invalidated_reviews.get_untracked().contains(&id)
-            || self.publication.get_untracked().as_ref().map(|held| &held.id) != Some(&id)
+            || self
+                .publication
+                .get_untracked()
+                .as_ref()
+                .map(|held| &held.id)
+                != Some(&id)
         {
-            self.publication_error.set(Said::Something("This review changed. Review the current draft again before publishing.".into()));
+            self.publication_error.set(Said::Something(
+                "This review changed. Review the current draft again before publishing.".into(),
+            ));
             return;
         }
         let state = *self;
@@ -308,7 +288,12 @@ impl AppState {
         approval: bool,
         reviewed_draft: Option<&(String, u64)>,
     ) -> bool {
-        if !result.approved && self.invalidated_reviews.get_untracked().contains(&result.id) {
+        if !result.approved
+            && self
+                .invalidated_reviews
+                .get_untracked()
+                .contains(&result.id)
+        {
             return false;
         }
         if result.approved {
@@ -336,7 +321,10 @@ impl AppState {
     }
 
     pub fn toggle_reply_to(&self, post: Post) {
-        match self.speaking.with(|speaking| speaking.replies_to(post.txid)) {
+        match self
+            .speaking
+            .with(|speaking| speaking.replies_to(post.txid))
+        {
             true => self.stop_replying(),
             false => self.reply_to(post),
         }
@@ -368,7 +356,8 @@ impl AppState {
     }
 
     pub fn photos(&self, key: &str) -> Vec<Photo> {
-        self.draft_photos.with(|drafts| drafts.get(key).cloned().unwrap_or_default())
+        self.draft_photos
+            .with(|drafts| drafts.get(key).cloned().unwrap_or_default())
     }
 
     pub fn set_photos(&self, key: &str, photos: Vec<Photo>) {
@@ -379,7 +368,8 @@ impl AppState {
     }
 
     pub fn draft_labels(&self, key: &str) -> (String, String) {
-        self.draft_labels.with(|drafts| drafts.get(key).cloned().unwrap_or_default())
+        self.draft_labels
+            .with(|drafts| drafts.get(key).cloned().unwrap_or_default())
     }
 
     pub fn set_draft_labels(&self, key: &str, wire: String, hashtags: String) {
@@ -400,15 +390,19 @@ impl AppState {
     }
 
     pub fn draft_clear_revision(&self, key: &str) -> u64 {
-        self.draft_clears.with(|clears| clears.get(key).copied().unwrap_or(0))
+        self.draft_clears
+            .with(|clears| clears.get(key).copied().unwrap_or(0))
     }
 
     pub fn draft_version(&self, key: &str) -> u64 {
-        self.draft_versions.with_untracked(|versions| versions.get(key).copied().unwrap_or(0))
+        self.draft_versions
+            .with_untracked(|versions| versions.get(key).copied().unwrap_or(0))
     }
 
     pub fn accept_review(&self, id: &str) {
-        self.invalidated_reviews.update(|old| { old.remove(id); });
+        self.invalidated_reviews.update(|old| {
+            old.remove(id);
+        });
     }
 
     fn changed_draft(&self, key: &str) {
@@ -422,7 +416,9 @@ impl AppState {
         if review.approved || post_draft_key(&review.content).as_deref() != Some(key) {
             return;
         }
-        self.invalidated_reviews.update(|old| { old.insert(review.id.clone()); });
+        self.invalidated_reviews.update(|old| {
+            old.insert(review.id.clone());
+        });
         self.publication.set(None);
         let state = *self;
         leptos::task::spawn_local(async move {
@@ -600,7 +596,11 @@ async fn build_feed(state: AppState, chain: Chain) {
 async fn load_pending(state: AppState) {
     match publication::pending().await {
         Ok(Pending::Awaiting(found)) => {
-            if !state.invalidated_reviews.get_untracked().contains(&found.id) {
+            if !state
+                .invalidated_reviews
+                .get_untracked()
+                .contains(&found.id)
+            {
                 state.publication.set(Some(found));
             }
         }
@@ -625,13 +625,6 @@ pub fn signing_author(state: AppState) -> Signer {
         Session::Unlocked(author) => Signer::Author(author),
         Session::Locked => Signer::Locked,
     }
-}
-
-fn signed_by(state: AppState) -> Session {
-    let Some(status) = state.identity.get_untracked() else {
-        return Session::Locked;
-    };
-    status.session
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -775,7 +768,10 @@ mod tests {
             assert_eq!(state.photos(""), vec![new_photo]);
             assert_eq!(state.draft_labels(""), ("new-wire".into(), "second".into()));
             assert!(state.publication.get_untracked().unwrap().approved);
-            assert!(!state.invalidated_reviews.get_untracked().contains("old-plan"));
+            assert!(!state
+                .invalidated_reviews
+                .get_untracked()
+                .contains("old-plan"));
 
             let clean = AppState::empty(false, 0, Remembered::default());
             clean.set_draft("", "Reviewed text".into());

@@ -5,9 +5,8 @@ use leptos::prelude::expect_context;
 use leptos::prelude::GetUntracked;
 use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
-use leptos::prelude::Update;
 use tracing::warn;
-use wire_app_core::session::{Credential, IdentityStatus, Session};
+use wire_app_core::session::Credential;
 
 #[derive(Clone, Copy)]
 pub struct Vault {
@@ -96,7 +95,7 @@ async fn import_vault(state: AppState, password: String) -> Outcome {
 async fn lock_vault(state: AppState) -> Outcome {
     match identity::lock().await {
         Ok(()) => {
-            state.identity.update(forget_author);
+            state.identity_locked();
             Outcome::Changed(
                 "Identity locked. Already approved signed plans remain resumable.".to_owned(),
             )
@@ -116,11 +115,4 @@ async fn open(credential: Credential) -> Outcome {
             Outcome::Refused(fault.message)
         }
     }
-}
-
-fn forget_author(status: &mut Option<IdentityStatus>) {
-    let Some(status) = status.as_mut() else {
-        return;
-    };
-    status.session = Session::Locked;
 }
