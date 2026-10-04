@@ -1,5 +1,5 @@
 use crate::data::engine::ask;
-use wire_app_core::connection::ConnectionHealth;
+use wire_app_core::connection::{ConnectionHealth, SourceChoice, SourceStatus};
 use wire_app_core::contract::{Request, Response};
 use wire_app_core::errors::Fault;
 use wire_app_core::model::{Chain, WalletSummary};
@@ -18,16 +18,16 @@ pub async fn health(chain: Chain) -> Result<ConnectionHealth, Fault> {
     }
 }
 
-pub async fn source() -> Result<String, Fault> {
+pub async fn source() -> Result<SourceStatus, Fault> {
     match ask(Request::Source).await? {
-        Response::Source(url) => Ok(url),
+        Response::Source(status) => Ok(status),
         other => Err(other.unexpected("chain source")),
     }
 }
 
-pub async fn adopt_source(url: String) -> Result<(), Fault> {
-    match ask(Request::AdoptSource { url }).await? {
-        Response::SourceAdopted => Ok(()),
+pub async fn adopt_source(choice: SourceChoice) -> Result<SourceStatus, Fault> {
+    match ask(Request::AdoptSource(choice)).await? {
+        Response::SourceAdopted(status) => Ok(status),
         other => Err(other.unexpected("chain source change")),
     }
 }

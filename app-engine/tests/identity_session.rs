@@ -1,5 +1,6 @@
 use urma_identity::{keyring::Keyring, phrase::IdentityPhrase, vault::UnlockedVault};
 use wire_app_core::config::MAX_VAULT_BYTES;
+use wire_app_core::connection::SourceChoice;
 use wire_app_core::session::{Credential, Session, VaultSource};
 use wire_app_engine::config::Settings;
 use wire_app_engine::native::service::Service;
@@ -24,6 +25,7 @@ fn session_and_import_preserve_identity_without_a_working_source() {
     let settings = || Settings {
         vault: Some(original.clone()),
         rpc_url: Some("http://127.0.0.1:1".into()),
+        source: SourceChoice::LocalNode,
         ..Default::default()
     };
     let app = dir.path().join("app");

@@ -45,7 +45,7 @@ pub fn ConnectionPage() -> impl IntoView {
                     </SettingsGroup>
                 }.into_any(),
             }}
-            <p class="connection-hint">"Checking does not index new blocks. Open the " <a href="/">"Feed"</a> " to refresh indexed posts."</p>
+            <p class="connection-hint">"Checking does not index new blocks. Open the " <a href="/">"Feed"</a> " to refresh indexed posts. Change the source in " <a href="/settings">"Settings"</a> "."</p>
         </section>
     }
 }

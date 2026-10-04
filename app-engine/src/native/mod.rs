@@ -4,4 +4,5 @@ pub mod publishing;
 pub mod reader;
 pub mod records;
 pub mod service;
+pub mod sources;
 pub mod wallet;

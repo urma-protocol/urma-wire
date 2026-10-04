@@ -4,7 +4,9 @@ use crate::browser::store;
 use crate::config::DEFAULT_SOURCE;
 use crate::errors::BrowserError;
 use wasm_bindgen::prelude::wasm_bindgen;
-use wire_app_core::connection::{safe_endpoint, ConnectionHealth, Trouble};
+use wire_app_core::connection::{
+    safe_endpoint, ConnectionHealth, SourceChoice, SourceStatus, Trouble,
+};
 use wire_app_core::model::Chain;
 
 #[wasm_bindgen(inline_js = "export function now_ms() { return BigInt(Date.now()); }")]
@@ -49,6 +51,16 @@ pub async fn health() -> Result<ConnectionHealth, BrowserError> {
 
 async fn remote_tip(url: String) -> Result<u64, BrowserError> {
     Ok(Source::connect(url).await?.tip().await?.0)
+}
+
+pub fn described(url: String) -> SourceStatus {
+    SourceStatus {
+        endpoints: vec![safe_endpoint(&url)],
+        choice: SourceChoice::Esplora(url),
+        local_node_configured: false,
+        local_endpoint: None,
+        cookie_available: false,
+    }
 }
 
 fn source_type(url: &str) -> &'static str {

@@ -85,8 +85,10 @@ pub enum NativeError {
     NoHome,
     #[error("RPC URL must be UTF-8")]
     RpcUrlEncoding(std::ffi::OsString),
-    #[error("Configure both rpc_url and node_auth_file, or neither")]
-    HalfConfiguredNode,
+    #[error("Local node is selected but rpc_url and node_auth_file are not configured. Choose Public sources in Settings or configure the node.")]
+    LocalNodeUnconfigured,
+    #[error("Local node cookie not found at {}. Start litecoind or switch the chain source to Public sources in Settings.", .0.display())]
+    CookieMissing(std::path::PathBuf),
     #[error("This Wire V0 flow supports Litecoin Testnet only")]
     WrongChain,
     #[error("The desktop engine does not serve {0}")]
@@ -189,7 +191,10 @@ impl NativeError {
             | Self::Hex(_)
             | Self::Consensus(_) => FaultKind::Publication,
             Self::ChainChanged | Self::Runtime(_) | Self::Sync(_) => FaultKind::Source,
-            Self::NoHome | Self::RpcUrlEncoding(_) | Self::HalfConfiguredNode => FaultKind::Source,
+            Self::NoHome
+            | Self::RpcUrlEncoding(_)
+            | Self::LocalNodeUnconfigured
+            | Self::CookieMissing(_) => FaultKind::Source,
             Self::AlreadyRunning(_)
             | Self::Clock(_)
             | Self::Width(_)

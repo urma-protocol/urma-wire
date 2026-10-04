@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use urma_identity::vault::{EncryptedVault, UnlockCredential};
 use urma_wire::index::Index;
-use wire_app_core::connection::{safe_endpoint, ConnectionHealth, Trouble};
+use wire_app_core::connection::{ConnectionHealth, Trouble};
 use wire_app_core::model::{Chain, WalletSummary};
 use wire_app_core::session::{Credential, IdentityStatus, Session, VaultSource};
 use zeroize::Zeroizing;
@@ -207,16 +207,6 @@ impl Service {
             }
         }
         Ok(health)
-    }
-
-    fn described_source(&self) -> (&'static str, String) {
-        let Some(url) = self.settings.rpc_url.as_deref() else {
-            return (
-                "Public source pool",
-                "Public pool (provider varies by request)".into(),
-            );
-        };
-        ("Configured RPC", safe_endpoint(url))
     }
 
     fn remote_height(&self) -> Result<u64, NativeError> {

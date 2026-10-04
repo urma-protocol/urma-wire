@@ -1,6 +1,7 @@
 #[path = "support/node.rs"]
 mod node;
 use urma_identity::{keyring::Keyring, phrase::IdentityPhrase, vault::UnlockedVault};
+use wire_app_core::connection::SourceChoice;
 use wire_app_core::feed::Lookup;
 use wire_app_core::model::{Placement, Txid};
 use wire_app_core::publication::{Addressed, Content, Pending, Publication};
@@ -71,6 +72,7 @@ fn publication_roundtrip(kind: &str, structured: bool) {
         node_auth_file: Some(mock.config.cookie_file.clone()),
         vault: Some(vault_path.clone()),
         unlock_file: None,
+        source: SourceChoice::LocalNode,
     };
     let app = dir.path().join("app");
     let mut service = Service::open(&app, settings()).unwrap();

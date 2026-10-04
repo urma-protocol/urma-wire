@@ -9,6 +9,7 @@ use crate::config::SOURCE_KEY;
 use crate::errors::BrowserError;
 use crate::projection::{lookup, project, replies};
 use wasm_bindgen::prelude::wasm_bindgen;
+use wire_app_core::connection::SourceChoice;
 use wire_app_core::contract::{Request, Response};
 use wire_app_core::feed::{Feed, Lookup};
 use wire_app_core::model::{Chain, Post, Txid};
@@ -59,16 +60,18 @@ fn served(request: &Request) -> Result<(), BrowserError> {
 async fn chain_request(request: Request) -> Result<Response, BrowserError> {
     served(&request)?;
     match &request {
-        Request::Source => return Ok(Response::Source(store::source().await?)),
+        Request::Source => return Ok(Response::Source(health::described(store::source().await?))),
         Request::PublicationStatus => return publication_status().await,
         _locked => (),
     }
     let _lock: OperationLock = OperationLock::acquire().await?;
     match request {
         Request::Health { .. } => Ok(Response::Health(health::health().await?)),
-        Request::AdoptSource { url } => {
-            adopt(url).await?;
-            Ok(Response::SourceAdopted)
+        Request::AdoptSource(SourceChoice::Esplora(url)) => Ok(Response::SourceAdopted(
+            health::described(adopt(url).await?),
+        )),
+        Request::AdoptSource(SourceChoice::Public | SourceChoice::LocalNode) => {
+            Err(BrowserError::Unsupported("native chain sources"))
         }
         Request::Post { txid, .. } => Ok(Response::Post(cached_post(txid).await?)),
         Request::Replies { txid, .. } => Ok(Response::Replies(cached_replies(txid).await?)),
@@ -92,10 +95,11 @@ async fn connected() -> Result<Source, BrowserError> {
     Source::connect(store::source().await?).await
 }
 
-async fn adopt(url: String) -> Result<(), BrowserError> {
+async fn adopt(url: String) -> Result<String, BrowserError> {
     let url = url.trim().trim_end_matches('/').to_owned();
     Source::connect(url.clone()).await?;
-    store::write(SOURCE_KEY, &url).await
+    store::write(SOURCE_KEY, &url).await?;
+    Ok(url)
 }
 
 async fn cached_post(txid: Txid) -> Result<Lookup, BrowserError> {

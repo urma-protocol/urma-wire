@@ -79,8 +79,8 @@ fn settings(data_dir: &Path) -> Result<Settings, NativeError> {
 }
 
 #[cfg(not(mobile))]
-fn settings(_data_dir: &Path) -> Result<Settings, NativeError> {
-    Settings::load()
+fn settings(data_dir: &Path) -> Result<Settings, NativeError> {
+    Settings::load(data_dir)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

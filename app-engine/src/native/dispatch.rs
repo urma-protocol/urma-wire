@@ -52,9 +52,8 @@ impl Service {
                 Ok(Response::Publication(self.advance(&id, approve)?))
             }
             Request::FetchImage { url } => Ok(Response::Image(fetch(&url)?)),
-            unserved @ (Request::Source | Request::AdoptSource { .. }) => {
-                Err(NativeError::Unsupported(unserved.name()))
-            }
+            Request::Source => Ok(Response::Source(self.source_status())),
+            Request::AdoptSource(choice) => Ok(Response::SourceAdopted(self.adopt_source(choice)?)),
         }
     }
 }

@@ -8,7 +8,7 @@ use crate::components::PageHeader;
 use crate::components::SettingsGroup;
 use crate::data::preferences::remember_autoload;
 use crate::data::preferences::remember_replies_shown;
-use crate::pages::source_settings::BrowserSourceSettings;
+use crate::pages::source_settings::ChainSourceSettings;
 use crate::platform::use_platform;
 use crate::state::AppState;
 use crate::state::Said;
@@ -44,7 +44,7 @@ pub fn SettingsPage() -> impl IntoView {
             </DescribedGroup>
             <ReplyPreview />
             <MediaPrivacy />
-            <BrowserSourceSettings />
+            <ChainSourceSettings />
             <RuntimeFacts />
         </section>
     }
@@ -66,7 +66,7 @@ fn NetworkChoice() -> impl IntoView {
                         on:change=choose(Chain::Litecoin) />
                     <div class="radio-content">
                         <strong>"Litecoin Testnet"</strong>
-                        <span>"Uses the URMA node configuration; public sources when no local RPC is configured."</span>
+                        <span>"Reads and publishes through the chain source selected below."</span>
                     </div>
                 </label>
                 <label class="radio-label">

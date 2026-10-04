@@ -1,4 +1,4 @@
-use crate::connection::ConnectionHealth;
+use crate::connection::{ConnectionHealth, SourceChoice, SourceStatus};
 use crate::errors::Fault;
 use crate::feed::{Feed, Lookup};
 use crate::markdown::FetchedImage;
@@ -19,7 +19,7 @@ pub enum Request {
     Replies { chain: Chain, txid: Txid },
     Health { chain: Chain },
     Source,
-    AdoptSource { url: String },
+    AdoptSource(SourceChoice),
     Quote { chain: Chain, content: Content },
     DiscardQuote { id: String },
     PublicationStatus,
@@ -40,7 +40,7 @@ impl Request {
             Request::Replies { .. } => "replies",
             Request::Health { .. } => "connection health",
             Request::Source => "chain source",
-            Request::AdoptSource { .. } => "chain source change",
+            Request::AdoptSource(_choice) => "chain source change",
             Request::Quote { .. } => "publication quote",
             Request::DiscardQuote { .. } => "discard publication quote",
             Request::PublicationStatus => "publication status",
@@ -60,8 +60,8 @@ pub enum Response {
     Post(Lookup),
     Replies(Vec<Post>),
     Health(ConnectionHealth),
-    Source(String),
-    SourceAdopted,
+    Source(SourceStatus),
+    SourceAdopted(SourceStatus),
     Publication(Publication),
     Discarded,
     Pending(Pending),
@@ -79,8 +79,8 @@ impl Response {
             Response::Post(_lookup) => "post",
             Response::Replies(_replies) => "replies",
             Response::Health(_health) => "connection health",
-            Response::Source(_url) => "chain source",
-            Response::SourceAdopted => "chain source adopted",
+            Response::Source(_status) => "chain source",
+            Response::SourceAdopted(_status) => "chain source adopted",
             Response::Publication(_publication) => "publication",
             Response::Discarded => "discarded publication quote",
             Response::Pending(_pending) => "pending publication",

@@ -19,6 +19,22 @@ impl Trouble {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SourceChoice {
+    Public,
+    LocalNode,
+    Esplora(String),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourceStatus {
+    pub choice: SourceChoice,
+    pub endpoints: Vec<String>,
+    pub local_node_configured: bool,
+    pub local_endpoint: Option<String>,
+    pub cookie_available: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConnectionHealth {
     pub network: String,
     pub source_type: String,

@@ -211,6 +211,16 @@ impl AppState {
         leptos::task::spawn_local(sync_feed(state, chain));
     }
 
+    pub fn source_changed(&self) {
+        self.connection_health.set(None);
+        self.connection_last_success_ms.set(None);
+        self.wallet_summary.set(None);
+        if !self.is_loading_feed.get_untracked() {
+            self.synced.set(Synced::Unchecked);
+        }
+        self.refresh_all();
+    }
+
     pub fn load_wallet(&self) {
         if self.is_loading_wallet.get_untracked() {
             return;

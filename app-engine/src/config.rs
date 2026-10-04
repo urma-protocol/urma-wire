@@ -16,6 +16,12 @@ pub const CONFIG_FILE_BYTES: usize = 16384;
 pub const START_FILE_BYTES: usize = 64;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub const SOURCE_FILE: &str = "source.json";
+
+#[cfg(not(target_arch = "wasm32"))]
+pub const SOURCE_FILE_BYTES: usize = 4096;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub const PLAN_ID_FILE_BYTES: usize = 128;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -90,19 +96,34 @@ pub use settings::Settings;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod settings {
-    use super::{CONFIG_FILE_BYTES, NETWORK};
+    use super::{CONFIG_FILE_BYTES, NETWORK, SOURCE_FILE, SOURCE_FILE_BYTES};
     use crate::errors::NativeError;
     use serde::Deserialize;
     use std::path::{Path, PathBuf};
     use urma_runtime::node::{Node, NodeConfig};
+    use wire_app_core::connection::SourceChoice;
 
-    #[derive(Default, Deserialize)]
+    #[derive(Clone, Deserialize)]
     #[serde(default)]
     pub struct Settings {
         pub rpc_url: Option<String>,
         pub node_auth_file: Option<PathBuf>,
         pub vault: Option<PathBuf>,
         pub unlock_file: Option<PathBuf>,
+        #[serde(skip)]
+        pub source: SourceChoice,
+    }
+
+    impl Default for Settings {
+        fn default() -> Self {
+            Self {
+                rpc_url: None,
+                node_auth_file: None,
+                vault: None,
+                unlock_file: None,
+                source: SourceChoice::Public,
+            }
+        }
     }
 
     impl Settings {
@@ -113,7 +134,7 @@ mod settings {
             }
         }
 
-        pub fn load() -> Result<Self, NativeError> {
+        pub fn load(data_dir: &Path) -> Result<Self, NativeError> {
             let Some(home) = std::env::var_os("HOME") else {
                 return Err(NativeError::NoHome);
             };
@@ -145,20 +166,71 @@ mod settings {
                 Some(file) => file,
                 None => home.join(".config/urma/unlock"),
             });
+            settings.source = match stored_source(&data_dir.join(SOURCE_FILE))? {
+                Some(choice) => choice,
+                None => match settings.local_node_configured() {
+                    true => SourceChoice::LocalNode,
+                    false => SourceChoice::Public,
+                },
+            };
             Ok(settings)
         }
 
-        pub fn connect(&self) -> Result<Node, NativeError> {
-            match (&self.rpc_url, &self.node_auth_file) {
-                (Some(url), Some(cookie)) => Ok(Node::connect(NodeConfig {
-                    chain: NETWORK,
-                    rpc_url: url.clone(),
-                    cookie_file: cookie.clone(),
-                })?),
-                (None, None) => Ok(Node::public(NETWORK)?),
-                (Some(_url), None) => Err(NativeError::HalfConfiguredNode),
-                (None, Some(_cookie)) => Err(NativeError::HalfConfiguredNode),
+        pub fn with_source(&self, source: SourceChoice) -> Self {
+            Self {
+                source,
+                ..self.clone()
             }
+        }
+
+        pub fn local_node_configured(&self) -> bool {
+            match (&self.rpc_url, &self.node_auth_file) {
+                (Some(_url), Some(_cookie)) => true,
+                (Some(_url), None) => false,
+                (None, Some(_cookie)) => false,
+                (None, None) => false,
+            }
+        }
+
+        pub fn cookie_available(&self) -> bool {
+            match &self.node_auth_file {
+                Some(cookie) => cookie.is_file(),
+                None => false,
+            }
+        }
+
+        pub fn connect(&self) -> Result<Node, NativeError> {
+            match &self.source {
+                SourceChoice::Public => Ok(Node::public(NETWORK)?),
+                SourceChoice::LocalNode => self.connect_local(),
+                SourceChoice::Esplora(_url) => {
+                    Err(NativeError::Unsupported("a browser Esplora source"))
+                }
+            }
+        }
+
+        fn connect_local(&self) -> Result<Node, NativeError> {
+            let (Some(url), Some(cookie)) = (&self.rpc_url, &self.node_auth_file) else {
+                return Err(NativeError::LocalNodeUnconfigured);
+            };
+            if !cookie.is_file() {
+                return Err(NativeError::CookieMissing(cookie.clone()));
+            }
+            Ok(Node::connect(NodeConfig {
+                chain: NETWORK,
+                rpc_url: url.clone(),
+                cookie_file: cookie.clone(),
+            })?)
+        }
+    }
+
+    fn stored_source(path: &Path) -> Result<Option<SourceChoice>, NativeError> {
+        match path.try_exists()? {
+            true => Ok(Some(serde_json::from_slice(&urma_io::read_bounded(
+                path,
+                SOURCE_FILE_BYTES,
+            )?)?)),
+            false => Ok(None),
         }
     }
 }
