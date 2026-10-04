@@ -71,3 +71,5 @@ pub const NEVER_CHECKED: &str = "Never";
 pub const UNKNOWN_HEIGHT: &str = "Unknown";
 
 pub const EVIDENCE_UNAVAILABLE: &str = "unavailable";
+
+pub const PASSWORD_RULE: &str = "The vault password is 12 to 1024 UTF-8 bytes long; shorter input is refused before decryption.";

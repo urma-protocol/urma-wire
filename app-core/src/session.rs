@@ -21,6 +21,7 @@ pub struct IdentityStatus {
     pub vault_available: bool,
     pub source: VaultSource,
     pub configured_unlock_available: bool,
+    pub configured_unlock_path: String,
 }
 
 impl IdentityStatus {

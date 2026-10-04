@@ -91,6 +91,7 @@ fn identity(available: bool) -> Result<IdentityStatus, BrowserError> {
             false => VaultSource::Missing,
         },
         configured_unlock_available: false,
+        configured_unlock_path: String::new(),
     })
 }
 

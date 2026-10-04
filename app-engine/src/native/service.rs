@@ -211,12 +211,25 @@ impl Service {
             (false, true) => VaultSource::Configured,
             (false, false) => VaultSource::Missing,
         };
+        let configured_unlock_available = self.configured_unlock_available();
+        let configured_unlock_path = match configured_unlock_available {
+            true => self.configured_unlock_path(),
+            false => String::new(),
+        };
         Ok(IdentityStatus {
             session: self.session()?,
             vault_available,
             source,
-            configured_unlock_available: self.configured_unlock_available(),
+            configured_unlock_available,
+            configured_unlock_path,
         })
+    }
+
+    fn configured_unlock_path(&self) -> String {
+        let Some(file) = self.settings().unlock_file.clone() else {
+            return String::new();
+        };
+        file.display().to_string()
     }
 
     fn session(&self) -> Result<Session, NativeError> {

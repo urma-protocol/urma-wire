@@ -10,6 +10,7 @@ fn unlocked(byte: u8) -> IdentityStatus {
         vault_available: true,
         source: VaultSource::Configured,
         configured_unlock_available: true,
+        configured_unlock_path: "/home/user/.config/urma/unlock".into(),
     }
 }
 

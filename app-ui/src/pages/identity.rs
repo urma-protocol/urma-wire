@@ -8,7 +8,7 @@ use crate::components::PageHeader;
 use crate::components::SettingsGroup;
 use crate::components::Status;
 use crate::components::Tone;
-use crate::config::VAULT_INPUT_ID;
+use crate::config::{PASSWORD_RULE, VAULT_INPUT_ID};
 use crate::state::vault::Intent;
 use crate::state::vault::Vault;
 use crate::state::AppState;
@@ -30,12 +30,6 @@ pub fn IdentityPage() -> impl IntoView {
     let state = expect_context::<AppState>();
     let vault = Vault::opened();
     let busy = move || vault.busy.get();
-    let act = move |intent: Intent| move |_clicked| vault.act(intent);
-    let unlock_on_enter = move |event: leptos::ev::KeyboardEvent| {
-        if event.key() == "Enter" {
-            vault.act(Intent::Unlock);
-        }
-    };
 
     view! {
         <section class="page-container settings-page">
@@ -62,53 +56,87 @@ pub fn IdentityPage() -> impl IntoView {
                 </Actions>
             </SettingsGroup>
 
-            <DescribedGroup
-                title="Unlock or import"
-                description="Your password decrypts the vault for this session only; Wire never stores it."
-            >
-                <label class="field">"Vault password"
-                    <input type="password" autocomplete="current-password"
-                        prop:value=move || vault.password.get()
-                        on:input=move |event| vault.password.set(event_target_value(&event))
-                        on:keydown=unlock_on_enter />
-                </label>
-                <Actions>
-                    <button class="btn btn-primary" disabled=busy on:click=act(Intent::Unlock)>"Unlock identity"</button>
-                    {move || match configured_unlock(state) {
-                        true => view! {
-                            <button class="btn btn-secondary" disabled=busy
-                                on:click=move |_clicked| vault.act(Intent::UseConfiguredFile)>
-                                "Use configured unlock file"
-                            </button>
-                        }.into_any(),
-                        false => ().into_any(),
-                    }}
-                    <button class="btn btn-secondary" disabled=move || busy() || !unlocked(state)
-                        on:click=act(Intent::Lock)>"Lock identity"</button>
-                </Actions>
-                <p class="group-desc">
-                    "Or import a copy of an existing encrypted URMA vault with its password. Import validates the password and unlocks its active identity. Your original vault stays intact, and an existing imported vault is never overwritten."
-                </p>
-                <label class="field">"Encrypted URMA vault"
-                    <input id=VAULT_INPUT_ID type="file" accept=".urma,.vault" />
-                </label>
-                <Actions>
-                    <button class="btn btn-primary"
-                        disabled=move || busy() || already_imported(state)
-                        on:click=act(Intent::Import)>"Import & unlock vault"</button>
-                </Actions>
-            </DescribedGroup>
+            <UnlockGroup vault=vault />
 
             <ProfileEditor />
         </section>
     }
 }
 
-fn configured_unlock(state: AppState) -> bool {
-    let Some(status) = state.identity.get() else {
-        return false;
+#[component]
+fn UnlockGroup(vault: Vault) -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let busy = move || vault.busy.get();
+    let act = move |intent: Intent| move |_clicked| vault.act(intent);
+    let unlock_on_enter = move |event: leptos::ev::KeyboardEvent| {
+        if event.key() == "Enter" {
+            vault.act(Intent::Unlock);
+        }
     };
-    status.configured_unlock_available
+    view! {
+        <DescribedGroup
+            title="Unlock or import"
+            description="Your password decrypts the vault for this session only; Wire never stores it."
+        >
+            {move || match configured_unlock(state) {
+                Unlocking::ConfiguredFile(path) => view! {
+                    <Actions>
+                        <button class="btn btn-primary" disabled=busy
+                            on:click=move |_clicked| vault.act(Intent::UseConfiguredFile)>
+                            "Use configured unlock file"
+                        </button>
+                    </Actions>
+                    <p class="group-desc">"Reads the unlock secret from " <code class="code-val">{path}</code> "; nothing is shown or stored."</p>
+                }.into_any(),
+                Unlocking::PasswordOnly => ().into_any(),
+            }}
+            <label class="field">"Vault password"
+                <input type="password" autocomplete="current-password"
+                    prop:value=move || vault.password.get()
+                    on:input=move |event| vault.password.set(event_target_value(&event))
+                    on:keydown=unlock_on_enter />
+                <span class="field-hint">{PASSWORD_RULE}</span>
+            </label>
+            <Actions>
+                {move || match configured_unlock(state) {
+                    Unlocking::ConfiguredFile(_path) => view! {
+                        <button class="btn btn-secondary" disabled=busy on:click=act(Intent::Unlock)>"Unlock with password"</button>
+                    }.into_any(),
+                    Unlocking::PasswordOnly => view! {
+                        <button class="btn btn-primary" disabled=busy on:click=act(Intent::Unlock)>"Unlock identity"</button>
+                    }.into_any(),
+                }}
+                <button class="btn btn-secondary" disabled=move || busy() || !unlocked(state)
+                    on:click=act(Intent::Lock)>"Lock identity"</button>
+            </Actions>
+            <p class="group-desc">
+                "Or import a copy of an existing encrypted URMA vault with its password. Import validates the password and unlocks its active identity. Your original vault stays intact, and an existing imported vault is never overwritten."
+            </p>
+            <label class="field">"Encrypted URMA vault"
+                <input id=VAULT_INPUT_ID type="file" accept=".urma,.vault" />
+            </label>
+            <Actions>
+                <button class="btn btn-primary"
+                    disabled=move || busy() || already_imported(state)
+                    on:click=act(Intent::Import)>"Import & unlock vault"</button>
+            </Actions>
+        </DescribedGroup>
+    }
+}
+
+enum Unlocking {
+    ConfiguredFile(String),
+    PasswordOnly,
+}
+
+fn configured_unlock(state: AppState) -> Unlocking {
+    let Some(status) = state.identity.get() else {
+        return Unlocking::PasswordOnly;
+    };
+    match status.configured_unlock_available {
+        true => Unlocking::ConfiguredFile(status.configured_unlock_path),
+        false => Unlocking::PasswordOnly,
+    }
 }
 
 fn already_imported(state: AppState) -> bool {
