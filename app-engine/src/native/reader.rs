@@ -19,8 +19,8 @@ impl Reader for NodeReader<'_> {
         self.0.block_hash(height)
     }
 
-    fn block(&self, height: u64) -> Result<Block, Error> {
-        self.0.block(height)
+    fn block(&self, height: u64) -> Result<(Block, BlockHash), Error> {
+        self.0.block_at(height)
     }
 
     fn transaction(&self, txid: bitcoin::Txid) -> Result<Transaction, Error> {

@@ -38,8 +38,8 @@ impl Reader for Fixture {
     fn block_hash(&self, _: u64) -> Result<BlockHash, Self::Error> {
         Ok(self.block.block_hash())
     }
-    fn block(&self, _: u64) -> Result<Block, Self::Error> {
-        Ok(self.block.clone())
+    fn block(&self, _: u64) -> Result<(Block, BlockHash), Self::Error> {
+        Ok((self.block.clone(), self.block.block_hash()))
     }
     fn transaction(&self, id: Txid) -> Result<Transaction, Self::Error> {
         self.commits
@@ -133,10 +133,7 @@ fn verified_ingestion_migration_projection_and_cross_wire_filtering() {
     let feed = projection::project(&index, true).unwrap();
     assert_eq!(feed.posts[1].wire, "rosint");
     assert_eq!(feed.posts[1].hashtags, vec!["investigation".to_owned()]);
-    assert_eq!(
-        feed.posts[0].placement,
-        Placement::Reply(wire_txid(target))
-    );
+    assert_eq!(feed.posts[0].placement, Placement::Reply(wire_txid(target)));
     assert_eq!(
         feed.posts
             .iter()
