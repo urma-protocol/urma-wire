@@ -54,10 +54,7 @@ impl Service {
 
     pub fn quote(&self, content: &Content) -> Result<Publication, NativeError> {
         let record = build(content)?;
-        let Some(wallet) = &self.wallet else {
-            return Err(NativeError::SignerLocked);
-        };
-        let signer = wallet.signer()?;
+        let signer = self.signer()?;
         let fee = urma_runtime::publication::quote_record(
             &record.encode()?,
             signer.public_key().inner.x_only_public_key().0,

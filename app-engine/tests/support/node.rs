@@ -1,8 +1,10 @@
 use bitcoin::{
     absolute,
+    block::{Header, Version as BlockVersion},
     consensus::{deserialize, serialize},
+    hashes::Hash,
     transaction::Version,
-    Amount, Transaction, TxIn, TxOut,
+    Amount, Block, CompactTarget, ScriptBuf, Transaction, TxIn, TxMerkleNode, TxOut,
 };
 use serde_json::{json, Value};
 use std::{
@@ -15,6 +17,7 @@ use std::{
         Arc, Mutex,
     },
     thread,
+    time::Duration,
 };
 use urma_chain::observation::Chain;
 use urma_runtime::node::NodeConfig;
@@ -32,6 +35,45 @@ pub struct State {
     pub auto_confirm: bool,
     pub reorg: bool,
     pub next_block: bool,
+    pub delay_ms: u64,
+}
+
+pub const CHAIN_BLOCKS: u64 = 101;
+
+fn chain_blocks(funding: &Transaction) -> Vec<Block> {
+    let mut previous = Chain::LitecoinTestnet.genesis().unwrap().0;
+    let mut blocks = Vec::new();
+    for height in 1..=CHAIN_BLOCKS {
+        let coinbase = Transaction {
+            version: Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                script_sig: ScriptBuf::builder()
+                    .push_int(i64::try_from(height).unwrap())
+                    .into_script(),
+                ..TxIn::default()
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(1_000_000),
+                script_pubkey: funding.output[0].script_pubkey.clone(),
+            }],
+        };
+        let header = Header {
+            version: BlockVersion::TWO,
+            prev_blockhash: previous,
+            merkle_root: TxMerkleNode::from_byte_array(coinbase.compute_txid().to_byte_array()),
+            time: 1_700_000_000 + u32::try_from(height).unwrap(),
+            bits: CompactTarget::from_consensus(0x1e0ffff0),
+            nonce: u32::try_from(height).unwrap(),
+        };
+        let block = Block {
+            header,
+            txdata: vec![coinbase],
+        };
+        previous = block.block_hash();
+        blocks.push(block);
+    }
+    blocks
 }
 
 pub struct Mock {
@@ -58,6 +100,7 @@ impl Mock {
         let stopped = Arc::new(AtomicBool::new(false));
         let (worker_state, worker_stop, worker_funding) =
             (state.clone(), stopped.clone(), funding.clone());
+        let blocks = chain_blocks(&funding);
         let thread = thread::spawn(move || {
             for stream in listener.incoming() {
                 if worker_stop.load(Ordering::Acquire) {
@@ -80,12 +123,17 @@ impl Mock {
                 reader.read_exact(&mut bytes).unwrap();
                 let request: Value = serde_json::from_slice(&bytes).unwrap();
                 let mut state = worker_state.lock().unwrap();
-                let response = match respond(&mut state, &worker_funding, &request) {
+                let response = match respond(&mut state, &worker_funding, &blocks, &request) {
                     Ok(value) => json!({"result":value,"error":null,"id":request["id"]}),
                     Err((code, reason)) => {
                         json!({"result":null,"error":{"code":code,"message":reason},"id":request["id"]})
                     }
                 };
+                let delay = state.delay_ms;
+                drop(state);
+                if delay > 0 {
+                    thread::sleep(Duration::from_millis(delay));
+                }
                 let body = serde_json::to_vec(&response).unwrap();
                 write!(
                     stream,
@@ -136,24 +184,33 @@ pub fn txid(raw: &str) -> String {
 fn respond(
     state: &mut State,
     funding: &Transaction,
+    blocks: &[Block],
     request: &Value,
 ) -> Result<Value, (i64, String)> {
     let method = request["method"].as_str().unwrap();
     state.methods.push(method.into());
     let args = &request["params"];
-    let hash = "11".repeat(32);
+    let tip = if state.next_block { 101 } else { 100 };
+    let hash = blocks[tip - 1].block_hash().to_string();
     match method {
         "getblockhash" => Ok(if args[0] == 0 {
             json!(Chain::LitecoinTestnet.genesis().unwrap().0.to_string())
         } else if state.reorg {
             json!("22".repeat(32))
         } else {
-            json!(hash)
+            let height = usize::try_from(args[0].as_u64().unwrap()).unwrap();
+            json!(blocks[height - 1].block_hash().to_string())
         }),
-        "getblockchaininfo" => {
-            Ok(json!({"blocks":if state.next_block {101} else {100},"bestblockhash":hash}))
+        "getblockchaininfo" => Ok(json!({"blocks":tip,"bestblockhash":hash})),
+        "getblockheader" => Ok(json!({"height":tip})),
+        "getblock" => {
+            let wanted = args[0].as_str().unwrap();
+            let block = blocks
+                .iter()
+                .find(|block| block.block_hash().to_string() == wanted)
+                .expect("fixture block");
+            Ok(json!(hex::encode(serialize(block))))
         }
-        "getblockheader" => Ok(json!({"height":100})),
         "getindexinfo" => Ok(json!({"txindex":{"synced":true}})),
         "scantxoutset" => Ok(
             json!({"success":true,"unspents":[{"txid":funding.compute_txid(),"vout":0,"amount":1,"height":1}]}),

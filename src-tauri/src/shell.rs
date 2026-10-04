@@ -1,6 +1,6 @@
 use crate::logging;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use tauri::{Manager, State};
 use wire_app_core::contract::{Request, Response};
 use wire_app_core::errors::{Fault, FaultKind};
@@ -9,7 +9,7 @@ use wire_app_engine::errors::NativeError;
 use wire_app_engine::native::media::fetch;
 use wire_app_engine::native::service::Service;
 
-struct Engine(Arc<Mutex<Service>>);
+struct Engine(Arc<Service>);
 
 #[tauri::command]
 async fn engine(request: Request, state: State<'_, Engine>) -> Result<Response, Fault> {
@@ -26,7 +26,7 @@ async fn engine(request: Request, state: State<'_, Engine>) -> Result<Response, 
     }
 }
 
-fn serve(service: &Mutex<Service>, request: Request) -> Result<Response, Fault> {
+fn serve(service: &Service, request: Request) -> Result<Response, Fault> {
     let op = request.name();
     match answer(service, request) {
         Ok(response) => {
@@ -55,21 +55,10 @@ fn network_bound(op: &str) -> bool {
     )
 }
 
-fn answer(service: &Mutex<Service>, request: Request) -> Result<Response, Fault> {
+fn answer(service: &Service, request: Request) -> Result<Response, Fault> {
     match request {
-        Request::FetchImage { url } => Ok(Response::Image(
-            fetch(&url).map_err(NativeError::from)?,
-        )),
-        locked => {
-            let mut held: MutexGuard<Service> = match service.lock() {
-                Ok(held) => held,
-                Err(poisoned) => {
-                    tracing::error!(error = %poisoned, "Wire state lock is poisoned");
-                    return Err(Fault::new(FaultKind::Storage, "Wire state unavailable"));
-                }
-            };
-            Ok(held.handle(locked)?)
-        }
+        Request::FetchImage { url } => Ok(Response::Image(fetch(&url).map_err(NativeError::from)?)),
+        engine => Ok(service.handle(engine)?),
     }
 }
 
@@ -107,7 +96,7 @@ pub fn run() {
                     return Err(error.into());
                 }
             };
-            app.manage(Engine(Arc::new(Mutex::new(service))));
+            app.manage(Engine(Arc::new(service)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![engine])

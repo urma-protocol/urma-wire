@@ -4,15 +4,16 @@ use crate::native::wallet::{Balance, WireWallet};
 use fs2::FileExt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
+use urma_identity::identity::IdentityKey;
 use urma_identity::vault::{EncryptedVault, UnlockCredential};
 use urma_runtime::error::Error as RuntimeError;
 use urma_runtime::light::LightSync;
 use urma_runtime::node::Node;
 use urma_wire::index::Index;
 use wire_app_core::connection::{ConnectionHealth, Trouble};
-use wire_app_core::model::{Chain, WalletSummary};
+use wire_app_core::model::{AuthorId, Chain, WalletSummary};
 use wire_app_core::session::{Credential, IdentityStatus, Session, VaultSource};
 use zeroize::Zeroizing;
 
@@ -26,10 +27,15 @@ pub(super) enum Link {
     Open(Node),
 }
 
+pub(super) enum Identity {
+    Locked,
+    Unlocked(WireWallet),
+}
+
 pub struct Service {
     pub(super) directory: PathBuf,
-    pub(super) settings: Settings,
-    pub(super) wallet: Option<WireWallet>,
+    settings: RwLock<Settings>,
+    identity: Mutex<Identity>,
     link: Mutex<Link>,
     _lock: File,
 }
@@ -57,14 +63,44 @@ impl Service {
             .map_err(NativeError::AlreadyRunning)?;
         Ok(Self {
             directory: directory.into(),
-            settings,
-            wallet: None,
+            settings: RwLock::new(settings),
+            identity: Mutex::new(Identity::Locked),
             link: Mutex::new(Link::Closed),
             _lock: lock,
         })
     }
 
-    fn link(&self) -> std::sync::MutexGuard<'_, Link> {
+    pub(super) fn settings(&self) -> RwLockReadGuard<'_, Settings> {
+        match self.settings.read() {
+            Ok(settings) => settings,
+            Err(poisoned) => {
+                tracing::error!("settings lock poisoned; reading the held settings");
+                poisoned.into_inner()
+            }
+        }
+    }
+
+    pub(super) fn settings_mut(&self) -> RwLockWriteGuard<'_, Settings> {
+        match self.settings.write() {
+            Ok(settings) => settings,
+            Err(poisoned) => {
+                tracing::error!("settings lock poisoned; writing the held settings");
+                poisoned.into_inner()
+            }
+        }
+    }
+
+    fn identity(&self) -> MutexGuard<'_, Identity> {
+        match self.identity.lock() {
+            Ok(identity) => identity,
+            Err(poisoned) => {
+                tracing::error!("identity lock poisoned; reusing the held identity");
+                poisoned.into_inner()
+            }
+        }
+    }
+
+    fn link(&self) -> MutexGuard<'_, Link> {
         match self.link.lock() {
             Ok(link) => link,
             Err(poisoned) => {
@@ -80,7 +116,8 @@ impl Service {
     ) -> Result<T, NativeError> {
         let mut link = self.link();
         if matches!(*link, Link::Closed) {
-            let node = self.settings.connect()?;
+            let settings = self.settings().clone();
+            let node = settings.connect()?;
             opened(&node);
             *link = Link::Open(node);
         }
@@ -126,20 +163,34 @@ impl Service {
         if imported.exists() {
             return Vault::At(imported);
         }
-        let Some(configured) = self.settings.vault.clone() else {
+        let Some(configured) = self.settings().vault.clone() else {
             return Vault::Unconfigured;
         };
         Vault::At(configured)
     }
 
-    pub fn unlock(&mut self, credential: Credential) -> Result<(), NativeError> {
+    pub(super) fn signer(&self) -> Result<IdentityKey, NativeError> {
+        match &*self.identity() {
+            Identity::Unlocked(wallet) => Ok(wallet.signer()?),
+            Identity::Locked => Err(NativeError::SignerLocked),
+        }
+    }
+
+    fn author(&self) -> Result<AuthorId, NativeError> {
+        match &*self.identity() {
+            Identity::Unlocked(wallet) => Ok(wallet.author_id()?),
+            Identity::Locked => Err(NativeError::Locked),
+        }
+    }
+
+    pub fn unlock(&self, credential: Credential) -> Result<(), NativeError> {
         let password = match credential {
             Credential::Password(password) => Zeroizing::new(password),
             Credential::ConfiguredFile => {
-                let Some(file) = self.settings.unlock_file.as_ref() else {
+                let Some(file) = self.settings().unlock_file.clone() else {
                     return Err(NativeError::NoUnlockFile);
                 };
-                urma_workflows::vault::read_secret(file)?
+                urma_workflows::vault::read_secret(&file)?
             }
         };
         let Vault::At(path) = self.vault() else {
@@ -148,7 +199,7 @@ impl Service {
         let vault = urma_workflows::vault::load(&path, UnlockCredential::Password(&password))?;
         let wallet = WireWallet::from_vault(vault);
         wallet.author_id()?;
-        self.wallet = Some(wallet);
+        *self.identity() = Identity::Unlocked(wallet);
         Ok(())
     }
 
@@ -169,10 +220,10 @@ impl Service {
     }
 
     fn session(&self) -> Result<Session, NativeError> {
-        let Some(wallet) = &self.wallet else {
-            return Ok(Session::Locked);
-        };
-        Ok(Session::Unlocked(wallet.author_id()?))
+        match &*self.identity() {
+            Identity::Unlocked(wallet) => Ok(Session::Unlocked(wallet.author_id()?)),
+            Identity::Locked => Ok(Session::Locked),
+        }
     }
 
     fn vault_available(&self) -> bool {
@@ -183,14 +234,14 @@ impl Service {
     }
 
     fn configured_unlock_available(&self) -> bool {
-        let Some(file) = self.settings.unlock_file.as_ref() else {
+        let Some(file) = self.settings().unlock_file.clone() else {
             return false;
         };
         file.is_file()
     }
 
     pub fn import_identity(
-        &mut self,
+        &self,
         bytes: Vec<u8>,
         password: String,
     ) -> Result<IdentityStatus, NativeError> {
@@ -206,19 +257,17 @@ impl Service {
             .map_err(NativeError::WrongPassword)?;
         wallet.author_id()?;
         urma_io::write_new(&path, &bytes)?;
-        self.wallet = Some(wallet);
+        *self.identity() = Identity::Unlocked(wallet);
         self.identity_status()
     }
 
-    pub fn lock(&mut self) {
-        self.wallet = None;
+    pub fn lock(&self) {
+        *self.identity() = Identity::Locked;
     }
 
     pub fn wallet(&self) -> Result<WalletSummary, NativeError> {
-        let Some(wallet) = &self.wallet else {
-            return Err(NativeError::Locked);
-        };
-        let signer = wallet.signer()?;
+        let author = self.author()?;
+        let signer = self.signer()?;
         let (outputs, tip_height) = self.with_node(|node| {
             let outputs = node.available_utxos(&signer)?;
             Ok((outputs, node.tip_height()?))
@@ -228,6 +277,15 @@ impl Service {
             confirmed = confirmed
                 .checked_add(output.value)
                 .ok_or(NativeError::BalanceOverflow)?;
+        }
+        let identity = self.identity();
+        let Identity::Unlocked(wallet) = &*identity else {
+            tracing::warn!("identity locked during the wallet query; discarding its result");
+            return Err(NativeError::Locked);
+        };
+        if wallet.author_id()? != author {
+            tracing::warn!("identity changed during the wallet query; discarding its result");
+            return Err(NativeError::Locked);
         }
         wallet.summary(
             Chain::Litecoin,

@@ -5,7 +5,7 @@ use wire_app_core::contract::{Request, Response};
 use wire_app_core::model::Chain;
 
 impl Service {
-    pub fn handle(&mut self, request: Request) -> Result<Response, NativeError> {
+    pub fn handle(&self, request: Request) -> Result<Response, NativeError> {
         match request {
             Request::IdentityStatus => Ok(Response::Identity(self.identity_status()?)),
             Request::ImportIdentity { vault, password } => {
