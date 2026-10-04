@@ -4,4 +4,5 @@
 #![deny(unused_variables)]
 #![deny(unused_assignments)]
 
+pub mod logging;
 pub mod shell;

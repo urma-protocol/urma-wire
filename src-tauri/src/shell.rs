@@ -1,3 +1,4 @@
+use crate::logging;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::{Manager, State};
@@ -26,6 +27,35 @@ async fn engine(request: Request, state: State<'_, Engine>) -> Result<Response, 
 }
 
 fn serve(service: &Mutex<Service>, request: Request) -> Result<Response, Fault> {
+    let op = request.name();
+    match answer(service, request) {
+        Ok(response) => {
+            if network_bound(op) {
+                tracing::info!(op, "request served");
+            }
+            Ok(response)
+        }
+        Err(fault) => {
+            tracing::warn!(op, kind = ?fault.kind, message = %fault.message, "request failed");
+            Err(fault)
+        }
+    }
+}
+
+fn network_bound(op: &str) -> bool {
+    matches!(
+        op,
+        "feed"
+            | "history sync"
+            | "wallet"
+            | "connection health"
+            | "chain source change"
+            | "publication quote"
+            | "publication advance"
+    )
+}
+
+fn answer(service: &Mutex<Service>, request: Request) -> Result<Response, Fault> {
     match request {
         Request::FetchImage { url } => Ok(Response::Image(
             fetch(&url).map_err(NativeError::from)?,
@@ -58,7 +88,25 @@ pub fn run() {
     let launched = tauri::Builder::default()
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
-            let service = Service::open(&data_dir, settings(&data_dir)?)?;
+            match logging::install(&data_dir) {
+                Ok(path) => tracing::info!(log = %path.display(), "file logging installed"),
+                Err(error) => tracing::warn!(error = %error, "file logging unavailable"),
+            }
+            tracing::info!(
+                version = %app.package_info().version,
+                data_dir = %data_dir.display(),
+                "URMA Wire starting"
+            );
+            let service = match Service::open(&data_dir, settings(&data_dir)?) {
+                Ok(service) => {
+                    tracing::info!("engine service opened");
+                    service
+                }
+                Err(error) => {
+                    tracing::error!(error = %error, "engine service failed to open");
+                    return Err(error.into());
+                }
+            };
             app.manage(Engine(Arc::new(Mutex::new(service))));
             Ok(())
         })

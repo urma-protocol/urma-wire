@@ -5995,6 +5995,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tracing",
+ "tracing-subscriber",
  "wire-app-core",
  "wire-app-engine",
 ]

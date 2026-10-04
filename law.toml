@@ -119,8 +119,9 @@ platform = []
 components = ["config", "data", "platform", "state"]
 pages = ["components", "config", "data", "platform", "state"]
 app = ["components", "pages", "platform", "state"]
-# src-tauri: the desktop shell forwards typed requests to the native engine.
-shell = []
+# src-tauri: the desktop shell forwards typed requests to the native engine and owns the log file.
+logging = []
+shell = ["logging"]
 
 [rules]
 # rule ids switched off globally. default: none, and this is the loudest thing you can write in
