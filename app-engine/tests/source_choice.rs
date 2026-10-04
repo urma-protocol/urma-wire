@@ -53,7 +53,9 @@ fn adopting_the_local_node_verifies_then_persists_the_choice() {
     let endpoints = service.source_status().endpoints;
     assert_eq!(endpoints.len(), 4);
     assert!(endpoints[0].starts_with("ssl://"));
-    assert!(!endpoints.iter().any(|endpoint| endpoint == "Endpoint hidden"));
+    assert!(!endpoints
+        .iter()
+        .any(|endpoint| endpoint == "Endpoint hidden"));
     assert!(service.source_status().local_node_configured);
     assert!(service.source_status().cookie_available);
     let adopted = service.adopt_source(SourceChoice::LocalNode).unwrap();
@@ -67,4 +69,47 @@ fn adopting_the_local_node_verifies_then_persists_the_choice() {
         .unwrap_err();
     assert!(refused.to_string().contains("does not serve"));
     assert_eq!(service.source_status().choice, SourceChoice::LocalNode);
+}
+
+#[test]
+fn one_node_is_held_across_requests_and_handed_over_on_adoption() {
+    let dir = tempfile::tempdir().unwrap();
+    let phrase = IdentityPhrase::parse(&format!("{}art", "abandon ".repeat(23))).unwrap();
+    let keys = Keyring::create(&phrase, "held node fixture").unwrap();
+    let mock = node::Mock::new(dir.path(), keys.active().unwrap());
+    let configured = settings(
+        Some(mock.config.rpc_url.clone()),
+        Some(mock.config.cookie_file.clone()),
+    );
+    let mut service = Service::open(&dir.path().join("app"), configured).unwrap();
+    let first = service.connection_health().unwrap();
+    assert_eq!(first.remote_height, Some(100));
+    assert_eq!(first.evidence, "local_validating_node");
+    service.connection_health().unwrap();
+    let genesis_checks = |methods: &[String]| {
+        methods
+            .iter()
+            .filter(|method| method.as_str() == "getblockhash")
+            .count()
+    };
+    let methods = mock.state.lock().unwrap().methods.clone();
+    assert_eq!(genesis_checks(&methods), 1);
+    assert_eq!(
+        methods
+            .iter()
+            .filter(|method| method.as_str() == "getblockchaininfo")
+            .count(),
+        2
+    );
+    service.adopt_source(SourceChoice::LocalNode).unwrap();
+    service.connection_health().unwrap();
+    let methods = mock.state.lock().unwrap().methods.clone();
+    assert_eq!(genesis_checks(&methods), 2);
+    assert_eq!(
+        methods
+            .iter()
+            .filter(|method| method.as_str() == "getblockchaininfo")
+            .count(),
+        3
+    );
 }

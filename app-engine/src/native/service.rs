@@ -4,8 +4,11 @@ use crate::native::wallet::{Balance, WireWallet};
 use fs2::FileExt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use urma_identity::vault::{EncryptedVault, UnlockCredential};
+use urma_runtime::error::Error as RuntimeError;
+use urma_runtime::node::Node;
 use urma_wire::index::Index;
 use wire_app_core::connection::{ConnectionHealth, Trouble};
 use wire_app_core::model::{Chain, WalletSummary};
@@ -17,10 +20,16 @@ enum Vault {
     Unconfigured,
 }
 
+pub(super) enum Link {
+    Closed,
+    Open(Node),
+}
+
 pub struct Service {
     pub(super) directory: PathBuf,
     pub(super) settings: Settings,
     pub(super) wallet: Option<WireWallet>,
+    link: Mutex<Link>,
     _lock: File,
 }
 
@@ -49,8 +58,54 @@ impl Service {
             directory: directory.into(),
             settings,
             wallet: None,
+            link: Mutex::new(Link::Closed),
             _lock: lock,
         })
+    }
+
+    fn link(&self) -> std::sync::MutexGuard<'_, Link> {
+        match self.link.lock() {
+            Ok(link) => link,
+            Err(poisoned) => {
+                tracing::error!("chain link lock poisoned; reusing the held link");
+                poisoned.into_inner()
+            }
+        }
+    }
+
+    pub(super) fn with_node<T>(
+        &self,
+        work: impl FnOnce(&Node) -> Result<T, NativeError>,
+    ) -> Result<T, NativeError> {
+        let mut link = self.link();
+        if matches!(*link, Link::Closed) {
+            let node = self.settings.connect()?;
+            tracing::info!(providers = ?node.provider_labels(), evidence = node.inclusion_evidence(), "chain link opened");
+            *link = Link::Open(node);
+        }
+        let Link::Open(node) = &*link else {
+            return Err(NativeError::Unsupported("a closed chain link"));
+        };
+        match work(node) {
+            Ok(value) => Ok(value),
+            Err(error) if transport_failed(&error) => {
+                tracing::warn!(error = %error, "chain link dropped after a transport failure; reconnecting on next use");
+                *link = Link::Closed;
+                Err(error)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub(super) fn replace_link(&self, node: Node) {
+        *self.link() = Link::Open(node);
+    }
+
+    pub(super) fn open_provider_labels(&self) -> Vec<String> {
+        match &*self.link() {
+            Link::Open(node) => node.provider_labels(),
+            Link::Closed => Vec::new(),
+        }
     }
 
     pub(super) fn index_path(&self) -> PathBuf {
@@ -154,8 +209,11 @@ impl Service {
         let Some(wallet) = &self.wallet else {
             return Err(NativeError::Locked);
         };
-        let node = self.settings.connect()?;
-        let outputs = node.available_utxos(&wallet.signer()?)?;
+        let signer = wallet.signer()?;
+        let (outputs, tip_height) = self.with_node(|node| {
+            let outputs = node.available_utxos(&signer)?;
+            Ok((outputs, node.tip_height()?))
+        })?;
         let mut confirmed: u64 = 0;
         for output in &outputs {
             confirmed = confirmed
@@ -168,7 +226,7 @@ impl Service {
                 confirmed,
                 unconfirmed: 0,
                 outputs: outputs.len(),
-                tip_height: node.tip_height()?,
+                tip_height,
             },
         )
     }
@@ -214,8 +272,30 @@ impl Service {
     }
 
     fn remote_height(&self) -> Result<(u64, String), NativeError> {
-        let node = self.settings.connect()?;
-        Ok((node.tip_height()?, node.inclusion_evidence().to_owned()))
+        self.with_node(|node| {
+            let observed = node.observe("getblockchaininfo", &[])?;
+            let Some(height) = observed.value["blocks"].as_u64() else {
+                return Err(NativeError::Runtime(RuntimeError::Missing(
+                    "tip height missing from chain source".into(),
+                )));
+            };
+            tracing::debug!(provider = %observed.provider, evidence = observed.evidence.label(), height, "tip observed");
+            Ok((height, observed.evidence.label().to_owned()))
+        })
+    }
+}
+
+fn transport_failed(error: &NativeError) -> bool {
+    match error {
+        NativeError::Runtime(cause) => matches!(
+            cause,
+            RuntimeError::Io(_)
+                | RuntimeError::Http(_)
+                | RuntimeError::Tls(_)
+                | RuntimeError::Rpc(_)
+        ),
+        NativeError::Io(_) => true,
+        _ => false,
     }
 }
 

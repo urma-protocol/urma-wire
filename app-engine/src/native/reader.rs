@@ -2,9 +2,9 @@ use bitcoin::{Block, BlockHash, Transaction};
 use urma_runtime::{error::Error, node::Node};
 use urma_wire::reader::Reader;
 
-pub struct NodeReader(pub Node);
+pub struct NodeReader<'a>(pub &'a Node);
 
-impl Reader for NodeReader {
+impl Reader for NodeReader<'_> {
     type Error = Error;
 
     fn genesis(&self) -> Result<BlockHash, Error> {

@@ -7,7 +7,13 @@ use wire_app_core::connection::{safe_endpoint, SourceChoice, SourceStatus};
 impl Service {
     pub fn source_status(&self) -> SourceStatus {
         let endpoints = match &self.settings.source {
-            SourceChoice::Public => public_endpoints(),
+            SourceChoice::Public => {
+                let open = self.open_provider_labels();
+                match open.is_empty() {
+                    true => public_endpoints(),
+                    false => open.iter().map(|label| shown(label)).collect(),
+                }
+            }
             SourceChoice::LocalNode => self
                 .settings
                 .rpc_url
@@ -27,12 +33,13 @@ impl Service {
 
     pub fn adopt_source(&mut self, choice: SourceChoice) -> Result<SourceStatus, NativeError> {
         let settings = self.settings.with_source(choice);
-        settings.connect()?;
+        let node = settings.connect()?;
         urma_io::write_replace(
             &self.directory.join(SOURCE_FILE),
             &serde_json::to_vec(&settings.source)?,
         )?;
         self.settings = settings;
+        self.replace_link(node);
         Ok(self.source_status())
     }
 
@@ -51,4 +58,11 @@ fn public_endpoints() -> Vec<String> {
         .iter()
         .map(|endpoint| safe_endpoint(endpoint.url()))
         .collect()
+}
+
+fn shown(label: &str) -> String {
+    match label.contains("://") {
+        true => safe_endpoint(label),
+        false => label.to_owned(),
+    }
 }

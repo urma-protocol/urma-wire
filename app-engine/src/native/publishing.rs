@@ -44,7 +44,8 @@ impl Service {
         let Standing::Planned(plan, directory) = self.standing()? else {
             return Ok(());
         };
-        if directory.join(Self::APPROVAL_FILE).exists() && !observe(node, &plan, &directory)?.complete
+        if directory.join(Self::APPROVAL_FILE).exists()
+            && !observe(node, &plan, &directory)?.complete
         {
             return Err(NativeError::Unfinished);
         }
@@ -53,8 +54,6 @@ impl Service {
 
     pub fn quote(&self, content: &Content) -> Result<Publication, NativeError> {
         let record = build(content)?;
-        let node = self.settings.connect()?;
-        self.refuse_while_unfinished(&node)?;
         let Some(wallet) = &self.wallet else {
             return Err(NativeError::SignerLocked);
         };
@@ -65,37 +64,39 @@ impl Service {
             &urma_wallet::signing::script(&signer)?,
             FEE_RATE.get(),
         )?;
-        let plan = plan::prepare_atomic(
-            &node,
-            &signer,
-            &record,
-            PlanLimits {
-                fee_rate: FEE_RATE.get(),
-                max_fee: fee,
-                max_records: 1,
-            },
-        )?;
-        let id = plan.id()?;
-        let directory = self.directory.join(Self::PLANS_DIR).join(&id);
-        std::fs::create_dir_all(&directory)?;
-        let path = directory.join(Self::PLAN_FILE);
-        if !path.exists() {
-            plan.save_new(&path)?;
-        }
-        self.start(&node)?;
-        urma_io::write_replace(
-            &self.directory.join(Self::ACTIVE_FILE),
-            &serde_json::to_vec(&id)?,
-        )?;
-        observe(&node, &plan, &directory)
+        self.with_node(|node| {
+            self.refuse_while_unfinished(node)?;
+            let plan = plan::prepare_atomic(
+                node,
+                &signer,
+                &record,
+                PlanLimits {
+                    fee_rate: FEE_RATE.get(),
+                    max_fee: fee,
+                    max_records: 1,
+                },
+            )?;
+            let id = plan.id()?;
+            let directory = self.directory.join(Self::PLANS_DIR).join(&id);
+            std::fs::create_dir_all(&directory)?;
+            let path = directory.join(Self::PLAN_FILE);
+            if !path.exists() {
+                plan.save_new(&path)?;
+            }
+            self.start(node)?;
+            urma_io::write_replace(
+                &self.directory.join(Self::ACTIVE_FILE),
+                &serde_json::to_vec(&id)?,
+            )?;
+            observe(node, &plan, &directory)
+        })
     }
 
     pub fn status(&self) -> Result<Pending, NativeError> {
         let Standing::Planned(plan, directory) = self.standing()? else {
             return Ok(Pending::Settled);
         };
-        let node = self.settings.connect()?;
-        Ok(Pending::Awaiting(observe(&node, &plan, &directory)?))
+        self.with_node(|node| Ok(Pending::Awaiting(observe(node, &plan, &directory)?)))
     }
 
     pub fn discard_quote(&self, id: &str) -> Result<(), NativeError> {
@@ -126,12 +127,13 @@ impl Service {
         if urma_io::read_bounded(&approval, APPROVAL_FILE_BYTES)? != id.as_bytes() {
             return Err(NativeError::ApprovalRequired);
         }
-        let node = self.settings.connect()?;
-        let report = publish::publish(&node, &plan, id, &directory.join(Self::PROGRESS_FILE))?;
-        if paused(&report.blocked_reason) {
-            return Err(NativeError::Paused(report.blocked_reason));
-        }
-        observe(&node, &plan, &directory)
+        self.with_node(|node| {
+            let report = publish::publish(node, &plan, id, &directory.join(Self::PROGRESS_FILE))?;
+            if paused(&report.blocked_reason) {
+                return Err(NativeError::Paused(report.blocked_reason));
+            }
+            observe(node, &plan, &directory)
+        })
     }
 }
 
