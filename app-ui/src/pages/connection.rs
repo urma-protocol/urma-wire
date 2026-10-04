@@ -71,6 +71,7 @@ fn Health(health: ConnectionHealth) -> impl IntoView {
                 <Fact label="Network">{health.network}</Fact>
                 <Fact label="Source">{health.source_type}</Fact>
                 <Fact label="Endpoint" wide=true>{health.endpoint}</Fact>
+                <Fact label="Evidence">{evidence_label(&health.evidence)}</Fact>
                 <Fact label="Remote block height">{remote}</Fact>
                 <Fact label="Locally indexed height">{local}</Fact>
                 <Fact label="Indexed range">{range}</Fact>
@@ -78,6 +79,15 @@ fn Health(health: ConnectionHealth) -> impl IntoView {
                 <Fact label="Last successful check">{move || last_success(state)}</Fact>
             </Facts>
         </SettingsGroup>
+    }
+}
+
+fn evidence_label(evidence: &str) -> String {
+    match evidence {
+        "local_validating_node" => "Local validating node".to_owned(),
+        "light_client_inclusion" => "Light-client inclusion".to_owned(),
+        "public_provider_observation" => "Public provider observation".to_owned(),
+        other => other.replace('_', " "),
     }
 }
 

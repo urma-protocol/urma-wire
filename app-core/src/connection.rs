@@ -44,6 +44,7 @@ pub struct ConnectionHealth {
     pub local_start: Option<u64>,
     pub local_height: Option<u64>,
     pub trouble: Trouble,
+    pub evidence: String,
 }
 
 impl ConnectionHealth {
@@ -71,7 +72,7 @@ pub fn safe_endpoint(raw: &str) -> String {
     let Some((scheme, rest)) = raw.split_once("://") else {
         return HIDDEN_ENDPOINT.into();
     };
-    if !matches!(scheme, "http" | "https") {
+    if !matches!(scheme, "http" | "https" | "ssl" | "tcp") {
         return HIDDEN_ENDPOINT.into();
     }
     let Some(authority) = rest.split(['/', '?', '#']).next() else {

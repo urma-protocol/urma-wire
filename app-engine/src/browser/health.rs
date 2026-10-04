@@ -1,7 +1,7 @@
 use crate::browser::chain::{self, Cached};
 use crate::browser::source::Source;
 use crate::browser::store;
-use crate::config::DEFAULT_SOURCE;
+use crate::config::{BROWSER_EVIDENCE, DEFAULT_SOURCE};
 use crate::errors::BrowserError;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wire_app_core::connection::{
@@ -25,6 +25,7 @@ pub async fn health() -> Result<ConnectionHealth, BrowserError> {
         local_start: None,
         local_height: None,
         trouble: Trouble::Clear,
+        evidence: BROWSER_EVIDENCE.into(),
     };
     match chain::cached().await {
         Ok(Cached::Index(index)) => {

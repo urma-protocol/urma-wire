@@ -1,4 +1,4 @@
-use crate::config::Settings;
+use crate::config::{Settings, EVIDENCE_UNAVAILABLE};
 use crate::errors::NativeError;
 use crate::native::wallet::{Balance, WireWallet};
 use fs2::FileExt;
@@ -184,6 +184,7 @@ impl Service {
             local_start: None,
             local_height: None,
             trouble: Trouble::Clear,
+            evidence: EVIDENCE_UNAVAILABLE.into(),
         };
         if self.index_path().exists() {
             match Index::load(&self.index_path()) {
@@ -198,7 +199,10 @@ impl Service {
             }
         }
         match self.remote_height() {
-            Ok(height) => health.remote_height = Some(height),
+            Ok((height, evidence)) => {
+                health.remote_height = Some(height);
+                health.evidence = evidence;
+            }
             Err(error) => {
                 tracing::warn!(error = %error, "chain source check failed");
                 health.trouble = Trouble::SourceUnverified(
@@ -209,8 +213,9 @@ impl Service {
         Ok(health)
     }
 
-    fn remote_height(&self) -> Result<u64, NativeError> {
-        Ok(self.settings.connect()?.tip_height()?)
+    fn remote_height(&self) -> Result<(u64, String), NativeError> {
+        let node = self.settings.connect()?;
+        Ok((node.tip_height()?, node.inclusion_evidence().to_owned()))
     }
 }
 

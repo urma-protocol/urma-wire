@@ -12,6 +12,7 @@ fn settings(rpc_url: Option<String>, cookie: Option<std::path::PathBuf>) -> Sett
         vault: None,
         unlock_file: None,
         source: SourceChoice::LocalNode,
+        cache_dir: std::env::temp_dir().join("wire-source-choice-runtime"),
     }
 }
 
@@ -49,7 +50,10 @@ fn adopting_the_local_node_verifies_then_persists_the_choice() {
     );
     let mut service = Service::open(&app, configured.with_source(SourceChoice::Public)).unwrap();
     assert_eq!(service.source_status().choice, SourceChoice::Public);
-    assert_eq!(service.source_status().endpoints.len(), 3);
+    let endpoints = service.source_status().endpoints;
+    assert_eq!(endpoints.len(), 4);
+    assert!(endpoints[0].starts_with("ssl://"));
+    assert!(!endpoints.iter().any(|endpoint| endpoint == "Endpoint hidden"));
     assert!(service.source_status().local_node_configured);
     assert!(service.source_status().cookie_available);
     let adopted = service.adopt_source(SourceChoice::LocalNode).unwrap();

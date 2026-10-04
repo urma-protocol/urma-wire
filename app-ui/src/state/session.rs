@@ -1,4 +1,4 @@
-use crate::config::{PUBLICATION_POLL_MS, SYNC_SLICE_BLOCKS};
+use crate::config::{EVIDENCE_UNAVAILABLE, PUBLICATION_POLL_MS, SYNC_SLICE_BLOCKS};
 use crate::data::chain;
 use crate::data::identity;
 use crate::data::preferences::{stored_autoload, stored_replies_shown};
@@ -720,6 +720,7 @@ fn unreachable(chain: Chain, fault: Fault) -> ConnectionHealth {
         local_start: None,
         local_height: None,
         trouble: Trouble::SourceUnverified(fault.message),
+        evidence: EVIDENCE_UNAVAILABLE.to_owned(),
     }
 }
 

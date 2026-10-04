@@ -69,3 +69,5 @@ pub const NO_INDEXED_RANGE: &str = "None";
 pub const NEVER_CHECKED: &str = "Never";
 
 pub const UNKNOWN_HEIGHT: &str = "Unknown";
+
+pub const EVIDENCE_UNAVAILABLE: &str = "unavailable";

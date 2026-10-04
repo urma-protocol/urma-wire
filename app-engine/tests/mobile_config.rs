@@ -14,4 +14,5 @@ fn mobile_settings_use_only_the_app_private_identity_path() {
     assert!(settings.rpc_url.is_none());
     assert!(settings.node_auth_file.is_none());
     assert_eq!(settings.source, SourceChoice::Public);
+    assert_eq!(settings.cache_dir, app_data_dir.path().join("runtime"));
 }

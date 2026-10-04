@@ -26,6 +26,11 @@ pub const SOURCE_FILE: &str = "source.json";
 pub const SOURCE_FILE_BYTES: usize = 4096;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub const RUNTIME_DIR: &str = "runtime";
+
+pub const EVIDENCE_UNAVAILABLE: &str = "unavailable";
+
+#[cfg(not(target_arch = "wasm32"))]
 pub const PLAN_ID_FILE_BYTES: usize = 128;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -72,6 +77,9 @@ pub const DEFAULT_SOURCE: &str = "https://litecoinspace.org/testnet/api";
 pub const SOURCE_KEY: &str = "chain-source";
 
 #[cfg(target_arch = "wasm32")]
+pub const BROWSER_EVIDENCE: &str = "public_provider_observation";
+
+#[cfg(target_arch = "wasm32")]
 pub const INDEX_KEY: &str = "ltc-testnet-index-v2";
 
 #[cfg(target_arch = "wasm32")]
@@ -100,7 +108,7 @@ pub use settings::Settings;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod settings {
-    use super::{CONFIG_FILE_BYTES, NETWORK, SOURCE_FILE, SOURCE_FILE_BYTES};
+    use super::{CONFIG_FILE_BYTES, NETWORK, RUNTIME_DIR, SOURCE_FILE, SOURCE_FILE_BYTES};
     use crate::errors::NativeError;
     use serde::Deserialize;
     use std::path::{Path, PathBuf};
@@ -116,6 +124,8 @@ mod settings {
         pub unlock_file: Option<PathBuf>,
         #[serde(skip)]
         pub source: SourceChoice,
+        #[serde(skip)]
+        pub cache_dir: PathBuf,
     }
 
     impl Default for Settings {
@@ -126,6 +136,7 @@ mod settings {
                 vault: None,
                 unlock_file: None,
                 source: SourceChoice::Public,
+                cache_dir: PathBuf::from(RUNTIME_DIR),
             }
         }
     }
@@ -134,6 +145,7 @@ mod settings {
         pub fn mobile(app_data_dir: &Path) -> Self {
             Self {
                 vault: Some(app_data_dir.join("identity.urma")),
+                cache_dir: app_data_dir.join(RUNTIME_DIR),
                 ..Self::default()
             }
         }
@@ -170,6 +182,7 @@ mod settings {
                 Some(file) => file,
                 None => home.join(".config/urma/unlock"),
             });
+            settings.cache_dir = data_dir.join(RUNTIME_DIR);
             settings.source = match stored_source(&data_dir.join(SOURCE_FILE))? {
                 Some(choice) => choice,
                 None => match settings.local_node_configured() {
@@ -205,7 +218,7 @@ mod settings {
 
         pub fn connect(&self) -> Result<Node, NativeError> {
             match &self.source {
-                SourceChoice::Public => Ok(Node::public(NETWORK)?),
+                SourceChoice::Public => Ok(Node::public_in(NETWORK, &self.cache_dir)?),
                 SourceChoice::LocalNode => self.connect_local(),
                 SourceChoice::Esplora(_url) => {
                     Err(NativeError::Unsupported("a browser Esplora source"))

@@ -73,6 +73,7 @@ fn publication_roundtrip(kind: &str, structured: bool) {
         vault: Some(vault_path.clone()),
         unlock_file: None,
         source: SourceChoice::LocalNode,
+        cache_dir: dir.path().join("app/runtime"),
     };
     let app = dir.path().join("app");
     let mut service = Service::open(&app, settings()).unwrap();
