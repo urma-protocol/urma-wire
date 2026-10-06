@@ -143,9 +143,7 @@ impl Service {
 }
 
 fn paused(reason: &str) -> bool {
-    !reason.is_empty()
-        && !reason.starts_with("awaiting one confirmation")
-        && reason != "awaiting confirmations for commit and reveal"
+    !reason.is_empty() && !reason.starts_with("awaiting")
 }
 
 fn observe(
