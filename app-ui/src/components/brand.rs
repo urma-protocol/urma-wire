@@ -1,3 +1,4 @@
+use crate::config::{PULSE_FRAME_MS, PULSE_SWEEP_MS};
 use crate::state::AppState;
 use crate::state::Synced;
 use leptos::prelude::expect_context;
@@ -5,10 +6,13 @@ use leptos::prelude::ClassAttribute;
 use leptos::prelude::CustomAttribute;
 use leptos::prelude::ElementChild;
 use leptos::prelude::Get;
+use leptos::prelude::GetUntracked;
 use leptos::prelude::GlobalAttributes;
 use leptos::prelude::IntoAny;
 use leptos::prelude::IntoView;
 use leptos::prelude::Memo;
+use leptos::prelude::RwSignal;
+use leptos::prelude::Set;
 use leptos::prelude::{component, view};
 use wire_app_core::connection::{SourceKind, SourceStanding, TransportStatus};
 
@@ -110,11 +114,34 @@ impl Mark {
     }
 }
 
+pub fn swept(shown: f64, goal: f64) -> f64 {
+    let step = f64::from(PULSE_FRAME_MS) / f64::from(PULSE_SWEEP_MS);
+    if goal < shown {
+        return goal;
+    }
+    (shown + step).min(goal)
+}
+
+async fn sweep(mark: Memo<Mark>, shown: RwSignal<f64>) {
+    loop {
+        let goal = mark.get_untracked().fraction;
+        let current = shown.get_untracked();
+        if (goal - current).abs() > f64::EPSILON {
+            shown.set(swept(current, goal));
+        }
+        gloo_timers::future::TimeoutFuture::new(PULSE_FRAME_MS).await;
+    }
+}
+
 #[component]
 pub fn BrandMark() -> impl IntoView {
     let state = expect_context::<AppState>();
     let mark = Memo::new(move |_previous: Option<&Mark>| Mark::of(&state.synced.get()));
-    let pulse = move || mark.get().pulse();
+    let shown = RwSignal::new(0.0_f64);
+    leptos::task::spawn_local(sweep(mark, shown));
+    let pulse = move || pulse_at(shown.get());
+    let arrived = move || (mark.get().fraction - shown.get()).abs() <= f64::EPSILON;
+    let visible = move || mark.get().pulse_shown || !arrived();
     view! {
         <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
             <defs>
@@ -135,7 +162,7 @@ pub fn BrandMark() -> impl IntoView {
                         let seal_x = *seal_x;
                         view! {
                             <path class="brand-cut" d=*d
-                                opacity=move || match mark.get().cut_open(seal_x) { true => "1", false => "0" }/>
+                                opacity=move || match !mark.get().healed && pulse().0 < seal_x { true => "1", false => "0" }/>
                         }
                     }).collect::<Vec<_>>()}
                 </mask>
@@ -164,8 +191,8 @@ pub fn BrandMark() -> impl IntoView {
             <circle class="brand-pulse" r="10"
                 cx=move || format!("{:.1}", pulse().0)
                 cy=move || format!("{:.1}", pulse().1)
-                opacity=move || match mark.get().pulse_shown { true => "1", false => "0" }/>
-            {move || match mark.get().healed {
+                opacity=move || match visible() { true => "1", false => "0" }/>
+            {move || match mark.get().healed && arrived() {
                 true => view! { <circle class="brand-point healed" cx="256" cy="355" r="8"/> }.into_any(),
                 false => view! { <polygon class="brand-point" points=Trace::BREAK_STAR/> }.into_any(),
             }}

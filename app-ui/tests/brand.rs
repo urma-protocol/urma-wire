@@ -34,6 +34,25 @@ fn each_block_of_a_hundred_advances_one_hundredth_of_the_trace() {
 }
 
 #[test]
+fn the_pulse_sweeps_the_trace_at_a_bounded_pace_and_never_walks_back() {
+    use wire_app_ui::components::brand::swept;
+    use wire_app_ui::config::{PULSE_FRAME_MS, PULSE_SWEEP_MS};
+    let mut shown = 0.0;
+    let mut frames = 0;
+    while (1.0 - shown) > f64::EPSILON {
+        let next = swept(shown, 1.0);
+        assert!(next > shown);
+        let (from, to) = (pulse_at(shown), pulse_at(next));
+        assert!(distance(from, to) < 30.0, "one frame moves a short way along the trace");
+        shown = next;
+        frames += 1;
+    }
+    assert_eq!(frames, (PULSE_SWEEP_MS / PULSE_FRAME_MS) + 1);
+    assert_eq!(swept(0.3, 0.31), 0.31);
+    assert_eq!(swept(0.8, 0.0), 0.0);
+}
+
+#[test]
 fn halfway_sits_at_the_bottom_of_the_u() {
     let (x, y) = pulse_at(0.5);
     assert!((x - Trace::BOTTOM.0).abs() < 1.0, "{x}");

@@ -35,7 +35,7 @@ button,a,input,textarea,summary { -webkit-tap-highlight-color:transparent; }
 .brand-mark .brand-entry path { fill:none; stroke:var(--rosint); stroke-width:10; }
 .brand-mark .brand-entry circle { fill:var(--rosint); }
 .brand-mark .brand-cut { fill:none; stroke:#000; stroke-width:11; transition:opacity .4s ease; }
-.brand-mark .brand-pulse { fill:var(--rosint); filter:drop-shadow(0 0 8px var(--rosint)); transition:cx .45s ease,cy .45s ease,opacity .4s ease; }
+.brand-mark .brand-pulse { fill:var(--rosint); filter:drop-shadow(0 0 8px var(--rosint)); transition:opacity .4s ease; }
 .brand-mark .brand-point { fill:var(--break); }
 .brand-mark .brand-point.healed { fill:var(--rosint); }
 .brand-sync { display:flex; align-items:baseline; justify-content:center; gap:6px; min-height:18px; font:11px/1.5 var(--font-mono); letter-spacing:.04em; color:var(--text-dim); }
