@@ -88,9 +88,9 @@ rejections and malformed proofs produce explicit errors. Browser privacy policy
 and endpoint availability can still prevent a connection.
 
 IndexedDB stores the recent-history starting height, contiguous block-hash
-checkpoints and verified records. Refresh resumes from the saved checkpoint,
-rolls back changed hashes, and saves each verified block before advancing, in
-bounded slices per refresh. Transparent block Merkle roots, witness commitments and URMA
+checkpoints and verified records. A sync run resumes from the saved checkpoint,
+rolls back changed hashes, verifies blocks in order up to the tip and saves the
+index per batch. Transparent block Merkle roots, witness commitments and URMA
 author proofs are checked with the shared library. Cached history remains
 readable offline with a stale-source notice; it is not marked caught up. This
 uses public-provider chain observations, not an independently validating node or
@@ -224,8 +224,10 @@ State is under Tauri's platform app-data directory for `org.urma.wire`:
 `wire_store.json` is left untouched and not used as verified chain evidence.
 
 First sync starts within a bounded recent range before the current tip and remembers
-that height. Each refresh processes a bounded slice, with the indexed range and remaining
-catch-up shown explicitly. This is a recent-history feed, not full-chain search.
+that height. The engine owns the sync run: `StartSync` launches one catch-up to the
+tip (blocks downloaded in parallel, applied in order, index persisted per batch) and
+`SyncStatus` reports per-block progress; the UI only polls and renders it. This is a
+recent-history feed, not full-chain search.
 The library verifies record/author proofs and rolls back orphaned index entries.
 Posts and replies support an inert Markdown subset (text/code/paragraphs and
 external image references); HTML is displayed as text. Bitcoin UI integration

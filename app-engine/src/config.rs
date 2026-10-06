@@ -5,10 +5,6 @@ pub const NETWORK: Chain = Chain::LitecoinTestnet;
 
 pub const SYNC_BLOCKS: u64 = 100;
 
-pub fn bounded_slice(max_blocks: u64) -> u64 {
-    max_blocks.clamp(1, SYNC_BLOCKS)
-}
-
 pub const HISTORY_BLOCKS: u64 = 100;
 
 pub const FEE_RATE: NonZeroU64 = NonZeroU64::MIN;

@@ -45,8 +45,7 @@ fn serve(service: &Service, request: Request) -> Result<Response, Fault> {
 fn network_bound(op: &str) -> bool {
     matches!(
         op,
-        "feed"
-            | "history sync"
+        "history sync start"
             | "wallet"
             | "connection health"
             | "chain source change"

@@ -1,4 +1,4 @@
-use crate::config::{EVIDENCE_UNAVAILABLE, PUBLICATION_POLL_MS, SYNC_SLICE_BLOCKS};
+use crate::config::{EVIDENCE_UNAVAILABLE, PUBLICATION_POLL_MS, SYNC_POLL_MS};
 use crate::data::chain;
 use crate::data::identity;
 use crate::data::preferences::{stored_autoload, stored_replies_shown};
@@ -22,7 +22,9 @@ use tracing::warn;
 use wire_app_core::composer::Photo;
 use wire_app_core::connection::{ConnectionHealth, Trouble};
 use wire_app_core::errors::Fault;
-use wire_app_core::feed::{conversations, following, Conversation, PublicIdentity, SyncProgress};
+use wire_app_core::feed::{
+    conversations, following, Conversation, PublicIdentity, SyncPhase, SyncStatus,
+};
 use wire_app_core::model::{AuthorId, Chain, Post, WalletSummary};
 use wire_app_core::publication::{Addressed, Content, Pending, Publication};
 use wire_app_core::session::{IdentityStatus, Session};
@@ -514,63 +516,31 @@ pub enum Named {
 
 async fn sync_feed(state: AppState, chain: Chain) {
     state.synced.set(Synced::Connecting);
-    match verify_history(state, chain).await {
-        Ok(()) => {
+    match follow_sync(state, chain).await {
+        Ok(SyncPhase::Failed(reason)) => {
+            warn!(reason = %reason, "history sync failed; cached posts stand");
+            state.synced.set(Synced::Failed(reason));
+        }
+        Ok(SyncPhase::Idle | SyncPhase::Connecting | SyncPhase::Verifying | SyncPhase::Complete) => {
             state.synced.set(Synced::Building);
             build_feed(state, chain).await;
         }
         Err(fault) => {
-            warn!(fault = %fault, "history verification stopped; cached posts stand");
+            warn!(fault = %fault, "history sync could not be followed; cached posts stand");
             state.synced.set(Synced::Failed(fault.message));
         }
     }
     state.is_loading_feed.set(false);
 }
 
-async fn verify_history(state: AppState, chain: Chain) -> Result<(), Fault> {
-    let mut latest = records::sync(chain, SYNC_SLICE_BLOCKS).await?;
-    let baseline = indexed_before(&latest);
-    let mut done = latest.scanned;
-    loop {
-        state.synced.set(Synced::Verifying {
-            done,
-            total: blocks_from(baseline, latest.tip),
-            height: height_of(&latest),
-            tip: latest.tip,
-        });
-        if latest.complete_to_tip || latest.scanned == 0 {
-            return Ok(());
-        }
-        if state.active_chain.get_untracked() != chain {
-            return Ok(());
-        }
-        latest = records::sync(chain, SYNC_SLICE_BLOCKS).await?;
-        done += latest.scanned;
+async fn follow_sync(state: AppState, chain: Chain) -> Result<SyncPhase, Fault> {
+    let mut status = records::start_sync(chain).await?;
+    while !status.settled() {
+        state.synced.set(Synced::shown(&status));
+        gloo_timers::future::TimeoutFuture::new(SYNC_POLL_MS).await;
+        status = records::sync_status(chain).await?;
     }
-}
-
-fn indexed_before(first: &SyncProgress) -> u64 {
-    let Some(indexed_to) = first.indexed_to else {
-        return first.start;
-    };
-    let Some(before) = indexed_to.checked_sub(first.scanned) else {
-        return first.start;
-    };
-    before
-}
-
-fn blocks_from(baseline: u64, tip: u64) -> u64 {
-    let Some(total) = tip.checked_sub(baseline) else {
-        return 0;
-    };
-    total
-}
-
-fn height_of(progress: &SyncProgress) -> u64 {
-    let Some(height) = progress.indexed_to else {
-        return progress.start;
-    };
-    height
+    Ok(status.phase)
 }
 
 async fn build_feed(state: AppState, chain: Chain) {
@@ -580,8 +550,6 @@ async fn build_feed(state: AppState, chain: Chain) {
                 state.public_identities.set(result.identities);
                 state.feed.set(result.posts);
                 state.synced.set(Synced::Indexed {
-                    start: result.start,
-                    tip: result.tip,
                     complete: result.complete_to_tip,
                 });
             }
@@ -627,36 +595,40 @@ pub fn signing_author(state: AppState) -> Signer {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Synced {
     Unchecked,
     Connecting,
-    Verifying {
-        done: u64,
-        total: u64,
-        height: u64,
-        tip: u64,
-    },
+    Verifying { done: u64, total: u64 },
     Building,
-    Indexed {
-        start: u64,
-        tip: u64,
-        complete: bool,
-    },
+    Indexed { complete: bool },
     Failed(String),
 }
 
 impl Synced {
+    pub fn shown(status: &SyncStatus) -> Self {
+        match &status.phase {
+            SyncPhase::Idle => Synced::Unchecked,
+            SyncPhase::Connecting => Synced::Connecting,
+            SyncPhase::Verifying => Synced::Verifying {
+                done: status.done,
+                total: status.total,
+            },
+            SyncPhase::Complete => Synced::Indexed {
+                complete: status.complete_to_tip,
+            },
+            SyncPhase::Failed(reason) => Synced::Failed(reason.clone()),
+        }
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             Synced::Unchecked => "",
             Synced::Connecting => "Connecting…",
             Synced::Verifying { .. } => "",
             Synced::Building => "Building feed…",
-            Synced::Indexed { complete: true, .. } => "Up to date",
-            Synced::Indexed {
-                complete: false, ..
-            } => "History incomplete",
+            Synced::Indexed { complete: true } => "Up to date",
+            Synced::Indexed { complete: false } => "History incomplete",
             Synced::Failed(_reason) => "Sync failed",
         }
     }

@@ -4,7 +4,7 @@ use crate::native::wallet::{Balance, WireWallet};
 use fs2::FileExt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use urma_identity::identity::IdentityKey;
 use urma_identity::vault::{EncryptedVault, UnlockCredential};
@@ -13,6 +13,7 @@ use urma_runtime::light::LightSync;
 use urma_runtime::node::Node;
 use urma_wire::index::Index;
 use wire_app_core::connection::{ConnectionHealth, Trouble};
+use wire_app_core::feed::SyncStatus;
 use wire_app_core::model::{AuthorId, Chain, WalletSummary};
 use wire_app_core::session::{Credential, IdentityStatus, Session, VaultSource};
 use zeroize::Zeroizing;
@@ -24,7 +25,7 @@ enum Vault {
 
 pub(super) enum Link {
     Closed,
-    Open(Node),
+    Open(Arc<Node>),
 }
 
 pub(super) enum Identity {
@@ -36,7 +37,8 @@ pub struct Service {
     pub(super) directory: PathBuf,
     settings: RwLock<Settings>,
     identity: Mutex<Identity>,
-    link: Mutex<Link>,
+    link: Arc<Mutex<Link>>,
+    pub(super) sync: Arc<Mutex<SyncStatus>>,
     _lock: File,
 }
 
@@ -65,7 +67,8 @@ impl Service {
             directory: directory.into(),
             settings: RwLock::new(settings),
             identity: Mutex::new(Identity::Locked),
-            link: Mutex::new(Link::Closed),
+            link: Arc::new(Mutex::new(Link::Closed)),
+            sync: Arc::new(Mutex::new(SyncStatus::idle())),
             _lock: lock,
         })
     }
@@ -101,11 +104,27 @@ impl Service {
     }
 
     fn link(&self) -> MutexGuard<'_, Link> {
-        match self.link.lock() {
-            Ok(link) => link,
-            Err(poisoned) => {
-                tracing::error!("chain link lock poisoned; reusing the held link");
-                poisoned.into_inner()
+        locked_link(&self.link)
+    }
+
+    pub(super) fn link_handle(&self) -> Arc<Mutex<Link>> {
+        self.link.clone()
+    }
+
+    pub(super) fn sync_status(&self) -> MutexGuard<'_, SyncStatus> {
+        locked_sync(&self.sync)
+    }
+
+    pub(super) fn node(&self) -> Result<Arc<Node>, NativeError> {
+        let mut link = self.link();
+        match &*link {
+            Link::Open(node) => Ok(node.clone()),
+            Link::Closed => {
+                let settings = self.settings().clone();
+                let node = Arc::new(settings.connect()?);
+                opened(&node);
+                *link = Link::Open(node.clone());
+                Ok(node)
             }
         }
     }
@@ -114,30 +133,21 @@ impl Service {
         &self,
         work: impl FnOnce(&Node) -> Result<T, NativeError>,
     ) -> Result<T, NativeError> {
-        let mut link = self.link();
-        if matches!(*link, Link::Closed) {
-            let settings = self.settings().clone();
-            let node = settings.connect()?;
-            opened(&node);
-            *link = Link::Open(node);
-        }
-        let Link::Open(node) = &*link else {
-            return Err(NativeError::Unsupported("a closed chain link"));
-        };
-        match work(node) {
+        let node = self.node()?;
+        match work(&node) {
             Ok(value) => Ok(value),
-            Err(error) if transport_failed(&error) => {
-                tracing::warn!(error = %error, "chain link dropped after a transport failure; reconnecting on next use");
-                *link = Link::Closed;
+            Err(error) => {
+                if transport_failed(&error) {
+                    drop_link(&self.link, &node);
+                }
                 Err(error)
             }
-            Err(error) => Err(error),
         }
     }
 
     pub(super) fn replace_link(&self, node: Node) {
         opened(&node);
-        *self.link() = Link::Open(node);
+        *self.link() = Link::Open(Arc::new(node));
     }
 
     pub(super) fn open_provider_labels(&self) -> Vec<String> {
@@ -365,6 +375,41 @@ impl Service {
             Ok((height, observed.evidence.label().to_owned()))
         })
     }
+}
+
+pub(super) fn locked_link(link: &Mutex<Link>) -> MutexGuard<'_, Link> {
+    match link.lock() {
+        Ok(link) => link,
+        Err(poisoned) => {
+            tracing::error!("chain link lock poisoned; reusing the held link");
+            poisoned.into_inner()
+        }
+    }
+}
+
+pub(super) fn locked_sync(sync: &Mutex<SyncStatus>) -> MutexGuard<'_, SyncStatus> {
+    match sync.lock() {
+        Ok(status) => status,
+        Err(poisoned) => {
+            tracing::error!("sync status lock poisoned; reusing the held status");
+            poisoned.into_inner()
+        }
+    }
+}
+
+pub(super) fn drop_link(link: &Mutex<Link>, failed: &Arc<Node>) {
+    let mut link = locked_link(link);
+    let Link::Open(current) = &*link else {
+        return;
+    };
+    if Arc::ptr_eq(current, failed) {
+        tracing::warn!("chain link dropped after a transport failure; reconnecting on next use");
+        *link = Link::Closed;
+    }
+}
+
+pub(super) fn transport_error(error: &NativeError) -> bool {
+    transport_failed(error)
 }
 
 fn opened(node: &Node) {

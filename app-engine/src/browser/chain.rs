@@ -1,23 +1,52 @@
 use crate::browser::source::Source;
 use crate::browser::store::{self, Stored};
 use crate::config::{
-    bounded_slice, HISTORY_BLOCKS, INDEX_FORMAT, INDEX_KEY, MAX_CHECKPOINTS, MAX_ENTRIES, NETWORK,
+    HISTORY_BLOCKS, INDEX_FORMAT, INDEX_KEY, MAX_CHECKPOINTS, MAX_ENTRIES, NETWORK, SYNC_BLOCKS,
 };
 use crate::errors::BrowserError;
 use bitcoin::{Block, Transaction};
+use std::cell::RefCell;
 use urma_core::envelope;
 use urma_core::format::RecordKind;
 use urma_wire::index::{Checkpoint, Entry, Index};
-use wire_app_core::feed::SyncProgress;
+use wire_app_core::feed::{SyncPhase, SyncStatus};
+
+thread_local! { static STATUS: RefCell<SyncStatus> = RefCell::new(SyncStatus::idle()); }
 
 pub enum Cached {
     Index(Index),
     Empty,
 }
 
-pub struct Refreshed {
-    pub index: Index,
-    pub progress: SyncProgress,
+pub fn status() -> SyncStatus {
+    STATUS.with(|status| status.borrow().clone())
+}
+
+fn update(change: impl FnOnce(&mut SyncStatus)) {
+    STATUS.with(|status| change(&mut status.borrow_mut()));
+}
+
+pub fn begin() -> SyncStatus {
+    update(|status| {
+        status.run += 1;
+        status.phase = SyncPhase::Connecting;
+        status.done = 0;
+        status.total = 0;
+        status.complete_to_tip = false;
+    });
+    status()
+}
+
+pub fn finish(outcome: Result<(), BrowserError>) {
+    update(|status| {
+        status.phase = match outcome {
+            Ok(()) => SyncPhase::Complete,
+            Err(error) => {
+                tracing::warn!(error = %error, "history sync stopped");
+                SyncPhase::Failed(error.to_string())
+            }
+        }
+    });
 }
 
 pub async fn cached() -> Result<Cached, BrowserError> {
@@ -59,37 +88,70 @@ fn fresh(tip: u64) -> Result<Index, BrowserError> {
     })
 }
 
-pub async fn sync(source: &Source, max_blocks: u64) -> Result<Refreshed, BrowserError> {
-    let (tip, anchor) = source.tip().await?;
+pub async fn sync(source: &Source) -> Result<(), BrowserError> {
+    let (tip, _anchor) = source.tip().await?;
     let mut index = match cached().await? {
         Cached::Index(index) => index,
         Cached::Empty => fresh(tip)?,
     };
-    let rolled_back = roll_back(source, &mut index, tip).await?;
+    roll_back(source, &mut index, tip).await?;
     store::write(INDEX_KEY, &index).await?;
     let next = index
         .start
         .checked_add(u64::try_from(index.blocks.len())?)
         .ok_or(BrowserError::HeightOverflow)?;
-    let horizon = next
-        .checked_add(bounded_slice(max_blocks) - 1)
-        .ok_or(BrowserError::HeightOverflow)?;
-    let mut scanned = 0;
-    for height in next..=tip.min(horizon) {
-        extend(source, &mut index, height).await?;
-        scanned += 1;
+    update(|status| {
+        status.start = index.start;
+        status.from = next;
+        status.tip = tip;
+        status.total = 0;
+        let Some(remaining) = tip.checked_sub(next) else {
+            return;
+        };
+        status.total = remaining + 1;
+    });
+    let outcome = catch_up(source, &mut index, next, tip).await;
+    confirm_tail(source, &index).await?;
+    store::write(INDEX_KEY, &index).await?;
+    outcome?;
+    update(|status| {
+        status.indexed_to = index.blocks.last().map(|block| block.height);
+        status.complete_to_tip = reached(&index, tip);
+    });
+    Ok(())
+}
+
+async fn catch_up(
+    source: &Source,
+    index: &mut Index,
+    next: u64,
+    tip: u64,
+) -> Result<(), BrowserError> {
+    let mut unsaved = 0;
+    for height in next..=tip {
+        extend(source, index, height).await?;
+        update(|status| {
+            status.phase = SyncPhase::Verifying;
+            status.indexed_to = Some(height);
+            status.done = height - next + 1;
+        });
+        unsaved += 1;
+        if unsaved >= SYNC_BLOCKS {
+            store::write(INDEX_KEY, index).await?;
+            unsaved = 0;
+        }
     }
-    let stable = source.hash(tip).await? == anchor;
-    let progress = SyncProgress {
-        start: index.start,
-        indexed_to: index.blocks.last().map(|block| block.height),
-        tip,
-        scanned,
-        records: u64::try_from(index.entries.len())?,
-        rolled_back,
-        complete_to_tip: stable && reached(&index, tip),
-    };
-    Ok(Refreshed { index, progress })
+    Ok(())
+}
+
+async fn confirm_tail(source: &Source, index: &Index) -> Result<(), BrowserError> {
+    let tail = index.blocks.last();
+    for checkpoint in tail.iter() {
+        if source.hash(checkpoint.height).await?.to_string() != checkpoint.hash {
+            return Err(BrowserError::ChangedDuringVerification);
+        }
+    }
+    Ok(())
 }
 
 async fn roll_back(source: &Source, index: &mut Index, tip: u64) -> Result<u64, BrowserError> {
@@ -113,9 +175,6 @@ async fn extend(source: &Source, index: &mut Index, height: u64) -> Result<(), B
     let block = source.block(height).await?;
     linked(index, &block)?;
     let entries = verified_entries(source, &block, height).await?;
-    if source.hash(height).await? != block.block_hash() {
-        return Err(BrowserError::ChangedDuringVerification);
-    }
     index.entries.extend(entries);
     index.blocks.push(Checkpoint {
         height,
@@ -124,7 +183,7 @@ async fn extend(source: &Source, index: &mut Index, height: u64) -> Result<(), B
     if index.blocks.len() > MAX_CHECKPOINTS || index.entries.len() > MAX_ENTRIES {
         return Err(BrowserError::IndexCapacity);
     }
-    store::write(INDEX_KEY, index).await
+    Ok(())
 }
 
 fn linked(index: &Index, block: &Block) -> Result<(), BrowserError> {

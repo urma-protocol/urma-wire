@@ -154,6 +154,8 @@ pub enum NativeError {
     #[error(transparent)]
     Hex(#[from] hex::FromHexError),
     #[error(transparent)]
+    Genesis(#[from] bitcoin::hex::HexToArrayError),
+    #[error(transparent)]
     Consensus(#[from] bitcoin::consensus::encode::Error),
     #[error(transparent)]
     Projection(#[from] ProjectionError),
@@ -190,7 +192,9 @@ impl NativeError {
             | Self::Protocol(_)
             | Self::Hex(_)
             | Self::Consensus(_) => FaultKind::Publication,
-            Self::ChainChanged | Self::Runtime(_) | Self::Sync(_) => FaultKind::Source,
+            Self::ChainChanged | Self::Runtime(_) | Self::Sync(_) | Self::Genesis(_) => {
+                FaultKind::Source
+            }
             Self::NoHome
             | Self::RpcUrlEncoding(_)
             | Self::LocalNodeUnconfigured

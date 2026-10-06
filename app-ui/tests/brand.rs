@@ -1,3 +1,4 @@
+use wire_app_core::feed::{SyncPhase, SyncStatus};
 use wire_app_ui::components::brand::{distance, pulse_at, Mark, Trace};
 use wire_app_ui::state::session::Synced;
 
@@ -6,12 +7,7 @@ fn close(a: (f64, f64), b: (f64, f64)) -> bool {
 }
 
 fn verifying(done: u64, total: u64) -> Mark {
-    Mark::of(&Synced::Verifying {
-        done,
-        total,
-        height: 0,
-        tip: 0,
-    })
+    Mark::of(&Synced::Verifying { done, total })
 }
 
 #[test]
@@ -59,11 +55,7 @@ fn cuts_seal_as_the_pulse_passes_and_stay_open_on_failure() {
 
 #[test]
 fn completion_heals_the_mark_and_hides_the_pulse() {
-    let healed = Mark::of(&Synced::Indexed {
-        start: 0,
-        tip: 0,
-        complete: true,
-    });
+    let healed = Mark::of(&Synced::Indexed { complete: true });
     assert!(healed.healed);
     assert!(!healed.pulse_shown);
     assert_eq!(healed.fraction, 1.0);
@@ -73,25 +65,24 @@ fn completion_heals_the_mark_and_hides_the_pulse() {
 }
 
 #[test]
-fn status_text_is_short() {
+fn engine_status_maps_to_the_shown_state() {
+    let mut status = SyncStatus::idle();
+    assert_eq!(Synced::shown(&status), Synced::Unchecked);
+    status.phase = SyncPhase::Verifying;
+    status.done = 42;
+    status.total = 100;
     assert_eq!(
+        Synced::shown(&status),
         Synced::Verifying {
             done: 42,
-            total: 100,
-            height: 0,
-            tip: 0
+            total: 100
         }
-        .label(),
-        ""
     );
-    assert_eq!(
-        Synced::Indexed {
-            start: 0,
-            tip: 0,
-            complete: true
-        }
-        .label(),
-        "Up to date"
-    );
-    assert_eq!(Synced::Failed("x".into()).label(), "Sync failed");
+    status.phase = SyncPhase::Complete;
+    status.complete_to_tip = true;
+    assert_eq!(Synced::shown(&status), Synced::Indexed { complete: true });
+    assert_eq!(Synced::shown(&status).label(), "Up to date");
+    status.phase = SyncPhase::Failed("x".into());
+    assert_eq!(Synced::shown(&status).label(), "Sync failed");
+    assert_eq!(Synced::Verifying { done: 1, total: 2 }.label(), "");
 }

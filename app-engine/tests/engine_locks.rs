@@ -5,6 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use urma_identity::{keyring::Keyring, phrase::IdentityPhrase, vault::UnlockedVault};
 use wire_app_core::connection::SourceChoice;
+use wire_app_core::feed::SyncPhase;
 use wire_app_core::session::{Credential, Session};
 use wire_app_engine::config::Settings;
 use wire_app_engine::errors::NativeError;
@@ -52,14 +53,12 @@ fn harness() -> Harness {
 }
 
 #[test]
-fn identity_requests_answer_while_a_sync_slice_runs() {
+fn identity_requests_answer_while_a_sync_runs() {
     let harness = harness();
-    let service = harness.service.clone();
-    let slice = thread::spawn(move || {
-        let started = Instant::now();
-        let progress = service.sync_slice(5).unwrap();
-        (progress, started.elapsed())
-    });
+    let sync_started = Instant::now();
+    let started = harness.service.start_sync().unwrap();
+    assert_eq!(started.phase, SyncPhase::Connecting);
+    assert_eq!(started.run, 1);
     thread::sleep(Duration::from_millis(DELAY_MS * 2));
     let started = Instant::now();
     let status = harness.service.identity_status().unwrap();
@@ -75,9 +74,26 @@ fn identity_requests_answer_while_a_sync_slice_runs() {
         harness.service.identity_status().unwrap().session,
         Session::Unlocked(_)
     ));
-    let (progress, slice_elapsed) = slice.join().unwrap();
-    assert_eq!(progress.scanned, 5);
-    assert_eq!(progress.indexed_to, Some(99));
+    let mut status = harness.service.sync_snapshot();
+    let mut seen = Vec::new();
+    while !status.settled() {
+        seen.push((status.phase.clone(), status.done, status.total));
+        thread::sleep(Duration::from_millis(DELAY_MS / 3));
+        status = harness.service.sync_snapshot();
+    }
+    let slice_elapsed = sync_started.elapsed();
+    assert_eq!(status.phase, SyncPhase::Complete);
+    assert_eq!(status.indexed_to, Some(100));
+    assert!(status.complete_to_tip);
+    assert_eq!((status.done, status.total), (6, 6));
+    let counted: Vec<u64> = seen
+        .iter()
+        .filter(|(phase, _done, _total)| *phase == SyncPhase::Verifying)
+        .map(|(_phase, done, _total)| *done)
+        .collect();
+    assert!(counted.windows(2).all(|pair| pair[1] >= pair[0]));
+    assert!(counted.len() >= 2, "progress was observed in steps: {counted:?}");
+    assert_eq!(harness.service.start_sync().unwrap().run, 2);
     harness.service.lock();
     let started = Instant::now();
     harness
@@ -86,9 +102,9 @@ fn identity_requests_answer_while_a_sync_slice_runs() {
         .unwrap();
     let idle_unlock = started.elapsed();
     eprintln!(
-        "identity status {status_elapsed:?}, unlock {unlock_elapsed:?} (idle unlock {idle_unlock:?}), 5-block slice {slice_elapsed:?} (mock delay {DELAY_MS} ms per rpc)"
+        "identity status {status_elapsed:?}, unlock {unlock_elapsed:?} (idle unlock {idle_unlock:?}), 6-block sync {slice_elapsed:?} (mock delay {DELAY_MS} ms per rpc)"
     );
-    assert!(slice_elapsed >= Duration::from_millis(DELAY_MS * 10));
+    assert!(slice_elapsed >= Duration::from_millis(DELAY_MS * 4));
     assert!(status_elapsed < Duration::from_millis(DELAY_MS));
     assert!(unlock_elapsed < idle_unlock * 2 + Duration::from_millis(DELAY_MS));
     assert!(harness

@@ -25,11 +25,15 @@ impl Service {
             }
             Request::Feed { chain } => {
                 served(chain)?;
-                Ok(Response::Feed(self.sync()?))
+                Ok(Response::Feed(self.feed()?))
             }
-            Request::Sync { chain, max_blocks } => {
+            Request::StartSync { chain } => {
                 served(chain)?;
-                Ok(Response::Sync(self.sync_slice(max_blocks)?))
+                Ok(Response::Sync(self.start_sync()?))
+            }
+            Request::SyncStatus { chain } => {
+                served(chain)?;
+                Ok(Response::Sync(self.sync_snapshot()))
             }
             Request::Post { chain, txid } => {
                 served(chain)?;

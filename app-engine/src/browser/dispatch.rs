@@ -5,13 +5,14 @@ use crate::browser::publish::{self, Planned};
 use crate::browser::session;
 use crate::browser::source::Source;
 use crate::browser::store::{self, OperationLock};
-use crate::config::{SOURCE_KEY, SYNC_BLOCKS};
+use crate::config::SOURCE_KEY;
 use crate::errors::BrowserError;
 use crate::projection::{lookup, project, replies};
+use std::collections::BTreeMap;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wire_app_core::connection::SourceChoice;
 use wire_app_core::contract::{Request, Response};
-use wire_app_core::feed::{Feed, Lookup, SyncProgress};
+use wire_app_core::feed::{Feed, Lookup, SyncStatus};
 use wire_app_core::model::{Chain, Post, Txid};
 use wire_app_core::publication::Pending;
 
@@ -45,7 +46,8 @@ fn served(request: &Request) -> Result<(), BrowserError> {
     let chain = match request {
         Request::Wallet { chain }
         | Request::Feed { chain }
-        | Request::Sync { chain, .. }
+        | Request::StartSync { chain }
+        | Request::SyncStatus { chain }
         | Request::Post { chain, .. }
         | Request::Replies { chain, .. }
         | Request::Health { chain }
@@ -63,6 +65,8 @@ async fn chain_request(request: Request) -> Result<Response, BrowserError> {
     match &request {
         Request::Source => return Ok(Response::Source(health::described(store::source().await?))),
         Request::PublicationStatus => return publication_status().await,
+        Request::SyncStatus { .. } => return Ok(Response::Sync(chain::status())),
+        Request::StartSync { .. } => return Ok(Response::Sync(start_sync())),
         _locked => (),
     }
     let _lock: OperationLock = OperationLock::acquire().await?;
@@ -77,7 +81,6 @@ async fn chain_request(request: Request) -> Result<Response, BrowserError> {
         Request::Post { txid, .. } => Ok(Response::Post(cached_post(txid).await?)),
         Request::Replies { txid, .. } => Ok(Response::Replies(cached_replies(txid).await?)),
         Request::Feed { .. } => Ok(Response::Feed(feed().await?)),
-        Request::Sync { max_blocks, .. } => Ok(Response::Sync(slice(max_blocks).await?)),
         Request::Wallet { .. } => Ok(Response::Wallet(funding::wallet(&connected().await?).await?)),
         Request::Quote { content, .. } => Ok(Response::Publication(
             publish::quote(&connected().await?, &content).await?,
@@ -118,32 +121,36 @@ async fn cached_replies(txid: Txid) -> Result<Vec<Post>, BrowserError> {
     Ok(replies(&index, txid)?)
 }
 
-async fn slice(max_blocks: u64) -> Result<SyncProgress, BrowserError> {
+fn start_sync() -> SyncStatus {
+    let current = chain::status();
+    if !current.settled() {
+        return current;
+    }
+    let begun = chain::begin();
+    wasm_bindgen_futures::spawn_local(async move {
+        let outcome = run_sync().await;
+        chain::finish(outcome);
+    });
+    begun
+}
+
+async fn run_sync() -> Result<(), BrowserError> {
+    let _lock: OperationLock = OperationLock::acquire().await?;
     let source = connected().await?;
-    Ok(chain::sync(&source, max_blocks).await?.progress)
+    chain::sync(&source).await
 }
 
 async fn feed() -> Result<Feed, BrowserError> {
-    let connection = Source::connect(store::source().await?).await;
-    let refreshed = match connection {
-        Ok(source) => chain::sync(&source, SYNC_BLOCKS).await,
-        Err(error) => Err(error),
-    };
-    match refreshed {
-        Ok(refreshed) => {
-            chain_notice("Chain source connected. Confirmed records verified; recent-history catch-up is shown in the feed.");
-            Ok(project(&refreshed.index, refreshed.progress.complete_to_tip)?)
-        }
-        Err(error) => {
-            tracing::warn!(error = %error, "feed refresh failed; cached history shown");
-            chain_notice(&format!(
-                "Showing cached verified history; chain refresh failed: {error}"
-            ));
-            let Cached::Index(index) = chain::cached().await? else {
-                return Err(error);
-            };
-            Ok(project(&index, false)?)
-        }
+    let status = chain::status();
+    match chain::cached().await? {
+        Cached::Index(index) => Ok(project(&index, status.complete_to_tip)?),
+        Cached::Empty => Ok(Feed {
+            identities: BTreeMap::new(),
+            posts: Vec::new(),
+            start: status.start,
+            tip: status.tip,
+            complete_to_tip: false,
+        }),
     }
 }
 

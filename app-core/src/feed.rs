@@ -18,15 +18,49 @@ pub struct Feed {
     pub complete_to_tip: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SyncProgress {
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SyncPhase {
+    Idle,
+    Connecting,
+    Verifying,
+    Complete,
+    Failed(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncStatus {
+    pub run: u64,
+    pub phase: SyncPhase,
     pub start: u64,
+    pub from: u64,
     pub indexed_to: Option<u64>,
     pub tip: u64,
-    pub scanned: u64,
-    pub records: u64,
-    pub rolled_back: u64,
+    pub done: u64,
+    pub total: u64,
     pub complete_to_tip: bool,
+}
+
+impl SyncStatus {
+    pub fn idle() -> Self {
+        Self {
+            run: 0,
+            phase: SyncPhase::Idle,
+            start: 0,
+            from: 0,
+            indexed_to: None,
+            tip: 0,
+            done: 0,
+            total: 0,
+            complete_to_tip: false,
+        }
+    }
+
+    pub fn settled(&self) -> bool {
+        match self.phase {
+            SyncPhase::Idle | SyncPhase::Complete | SyncPhase::Failed(_) => true,
+            SyncPhase::Connecting | SyncPhase::Verifying => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
