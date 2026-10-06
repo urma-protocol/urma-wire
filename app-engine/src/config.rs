@@ -5,6 +5,23 @@ pub const NETWORK: Chain = Chain::LitecoinTestnet;
 
 pub const SYNC_BLOCKS: u64 = 100;
 
+pub const SYNC_RETRY_BASE_SECS: u64 = 5;
+
+pub const SYNC_RETRY_MAX_SECS: u64 = 60;
+
+pub const SYNC_RETRY_ATTEMPTS: u32 = 8;
+
+pub fn retry_delay_secs(attempt: u32) -> u64 {
+    let exponent = if attempt == 0 { 0 } else { attempt - 1 };
+    let doubled = 2u64
+        .checked_pow(exponent)
+        .and_then(|factor| SYNC_RETRY_BASE_SECS.checked_mul(factor));
+    match doubled {
+        Some(seconds) => seconds.min(SYNC_RETRY_MAX_SECS),
+        None => SYNC_RETRY_MAX_SECS,
+    }
+}
+
 pub const HISTORY_BLOCKS: u64 = 100;
 
 pub const FEE_RATE: NonZeroU64 = NonZeroU64::MIN;

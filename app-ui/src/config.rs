@@ -12,6 +12,8 @@ pub const PUBLICATION_POLL_MS: u32 = 2000;
 
 pub const SYNC_POLL_MS: u32 = 200;
 
+pub const TRANSPORT_POLL_MS: u32 = 3000;
+
 pub const AVATAR_PREVIEW_PIXELS: u32 = 128;
 
 pub const PROFILE_AVATAR_PIXELS: u32 = 72;

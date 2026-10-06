@@ -1,6 +1,6 @@
 use wire_app_core::feed::{SyncPhase, SyncStatus};
 use wire_app_ui::components::brand::{distance, pulse_at, Mark, Trace};
-use wire_app_ui::state::session::Synced;
+use wire_app_ui::state::Synced;
 
 fn close(a: (f64, f64), b: (f64, f64)) -> bool {
     distance(a, b) < 0.01
@@ -85,4 +85,59 @@ fn engine_status_maps_to_the_shown_state() {
     status.phase = SyncPhase::Failed("x".into());
     assert_eq!(Synced::shown(&status).label(), "Sync failed");
     assert_eq!(Synced::Verifying { done: 1, total: 2 }.label(), "");
+    status.phase = SyncPhase::Retrying {
+        attempt: 2,
+        seconds: 7,
+        reason: "peer gone".into(),
+    };
+    let retrying = Synced::shown(&status);
+    assert_eq!(retrying.label(), "Retrying in 7 s");
+    let wire_app_ui::state::Said::Something(trouble) = retrying.trouble() else {
+        panic!("a retry carries its last error");
+    };
+    assert!(trouble.contains("peer gone"));
+    let mark = Mark::of(&retrying);
+    assert!(mark.pulse_shown && !mark.healed);
+    assert_eq!(mark.fraction, 0.42);
+}
+
+#[test]
+fn transport_hints_describe_peers_and_sources() {
+    use wire_app_core::connection::{SourceKind, SourceStanding, SourceState, TransportStatus};
+    use wire_app_ui::components::brand::{peers_hint, sources_hint};
+    let status = TransportStatus {
+        peers: 3,
+        sources: vec![
+            SourceState {
+                label: "p2p light client".into(),
+                kind: SourceKind::Peers,
+                standing: SourceStanding::Ready,
+            },
+            SourceState {
+                label: "ssl://electrum.example:51002".into(),
+                kind: SourceKind::Electrum,
+                standing: SourceStanding::Ready,
+            },
+            SourceState {
+                label: "https://api.example".into(),
+                kind: SourceKind::Http,
+                standing: SourceStanding::Blocked { seconds: 23 },
+            },
+        ],
+    };
+    assert_eq!(status.remote_sources().len(), 2);
+    assert_eq!(status.ready_sources(), 1);
+    assert!(peers_hint(&status).starts_with("3 peers"));
+    let hint = sources_hint(&status);
+    assert!(hint.contains("ssl://electrum.example:51002 · Electrum · ready"));
+    assert!(hint.contains("https://api.example · HTTP API · cooling down 23 s"));
+    let cold = TransportStatus {
+        peers: 0,
+        sources: vec![SourceState {
+            label: "p2p light client".into(),
+            kind: SourceKind::Peers,
+            standing: SourceStanding::Cold,
+        }],
+    };
+    assert!(peers_hint(&cold).contains("warming up"));
 }

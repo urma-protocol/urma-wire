@@ -23,6 +23,11 @@ pub enum SyncPhase {
     Idle,
     Connecting,
     Verifying,
+    Retrying {
+        attempt: u32,
+        seconds: u64,
+        reason: String,
+    },
     Complete,
     Failed(String),
 }
@@ -58,7 +63,7 @@ impl SyncStatus {
     pub fn settled(&self) -> bool {
         match self.phase {
             SyncPhase::Idle | SyncPhase::Complete | SyncPhase::Failed(_) => true,
-            SyncPhase::Connecting | SyncPhase::Verifying => false,
+            SyncPhase::Connecting | SyncPhase::Verifying | SyncPhase::Retrying { .. } => false,
         }
     }
 }

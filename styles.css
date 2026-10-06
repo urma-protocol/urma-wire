@@ -41,7 +41,15 @@ button,a,input,textarea,summary { -webkit-tap-highlight-color:transparent; }
 .brand-sync { display:flex; align-items:baseline; justify-content:center; gap:6px; min-height:18px; font:11px/1.5 var(--font-mono); letter-spacing:.04em; color:var(--text-dim); }
 .brand-sync-count { font-size:13px; font-weight:600; color:var(--color-accent); font-variant-numeric:tabular-nums; }
 .brand-sync.healed { color:var(--color-success); }
-.brand-sync.failed { color:var(--color-warning); }
+.brand-sync.retrying { color:var(--color-warning); }
+.brand-sync.retrying .brand-sync-count { color:var(--color-warning); }
+.brand-sync.failed { color:var(--color-danger); }
+.brand-net { display:flex; justify-content:center; gap:14px; font:11px/1.4 var(--font-mono); letter-spacing:.04em; color:var(--text-dim); }
+.brand-net-item { display:inline-flex; align-items:center; gap:4px; cursor:help; font-variant-numeric:tabular-nums; }
+.brand-net-item svg { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.brand-net-item.live { color:var(--text-muted); }
+.brand-net-item.partial { color:var(--color-warning); }
+.brand-net-item.down { color:var(--color-danger); }
 .logo-text { font-size:31px; font-weight:650; letter-spacing:-.06em; margin-top:5px; }
 .header-nav { display:flex; flex-direction:column; gap:4px; margin-inline:-20px; }
 .nav-link { display:flex; align-items:center; gap:13px; padding:11px 34px; text-decoration:none; color:var(--text-muted); font-weight:550; box-shadow:inset 3px 0 0 transparent; transition:background-color var(--ease),color var(--ease),box-shadow var(--ease); }
@@ -381,6 +389,7 @@ input[type=radio],input[type=checkbox] { accent-color:var(--color-accent); margi
   .logo-text { font-size:26px; }
   .brand-sync { font-size:10px; gap:4px; }
   .brand-sync-count { font-size:11px; }
+  .brand-net { font-size:10px; gap:8px; }
   .network-switcher { width:180px; }
   .header-nav { position:fixed; inset:auto 0 0; margin-inline:0; flex-direction:row; justify-content:space-around; gap:0; padding:8px 8px calc(8px + env(safe-area-inset-bottom,0px)); background:#000; border-top:1px solid var(--border-color); }
   .nav-link { flex:1; flex-direction:column; gap:4px; font-size:11px; padding:7px; border-radius:var(--radius-control); box-shadow:none; }

@@ -1,4 +1,4 @@
-use crate::config::{EVIDENCE_UNAVAILABLE, PUBLICATION_POLL_MS, SYNC_POLL_MS};
+use crate::config::{EVIDENCE_UNAVAILABLE, PUBLICATION_POLL_MS, SYNC_POLL_MS, TRANSPORT_POLL_MS};
 use crate::data::chain;
 use crate::data::identity;
 use crate::data::preferences::{stored_autoload, stored_replies_shown};
@@ -9,6 +9,7 @@ use crate::data::topics;
 use crate::data::topics::Remembered;
 use crate::state::addressing::Speaking;
 use crate::state::said::Said;
+use crate::state::synced::Synced;
 use leptos::prelude::Get;
 use leptos::prelude::GetUntracked;
 use leptos::prelude::RwSignal;
@@ -20,11 +21,9 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use tracing::warn;
 use wire_app_core::composer::Photo;
-use wire_app_core::connection::{ConnectionHealth, Trouble};
+use wire_app_core::connection::{ConnectionHealth, TransportStatus, Trouble};
 use wire_app_core::errors::Fault;
-use wire_app_core::feed::{
-    conversations, following, Conversation, PublicIdentity, SyncPhase, SyncStatus,
-};
+use wire_app_core::feed::{conversations, following, Conversation, PublicIdentity, SyncPhase};
 use wire_app_core::model::{AuthorId, Chain, Post, WalletSummary};
 use wire_app_core::publication::{Addressed, Content, Pending, Publication};
 use wire_app_core::session::{IdentityStatus, Session};
@@ -58,6 +57,7 @@ pub struct AppState {
     pub pause_requested: RwSignal<bool>,
     pub publication_error: RwSignal<Said>,
     pub connection_health: RwSignal<Option<ConnectionHealth>>,
+    pub transport: RwSignal<Option<TransportStatus>>,
     pub connection_last_success_ms: RwSignal<Option<u64>>,
     pub is_checking_connection: RwSignal<bool>,
     pub speaking: RwSignal<Speaking>,
@@ -98,6 +98,7 @@ impl AppState {
             sync_feed(state, chain).await;
             load_pending(state).await;
         });
+        leptos::task::spawn_local(watch_transport(state));
         state
     }
 
@@ -133,6 +134,7 @@ impl AppState {
             pause_requested: RwSignal::new(false),
             publication_error: RwSignal::new(Said::Nothing),
             connection_health: RwSignal::new(None),
+            transport: RwSignal::new(None),
             connection_last_success_ms: RwSignal::new(None),
             is_checking_connection: RwSignal::new(false),
             speaking: RwSignal::new(Speaking::Freely),
@@ -521,7 +523,13 @@ async fn sync_feed(state: AppState, chain: Chain) {
             warn!(reason = %reason, "history sync failed; cached posts stand");
             state.synced.set(Synced::Failed(reason));
         }
-        Ok(SyncPhase::Idle | SyncPhase::Connecting | SyncPhase::Verifying | SyncPhase::Complete) => {
+        Ok(
+            SyncPhase::Idle
+            | SyncPhase::Connecting
+            | SyncPhase::Verifying
+            | SyncPhase::Retrying { .. }
+            | SyncPhase::Complete,
+        ) => {
             state.synced.set(Synced::Building);
             build_feed(state, chain).await;
         }
@@ -531,6 +539,20 @@ async fn sync_feed(state: AppState, chain: Chain) {
         }
     }
     state.is_loading_feed.set(false);
+}
+
+async fn watch_transport(state: AppState) {
+    loop {
+        let chain = state.active_chain.get_untracked();
+        match chain::transport(chain).await {
+            Ok(status) => state.transport.set(Some(status)),
+            Err(fault) => {
+                warn!(fault = %fault, "transport status unavailable");
+                state.transport.set(None);
+            }
+        }
+        gloo_timers::future::TimeoutFuture::new(TRANSPORT_POLL_MS).await;
+    }
 }
 
 async fn follow_sync(state: AppState, chain: Chain) -> Result<SyncPhase, Fault> {
@@ -592,58 +614,6 @@ pub fn signing_author(state: AppState) -> Signer {
     match status.session {
         Session::Unlocked(author) => Signer::Author(author),
         Session::Locked => Signer::Locked,
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Synced {
-    Unchecked,
-    Connecting,
-    Verifying { done: u64, total: u64 },
-    Building,
-    Indexed { complete: bool },
-    Failed(String),
-}
-
-impl Synced {
-    pub fn shown(status: &SyncStatus) -> Self {
-        match &status.phase {
-            SyncPhase::Idle => Synced::Unchecked,
-            SyncPhase::Connecting => Synced::Connecting,
-            SyncPhase::Verifying => Synced::Verifying {
-                done: status.done,
-                total: status.total,
-            },
-            SyncPhase::Complete => Synced::Indexed {
-                complete: status.complete_to_tip,
-            },
-            SyncPhase::Failed(reason) => Synced::Failed(reason.clone()),
-        }
-    }
-
-    pub fn label(&self) -> &'static str {
-        match self {
-            Synced::Unchecked => "",
-            Synced::Connecting => "Connecting…",
-            Synced::Verifying { .. } => "",
-            Synced::Building => "Building feed…",
-            Synced::Indexed { complete: true } => "Up to date",
-            Synced::Indexed { complete: false } => "History incomplete",
-            Synced::Failed(_reason) => "Sync failed",
-        }
-    }
-
-    pub fn trouble(&self) -> Said {
-        match self {
-            Synced::Failed(reason) => Said::Something(format!(
-                "Sync failed; displayed records are cached: {reason}"
-            )),
-            Synced::Unchecked => Said::Nothing,
-            Synced::Connecting => Said::Nothing,
-            Synced::Verifying { .. } => Said::Nothing,
-            Synced::Building => Said::Nothing,
-            Synced::Indexed { .. } => Said::Nothing,
-        }
     }
 }
 

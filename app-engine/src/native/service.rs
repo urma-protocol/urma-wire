@@ -107,10 +107,6 @@ impl Service {
         locked_link(&self.link)
     }
 
-    pub(super) fn link_handle(&self) -> Arc<Mutex<Link>> {
-        self.link.clone()
-    }
-
     pub(super) fn sync_status(&self) -> MutexGuard<'_, SyncStatus> {
         locked_sync(&self.sync)
     }
@@ -406,10 +402,6 @@ pub(super) fn drop_link(link: &Mutex<Link>, failed: &Arc<Node>) {
         tracing::warn!("chain link dropped after a transport failure; reconnecting on next use");
         *link = Link::Closed;
     }
-}
-
-pub(super) fn transport_error(error: &NativeError) -> bool {
-    transport_failed(error)
 }
 
 fn opened(node: &Node) {

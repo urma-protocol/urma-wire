@@ -1,5 +1,5 @@
-use crate::state::session::Synced;
 use crate::state::AppState;
+use crate::state::Synced;
 use leptos::prelude::expect_context;
 use leptos::prelude::ClassAttribute;
 use leptos::prelude::CustomAttribute;
@@ -10,6 +10,7 @@ use leptos::prelude::IntoAny;
 use leptos::prelude::IntoView;
 use leptos::prelude::Memo;
 use leptos::prelude::{component, view};
+use wire_app_core::connection::{SourceKind, SourceStanding, TransportStatus};
 
 pub struct Trace;
 
@@ -89,7 +90,7 @@ impl Mark {
         match synced {
             Synced::Unchecked => Self { fraction: 0.0, pulse_shown: false, healed: false },
             Synced::Connecting => Self { fraction: 0.0, pulse_shown: true, healed: false },
-            Synced::Verifying { done, total, .. } => Self {
+            Synced::Verifying { done, total } | Synced::Retrying { done, total, .. } => Self {
                 fraction: if *total == 0 { 1.0 } else { (whole(*done) / whole(*total)).min(1.0) },
                 pulse_shown: true,
                 healed: false,
@@ -176,16 +177,17 @@ pub fn BrandMark() -> impl IntoView {
 pub fn SyncStatus() -> impl IntoView {
     let state = expect_context::<AppState>();
     let tone = move || match state.synced.get() {
-        Synced::Indexed { complete: true, .. } => "brand-sync healed",
+        Synced::Indexed { complete: true } => "brand-sync healed",
+        Synced::Retrying { .. } => "brand-sync retrying",
         Synced::Failed(_reason) => "brand-sync failed",
         Synced::Unchecked
         | Synced::Connecting
         | Synced::Verifying { .. }
         | Synced::Building
-        | Synced::Indexed { complete: false, .. } => "brand-sync",
+        | Synced::Indexed { complete: false } => "brand-sync",
     };
     let count = move || match state.synced.get() {
-        Synced::Verifying { done, total, .. } => {
+        Synced::Verifying { done, total } | Synced::Retrying { done, total, .. } => {
             view! { <span class="brand-sync-count">{done}"/"{total}</span> }.into_any()
         }
         Synced::Unchecked
@@ -194,10 +196,83 @@ pub fn SyncStatus() -> impl IntoView {
         | Synced::Indexed { .. }
         | Synced::Failed(_) => ().into_any(),
     };
+    let hint = move || match state.synced.get() {
+        Synced::Retrying { attempt, reason, .. } => format!("Retry {attempt}: {reason}"),
+        Synced::Failed(reason) => reason,
+        Synced::Unchecked
+        | Synced::Connecting
+        | Synced::Verifying { .. }
+        | Synced::Building
+        | Synced::Indexed { .. } => String::new(),
+    };
     view! {
-        <div class=tone role="status">
+        <div class=tone role="status" title=hint>
             {count}
             <span class="brand-sync-label">{move || state.synced.get().label()}</span>
         </div>
+    }
+}
+
+pub fn peers_hint(status: &TransportStatus) -> String {
+    let warming = status
+        .sources
+        .iter()
+        .any(|source| source.kind == SourceKind::Peers && source.standing == SourceStanding::Cold);
+    match (status.peers, warming) {
+        (0, true) => "Light client warming up: no Litecoin testnet peers yet".to_owned(),
+        (0, false) => "No peers: the light client has no Litecoin testnet node to ask for blocks".to_owned(),
+        (peers, _warming) => format!(
+            "{peers} peers: Litecoin testnet nodes serving blocks to the built-in light client; headers and proof of work are verified locally"
+        ),
+    }
+}
+
+pub fn sources_hint(status: &TransportStatus) -> String {
+    let mut lines = vec!["Public sources, asked when peers cannot serve a block:".to_owned()];
+    for source in status.remote_sources() {
+        let kind = match source.kind {
+            SourceKind::LocalNode => "local node",
+            SourceKind::Electrum => "Electrum",
+            SourceKind::Http => "HTTP API",
+            SourceKind::Peers => "peers",
+        };
+        let standing = match &source.standing {
+            SourceStanding::Ready => "ready".to_owned(),
+            SourceStanding::Cold => "cold".to_owned(),
+            SourceStanding::Blocked { seconds } => format!("cooling down {seconds} s"),
+        };
+        lines.push(format!("{} · {kind} · {standing}", source.label));
+    }
+    lines.join("\n")
+}
+
+fn net_tone(live: bool, partial: bool) -> &'static str {
+    match (live, partial) {
+        (false, _partial) => "brand-net-item down",
+        (true, true) => "brand-net-item partial",
+        (true, false) => "brand-net-item live",
+    }
+}
+
+#[component]
+pub fn Transport() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    view! {
+        {move || state.transport.get().map(|status| {
+            let ready = status.ready_sources();
+            let total = status.remote_sources().len();
+            view! {
+                <div class="brand-net">
+                    <span class=net_tone(status.peers > 0, false) title=peers_hint(&status)>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>
+                        <span>{status.peers}</span>
+                    </span>
+                    <span class=net_tone(ready > 0, ready < total) title=sources_hint(&status)>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>
+                        <span>{ready}"/"{total}</span>
+                    </span>
+                </div>
+            }
+        })}
     }
 }

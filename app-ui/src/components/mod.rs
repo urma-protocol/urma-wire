@@ -18,6 +18,7 @@ pub mod reveal;
 pub use avatar_view::AvatarView;
 pub use brand::BrandMark;
 pub use brand::SyncStatus;
+pub use brand::Transport;
 pub use compact_reply::CompactReply;
 pub use compose_box::ComposeBox;
 pub use conversation::ConversationCard;

@@ -356,8 +356,12 @@ The sidebar logo is the sync gauge. The pulse travelling the U channel sits at
 so each block of a hundred advances it one hundredth; the fracture cuts seal as
 the pulse passes them and the red break point turns green once the index is
 complete to the tip. Under the logo a short status reads `X/Y` while verifying,
-then `Up to date`, `History incomplete` or `Sync failed`; the feed itself carries
-no sync text. The eagle lives in
+`Retrying in N s` while the engine backs off after a source failure (5 s doubling
+to 60 s, eight attempts, progress kept), then `Up to date`, `History incomplete`
+or `Sync failed`; the feed itself carries no sync text. Below it a person icon
+counts the light client's connected peers and a globe counts ready public sources
+out of the configured ones; hovering either lists what each one is and whether it
+is ready, cold or cooling down. The eagle lives in
 `assets/circuit-eagle.svg`; `assets/urma-wire.svg` remains the self-contained
 favicon with its own timed animation.
 

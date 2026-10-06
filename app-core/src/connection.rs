@@ -69,6 +69,50 @@ impl ConnectionHealth {
     }
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SourceKind {
+    LocalNode,
+    Peers,
+    Electrum,
+    Http,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SourceStanding {
+    Ready,
+    Cold,
+    Blocked { seconds: u64 },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourceState {
+    pub label: String,
+    pub kind: SourceKind,
+    pub standing: SourceStanding,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TransportStatus {
+    pub peers: u64,
+    pub sources: Vec<SourceState>,
+}
+
+impl TransportStatus {
+    pub fn remote_sources(&self) -> Vec<&SourceState> {
+        self.sources
+            .iter()
+            .filter(|source| source.kind != SourceKind::Peers)
+            .collect()
+    }
+
+    pub fn ready_sources(&self) -> usize {
+        self.remote_sources()
+            .iter()
+            .filter(|source| source.standing == SourceStanding::Ready)
+            .count()
+    }
+}
+
 pub fn safe_endpoint(raw: &str) -> String {
     let Some((scheme, rest)) = raw.split_once("://") else {
         return HIDDEN_ENDPOINT.into();

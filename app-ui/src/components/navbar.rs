@@ -1,5 +1,6 @@
 use crate::components::BrandMark;
 use crate::components::SyncStatus;
+use crate::components::Transport;
 use leptos::prelude::AriaAttributes;
 use leptos::prelude::ClassAttribute;
 use leptos::prelude::CustomAttribute;
@@ -21,6 +22,7 @@ pub fn Navbar() -> impl IntoView {
                     <span class="logo-text">"Wire"</span>
                 </a>
                 <SyncStatus />
+                <Transport />
             </div>
             <nav class="header-nav" aria-label="Main navigation">
                 <a href="/" class=move || if location.pathname.get() == "/" { "nav-link active" } else { "nav-link" }>

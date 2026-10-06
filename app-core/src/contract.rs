@@ -1,4 +1,4 @@
-use crate::connection::{ConnectionHealth, SourceChoice, SourceStatus};
+use crate::connection::{ConnectionHealth, SourceChoice, SourceStatus, TransportStatus};
 use crate::errors::Fault;
 use crate::feed::{Feed, Lookup, SyncStatus};
 use crate::markdown::FetchedImage;
@@ -20,6 +20,7 @@ pub enum Request {
     Post { chain: Chain, txid: Txid },
     Replies { chain: Chain, txid: Txid },
     Health { chain: Chain },
+    Transport { chain: Chain },
     Source,
     AdoptSource(SourceChoice),
     Quote { chain: Chain, content: Content },
@@ -43,6 +44,7 @@ impl Request {
             Request::Post { .. } => "post",
             Request::Replies { .. } => "replies",
             Request::Health { .. } => "connection health",
+            Request::Transport { .. } => "transport status",
             Request::Source => "chain source",
             Request::AdoptSource(_choice) => "chain source change",
             Request::Quote { .. } => "publication quote",
@@ -65,6 +67,7 @@ pub enum Response {
     Post(Lookup),
     Replies(Vec<Post>),
     Health(ConnectionHealth),
+    Transport(TransportStatus),
     Source(SourceStatus),
     SourceAdopted(SourceStatus),
     Publication(Publication),
@@ -85,6 +88,7 @@ impl Response {
             Response::Post(_lookup) => "post",
             Response::Replies(_replies) => "replies",
             Response::Health(_health) => "connection health",
+            Response::Transport(_status) => "transport status",
             Response::Source(_status) => "chain source",
             Response::SourceAdopted(_status) => "chain source adopted",
             Response::Publication(_publication) => "publication",

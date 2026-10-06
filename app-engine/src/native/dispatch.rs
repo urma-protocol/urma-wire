@@ -47,6 +47,10 @@ impl Service {
                 served(chain)?;
                 Ok(Response::Health(self.connection_health()?))
             }
+            Request::Transport { chain } => {
+                served(chain)?;
+                Ok(Response::Transport(self.transport()?))
+            }
             Request::Quote { chain, content } => {
                 served(chain)?;
                 Ok(Response::Publication(self.quote(&content)?))

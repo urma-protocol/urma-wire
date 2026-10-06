@@ -37,14 +37,20 @@ pub fn begin() -> SyncStatus {
     status()
 }
 
-pub fn finish(outcome: Result<(), BrowserError>) {
+pub fn complete() {
+    update(|status| status.phase = SyncPhase::Complete);
+}
+
+pub fn fail(reason: String) {
+    update(|status| status.phase = SyncPhase::Failed(reason));
+}
+
+pub fn retrying(attempt: u32, seconds: u64, reason: &str) {
     update(|status| {
-        status.phase = match outcome {
-            Ok(()) => SyncPhase::Complete,
-            Err(error) => {
-                tracing::warn!(error = %error, "history sync stopped");
-                SyncPhase::Failed(error.to_string())
-            }
+        status.phase = SyncPhase::Retrying {
+            attempt,
+            seconds,
+            reason: reason.to_owned(),
         }
     });
 }

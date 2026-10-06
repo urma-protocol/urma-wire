@@ -5,22 +5,27 @@ use crate::browser::publish::{self, Planned};
 use crate::browser::session;
 use crate::browser::source::Source;
 use crate::browser::store::{self, OperationLock};
-use crate::config::SOURCE_KEY;
+use crate::config::{retry_delay_secs, SOURCE_KEY, SYNC_RETRY_ATTEMPTS};
 use crate::errors::BrowserError;
 use crate::projection::{lookup, project, replies};
 use std::collections::BTreeMap;
 use wasm_bindgen::prelude::wasm_bindgen;
-use wire_app_core::connection::SourceChoice;
+use wasm_bindgen::JsValue;
+use wire_app_core::connection::{
+    safe_endpoint, SourceChoice, SourceKind, SourceStanding, SourceState, TransportStatus,
+};
 use wire_app_core::contract::{Request, Response};
 use wire_app_core::feed::{Feed, Lookup, SyncStatus};
 use wire_app_core::model::{Chain, Post, Txid};
 use wire_app_core::publication::Pending;
 
-#[wasm_bindgen(
-    inline_js = "export function chain_notice(message) { window.dispatchEvent(new CustomEvent('urma:chain-status', {detail: message})); }"
-)]
+#[wasm_bindgen(inline_js = r#"
+export function chain_notice(message) { window.dispatchEvent(new CustomEvent('urma:chain-status', {detail: message})); }
+export function sleep_ms(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+"#)]
 extern "C" {
     fn chain_notice(message: &str);
+    async fn sleep_ms(ms: u32) -> JsValue;
 }
 
 pub async fn handle(request: Request) -> Result<Response, BrowserError> {
@@ -51,6 +56,7 @@ fn served(request: &Request) -> Result<(), BrowserError> {
         | Request::Post { chain, .. }
         | Request::Replies { chain, .. }
         | Request::Health { chain }
+        | Request::Transport { chain }
         | Request::Quote { chain, .. } => *chain,
         _unchained => return Ok(()),
     };
@@ -67,6 +73,7 @@ async fn chain_request(request: Request) -> Result<Response, BrowserError> {
         Request::PublicationStatus => return publication_status().await,
         Request::SyncStatus { .. } => return Ok(Response::Sync(chain::status())),
         Request::StartSync { .. } => return Ok(Response::Sync(start_sync())),
+        Request::Transport { .. } => return Ok(Response::Transport(transport().await?)),
         _locked => (),
     }
     let _lock: OperationLock = OperationLock::acquire().await?;
@@ -127,17 +134,50 @@ fn start_sync() -> SyncStatus {
         return current;
     }
     let begun = chain::begin();
-    wasm_bindgen_futures::spawn_local(async move {
-        let outcome = run_sync().await;
-        chain::finish(outcome);
-    });
+    wasm_bindgen_futures::spawn_local(run_sync());
     begun
 }
 
-async fn run_sync() -> Result<(), BrowserError> {
+async fn run_sync() {
+    let mut attempt: u32 = 0;
+    loop {
+        match catch_up().await {
+            Ok(()) => return chain::complete(),
+            Err(error) => {
+                attempt += 1;
+                if attempt > SYNC_RETRY_ATTEMPTS {
+                    tracing::warn!(error = %error, attempt, "history sync gave up");
+                    return chain::fail(format!(
+                        "Sync gave up after {SYNC_RETRY_ATTEMPTS} retries: {error}"
+                    ));
+                }
+                tracing::warn!(error = %error, attempt, "history sync failed; retrying");
+                let reason = error.to_string();
+                for seconds in (1..=retry_delay_secs(attempt)).rev() {
+                    chain::retrying(attempt, seconds, &reason);
+                    sleep_ms(1000).await;
+                }
+            }
+        }
+    }
+}
+
+async fn catch_up() -> Result<(), BrowserError> {
     let _lock: OperationLock = OperationLock::acquire().await?;
     let source = connected().await?;
     chain::sync(&source).await
+}
+
+async fn transport() -> Result<TransportStatus, BrowserError> {
+    let url = store::source().await?;
+    Ok(TransportStatus {
+        peers: 0,
+        sources: vec![SourceState {
+            label: safe_endpoint(&url),
+            kind: SourceKind::Http,
+            standing: SourceStanding::Ready,
+        }],
+    })
 }
 
 async fn feed() -> Result<Feed, BrowserError> {

@@ -1,10 +1,13 @@
-use crate::config::{HISTORY_BLOCKS, NETWORK, START_FILE_BYTES, SYNC_BLOCKS};
+use crate::config::{
+    retry_delay_secs, HISTORY_BLOCKS, NETWORK, START_FILE_BYTES, SYNC_BLOCKS, SYNC_RETRY_ATTEMPTS,
+};
 use crate::errors::NativeError;
 use crate::native::reader::NodeReader;
-use crate::native::service::{drop_link, locked_sync, transport_error, Link, Service};
+use crate::native::service::{locked_sync, Service};
 use crate::projection::{lookup, project, replies};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use urma_runtime::node::Node;
 use urma_wire::index::{self, Index};
 use wire_app_core::feed::{Feed, Lookup, SyncPhase, SyncStatus};
@@ -47,7 +50,6 @@ impl Service {
         drop(status);
         let worker = SyncWorker {
             node,
-            link: self.link_handle(),
             path: self.index_path(),
             start,
             status: self.sync.clone(),
@@ -94,54 +96,78 @@ impl Service {
 
 struct SyncWorker {
     node: Arc<Node>,
-    link: Arc<Mutex<Link>>,
     path: PathBuf,
     start: u64,
     status: Arc<Mutex<SyncStatus>>,
 }
 
+enum Batch {
+    Done,
+    More,
+}
+
 impl SyncWorker {
     fn run(self) {
+        let mut attempt: u32 = 0;
         loop {
-            let reader = NodeReader(&self.node);
-            let outcome = index::sync(&reader, &self.path, self.start, SYNC_BLOCKS, |height, tip| {
-                let mut status = locked_sync(&self.status);
-                status.from = match status.phase {
-                    SyncPhase::Verifying => status.from,
-                    SyncPhase::Idle
-                    | SyncPhase::Connecting
-                    | SyncPhase::Complete
-                    | SyncPhase::Failed(_) => height,
-                };
-                status.phase = SyncPhase::Verifying;
-                status.tip = tip;
-                status.indexed_to = Some(height);
-                status.done = height - status.from + 1;
-                status.total = tip.max(height) - status.from + 1;
-            });
-            match outcome {
-                Ok((report, index)) => {
-                    let mut status = locked_sync(&self.status);
-                    status.tip = report.tip;
-                    status.indexed_to = index.blocks.last().map(|block| block.height);
-                    status.complete_to_tip = report.complete_to_tip;
-                    if report.complete_to_tip || report.scanned == 0 {
-                        status.done = status.total;
-                        status.phase = SyncPhase::Complete;
-                        tracing::info!(tip = report.tip, records = report.records, "history sync complete");
+            match self.batch() {
+                Ok(Batch::Done) => return,
+                Ok(Batch::More) => attempt = 0,
+                Err(error) => {
+                    attempt += 1;
+                    if attempt > SYNC_RETRY_ATTEMPTS {
+                        tracing::warn!(error = %error, attempt, "history sync gave up");
+                        locked_sync(&self.status).phase = SyncPhase::Failed(format!(
+                            "Sync gave up after {SYNC_RETRY_ATTEMPTS} retries: {error}"
+                        ));
                         return;
                     }
-                }
-                Err(error) => {
-                    let error = NativeError::from(error);
-                    tracing::warn!(error = %error, "history sync stopped");
-                    if transport_error(&error) {
-                        drop_link(&self.link, &self.node);
-                    }
-                    locked_sync(&self.status).phase = SyncPhase::Failed(error.to_string());
-                    return;
+                    tracing::warn!(error = %error, attempt, "history sync batch failed; retrying");
+                    self.wait(attempt, error.to_string());
                 }
             }
+        }
+    }
+
+    fn batch(&self) -> Result<Batch, NativeError> {
+        let reader = NodeReader(&self.node);
+        let (report, index) = index::sync(&reader, &self.path, self.start, SYNC_BLOCKS, |height, tip| {
+            let mut status = locked_sync(&self.status);
+            status.from = match status.phase {
+                SyncPhase::Verifying => status.from,
+                SyncPhase::Idle
+                | SyncPhase::Connecting
+                | SyncPhase::Retrying { .. }
+                | SyncPhase::Complete
+                | SyncPhase::Failed(_) => height,
+            };
+            status.phase = SyncPhase::Verifying;
+            status.tip = tip;
+            status.indexed_to = Some(height);
+            status.done = height - status.from + 1;
+            status.total = tip.max(height) - status.from + 1;
+        })?;
+        let mut status = locked_sync(&self.status);
+        status.tip = report.tip;
+        status.indexed_to = index.blocks.last().map(|block| block.height);
+        status.complete_to_tip = report.complete_to_tip;
+        if report.complete_to_tip || report.scanned == 0 {
+            status.done = status.total;
+            status.phase = SyncPhase::Complete;
+            tracing::info!(tip = report.tip, records = report.records, "history sync complete");
+            return Ok(Batch::Done);
+        }
+        Ok(Batch::More)
+    }
+
+    fn wait(&self, attempt: u32, reason: String) {
+        for seconds in (1..=retry_delay_secs(attempt)).rev() {
+            locked_sync(&self.status).phase = SyncPhase::Retrying {
+                attempt,
+                seconds,
+                reason: reason.clone(),
+            };
+            std::thread::sleep(Duration::from_secs(1));
         }
     }
 }

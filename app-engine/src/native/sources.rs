@@ -2,9 +2,37 @@ use crate::config::{NETWORK, SOURCE_FILE};
 use crate::errors::NativeError;
 use crate::native::service::Service;
 use urma_runtime::endpoints;
-use wire_app_core::connection::{safe_endpoint, SourceChoice, SourceStatus};
+use urma_runtime::light::LightSync;
+use urma_runtime::transport::{Evidence, Standing};
+use wire_app_core::connection::{
+    safe_endpoint, SourceChoice, SourceKind, SourceStanding, SourceState, SourceStatus,
+    TransportStatus,
+};
 
 impl Service {
+    pub fn transport(&self) -> Result<TransportStatus, NativeError> {
+        let node = self.node()?;
+        let light = node.light_client_progress();
+        let peers = match light {
+            LightSync::Running(progress) => u64::try_from(progress.peers_connected)?,
+            LightSync::Cold(_progress) => 0,
+            LightSync::Absent => 0,
+        };
+        let sources = node
+            .standings()
+            .into_iter()
+            .map(|standing| {
+                let kind = kind_of(&standing);
+                SourceState {
+                    label: shown(&standing.label),
+                    standing: standing_of(kind, &standing, light),
+                    kind,
+                }
+            })
+            .collect();
+        Ok(TransportStatus { peers, sources })
+    }
+
     pub fn source_status(&self) -> SourceStatus {
         let settings = self.settings().clone();
         let endpoints = match &settings.source {
@@ -64,5 +92,36 @@ fn shown(label: &str) -> String {
     match label.contains("://") {
         true => safe_endpoint(label),
         false => label.to_owned(),
+    }
+}
+
+fn kind_of(standing: &Standing) -> SourceKind {
+    match standing.evidence {
+        Evidence::LocalValidatingNode => SourceKind::LocalNode,
+        Evidence::LightClientInclusion => SourceKind::Peers,
+        Evidence::PublicProviderObservation => {
+            match standing.label.starts_with("ssl://") || standing.label.starts_with("tcp://") {
+                true => SourceKind::Electrum,
+                false => SourceKind::Http,
+            }
+        }
+    }
+}
+
+fn standing_of(kind: SourceKind, standing: &Standing, light: LightSync) -> SourceStanding {
+    match kind {
+        SourceKind::Peers => match light {
+            LightSync::Running(_progress) => SourceStanding::Ready,
+            LightSync::Cold(_progress) => SourceStanding::Cold,
+            LightSync::Absent => SourceStanding::Cold,
+        },
+        SourceKind::LocalNode | SourceKind::Electrum | SourceKind::Http => {
+            match standing.blocked_for.is_zero() {
+                true => SourceStanding::Ready,
+                false => SourceStanding::Blocked {
+                    seconds: standing.blocked_for.as_secs() + 1,
+                },
+            }
+        }
     }
 }
