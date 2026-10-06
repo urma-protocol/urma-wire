@@ -1,4 +1,5 @@
 pub mod avatar_view;
+pub mod brand;
 pub mod budget;
 pub mod compact_reply;
 pub mod compose_box;
@@ -15,6 +16,8 @@ pub mod publication_panel;
 pub mod reveal;
 
 pub use avatar_view::AvatarView;
+pub use brand::BrandMark;
+pub use brand::SyncStatus;
 pub use compact_reply::CompactReply;
 pub use compose_box::ComposeBox;
 pub use conversation::ConversationCard;

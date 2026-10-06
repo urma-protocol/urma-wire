@@ -647,28 +647,17 @@ pub enum Synced {
 }
 
 impl Synced {
-    pub fn summary(&self) -> String {
+    pub fn label(&self) -> &'static str {
         match self {
-            Synced::Unchecked => String::new(),
-            Synced::Connecting => "Connecting to chain source…".to_owned(),
-            Synced::Verifying {
-                done,
-                total,
-                height,
-                tip,
-            } => format!("Verifying blocks: {done}/{total} · at #{height} · tip #{tip}"),
-            Synced::Building => "Building feed…".to_owned(),
+            Synced::Unchecked => "",
+            Synced::Connecting => "Connecting…",
+            Synced::Verifying { .. } => "",
+            Synced::Building => "Building feed…",
+            Synced::Indexed { complete: true, .. } => "Up to date",
             Synced::Indexed {
-                start,
-                tip,
-                complete: true,
-            } => format!("Blocks {start}–{tip} · up to date"),
-            Synced::Indexed {
-                start,
-                tip,
-                complete: false,
-            } => format!("Blocks {start}–{tip} · more history remains"),
-            Synced::Failed(_) => "Sync failed · cached records shown".to_owned(),
+                complete: false, ..
+            } => "History incomplete",
+            Synced::Failed(_reason) => "Sync failed",
         }
     }
 

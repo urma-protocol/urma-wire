@@ -349,11 +349,15 @@ The [UI manifest](app-ui/Cargo.toml) records the Thaw and Leptos dependencies.
 The network selector uses Thaw Menu;
 the four choices remain visible while only Litecoin Testnet is enabled.
 
-The sidebar logo plays on load and periodically thereafter. Future UI
-events can replay it with `window.dispatchEvent(new Event("urma:logo-animate"))`.
-Each replay uses the trace animation and rests on the green mark. Reduced-motion
-preferences disable the animation. The timer and
-event listener are removed when the navigation component unmounts.
+The sidebar logo is the sync gauge. The pulse travelling the U channel sits at
+`verified / total` of the trace's arc length (`app-ui/src/components/brand.rs`),
+so each block of a hundred advances it one hundredth; the fracture cuts seal as
+the pulse passes them and the red break point turns green once the index is
+complete to the tip. Under the logo a short status reads `X/Y` while verifying,
+then `Up to date`, `History incomplete` or `Sync failed`; the feed itself carries
+no sync text. The eagle lives in
+`assets/circuit-eagle.svg`; `assets/urma-wire.svg` remains the self-contained
+favicon with its own timed animation.
 
 ```sh
 cargo test --workspace --locked

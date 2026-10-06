@@ -1,3 +1,5 @@
+use crate::components::BrandMark;
+use crate::components::SyncStatus;
 use leptos::prelude::AriaAttributes;
 use leptos::prelude::ClassAttribute;
 use leptos::prelude::CustomAttribute;
@@ -7,46 +9,19 @@ use leptos::prelude::IntoView;
 use leptos::prelude::{component, view};
 use leptos_router::hooks::use_location;
 use thaw::{Menu, MenuItem, MenuPosition, MenuTrigger};
-#[cfg(target_arch = "wasm32")]
-use leptos::prelude::{on_cleanup, Effect};
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen(inline_js = r#"
-let timer, replay, sequence = 0;
-export function stop_logo_animation() {
-    clearInterval(timer);
-    if (replay) window.removeEventListener("urma:logo-animate", replay);
-}
-export function start_logo_animation() {
-    stop_logo_animation();
-    replay = () => {
-        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-        const logo = document.getElementById("wire-brand-mark");
-        if (logo) logo.src = "/assets/urma-wire.svg?play=" + (++sequence);
-    };
-    window.addEventListener("urma:logo-animate", replay);
-    timer = setInterval(replay, 300000);
-}
-"#)]
-extern "C" {
-    fn start_logo_animation();
-    fn stop_logo_animation();
-}
 
 #[component]
 pub fn Navbar() -> impl IntoView {
-    #[cfg(target_arch = "wasm32")]
-    {
-        Effect::new(move |_ran_before: Option<()>| start_logo_animation());
-        on_cleanup(stop_logo_animation);
-    }
     let location = use_location();
     view! {
         <header class="app-header">
-            <a href="/" class="brand-logo" aria-label="URMA Wire home">
-                <img id="wire-brand-mark" class="brand-mark" src="/assets/urma-wire.svg" alt="" width="64" height="64" />
-                <span class="logo-text">"Wire"</span>
-            </a>
+            <div class="brand">
+                <a href="/" class="brand-logo" aria-label="URMA Wire home">
+                    <BrandMark />
+                    <span class="logo-text">"Wire"</span>
+                </a>
+                <SyncStatus />
+            </div>
             <nav class="header-nav" aria-label="Main navigation">
                 <a href="/" class=move || if location.pathname.get() == "/" { "nav-link active" } else { "nav-link" }>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h4"/></svg><span>"Feed"</span>

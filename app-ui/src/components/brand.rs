@@ -1,0 +1,203 @@
+use crate::state::session::Synced;
+use crate::state::AppState;
+use leptos::prelude::expect_context;
+use leptos::prelude::ClassAttribute;
+use leptos::prelude::CustomAttribute;
+use leptos::prelude::ElementChild;
+use leptos::prelude::Get;
+use leptos::prelude::GlobalAttributes;
+use leptos::prelude::IntoAny;
+use leptos::prelude::IntoView;
+use leptos::prelude::Memo;
+use leptos::prelude::{component, view};
+
+pub struct Trace;
+
+impl Trace {
+    pub const ENTRY: (f64, f64) = (54.0, 60.0);
+    pub const EXIT: (f64, f64) = (458.0, 60.0);
+    pub const BOTTOM: (f64, f64) = (256.0, 386.0);
+    const CURVE_STEPS: u8 = 48;
+    const LEFT_ARC: [(f64, f64); 4] = [(120.0, 277.0), (120.0, 343.0), (175.0, 386.0), Self::BOTTOM];
+    const RIGHT_ARC: [(f64, f64); 4] = [Self::BOTTOM, (337.0, 386.0), (392.0, 343.0), (392.0, 277.0)];
+    pub const CUTS: [(f64, &'static str); 4] = [
+        (226.0, "M209 406L218 396 215 390 227 380 223 373 244 359"),
+        (245.0, "M246 357L242 370 248 381 243 393 247 412"),
+        (267.0, "M266 357L270 370 264 381 269 393 265 412"),
+        (286.0, "M303 406L294 396 297 390 285 380 289 373 268 359"),
+    ];
+    const BREAK_STAR: &'static str = "256,345 259,350 263,348 261,352 266,355 261,358 263,362 259,360 256,365 253,360 249,362 251,358 246,355 251,352 249,348 253,350";
+
+    fn points() -> Vec<(f64, f64)> {
+        let mut points = vec![Self::ENTRY, (120.0, 60.0), (120.0, 277.0)];
+        for arc in [Self::LEFT_ARC, Self::RIGHT_ARC] {
+            for step in 1..=Self::CURVE_STEPS {
+                points.push(cubic(arc, f64::from(step) / f64::from(Self::CURVE_STEPS)));
+            }
+        }
+        points.push((392.0, 60.0));
+        points.push(Self::EXIT);
+        points
+    }
+}
+
+fn cubic(arc: [(f64, f64); 4], t: f64) -> (f64, f64) {
+    let u = 1.0 - t;
+    let weights = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
+    arc.iter()
+        .zip(weights)
+        .fold((0.0, 0.0), |(x, y), (point, w)| (x + w * point.0, y + w * point.1))
+}
+
+pub fn distance(a: (f64, f64), b: (f64, f64)) -> f64 {
+    ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt()
+}
+
+pub fn pulse_at(fraction: f64) -> (f64, f64) {
+    let points = Trace::points();
+    let total: f64 = points.windows(2).map(|w| distance(w[0], w[1])).sum();
+    let mut remaining = fraction.clamp(0.0, 1.0) * total;
+    for pair in points.windows(2) {
+        let length = distance(pair[0], pair[1]);
+        if remaining <= length {
+            let t = if length == 0.0 { 0.0 } else { remaining / length };
+            return (
+                pair[0].0 + (pair[1].0 - pair[0].0) * t,
+                pair[0].1 + (pair[1].1 - pair[0].1) * t,
+            );
+        }
+        remaining -= length;
+    }
+    Trace::EXIT
+}
+
+fn whole(n: u64) -> f64 {
+    n.to_be_bytes()
+        .iter()
+        .fold(0.0, |acc, byte| acc * 256.0 + f64::from(*byte))
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Mark {
+    pub fraction: f64,
+    pub pulse_shown: bool,
+    pub healed: bool,
+}
+
+impl Mark {
+    pub fn of(synced: &Synced) -> Self {
+        match synced {
+            Synced::Unchecked => Self { fraction: 0.0, pulse_shown: false, healed: false },
+            Synced::Connecting => Self { fraction: 0.0, pulse_shown: true, healed: false },
+            Synced::Verifying { done, total, .. } => Self {
+                fraction: if *total == 0 { 1.0 } else { (whole(*done) / whole(*total)).min(1.0) },
+                pulse_shown: true,
+                healed: false,
+            },
+            Synced::Building => Self { fraction: 1.0, pulse_shown: true, healed: false },
+            Synced::Indexed { complete, .. } => Self { fraction: 1.0, pulse_shown: !complete, healed: *complete },
+            Synced::Failed(_reason) => Self { fraction: 0.0, pulse_shown: false, healed: false },
+        }
+    }
+
+    pub fn pulse(&self) -> (f64, f64) {
+        pulse_at(self.fraction)
+    }
+
+    pub fn cut_open(&self, seal_x: f64) -> bool {
+        !self.healed && self.pulse().0 < seal_x
+    }
+}
+
+#[component]
+pub fn BrandMark() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let mark = Memo::new(move |_previous: Option<&Mark>| Mark::of(&state.synced.get()));
+    let pulse = move || mark.get().pulse();
+    view! {
+        <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
+            <defs>
+                <mask id="brand-u-nodes">
+                    <rect width="512" height="512" fill="white"/>
+                    <g fill="black">
+                        <circle cx="132" cy="136" r="4.5"/>
+                        <circle cx="131" cy="169" r="4.5"/>
+                        <circle cx="135" cy="201" r="4.5"/>
+                        <circle cx="380" cy="136" r="4.5"/>
+                        <circle cx="381" cy="169" r="4.5"/>
+                        <circle cx="377" cy="201" r="4.5"/>
+                    </g>
+                </mask>
+                <mask id="brand-cuts">
+                    <rect width="512" height="512" fill="white"/>
+                    {Trace::CUTS.iter().map(|(seal_x, d)| {
+                        let seal_x = *seal_x;
+                        view! {
+                            <path class="brand-cut" d=*d
+                                opacity=move || match mark.get().cut_open(seal_x) { true => "1", false => "0" }/>
+                        }
+                    }).collect::<Vec<_>>()}
+                </mask>
+            </defs>
+            <rect width="512" height="512" fill="#000"/>
+            <g class="brand-frame">
+                <path d="M82 141V35h116"/>
+                <path d="M314 35h116v106"/>
+                <path d="M82 311v112h116"/>
+                <path d="M314 423h116V311"/>
+            </g>
+            <g mask="url(#brand-cuts)">
+                <g class="brand-rail" mask="url(#brand-u-nodes)">
+                    <path d="M108 60V277C108 352 169 400 256 400C343 400 404 352 404 277V60"/>
+                    <path d="M132 60V277C132 333 181 373 256 373C331 373 380 333 380 277V60"/>
+                    <path d="M108 60H132M380 60H404"/>
+                </g>
+                <image href="/assets/circuit-eagle.svg" x="122" y="127" width="268" height="221" attr:preserveAspectRatio="none"/>
+            </g>
+            <g class="brand-entry">
+                <path d="M54 60H132"/>
+                <path d="M380 60H458"/>
+                <circle cx="54" cy="60" r="5"/>
+                <circle cx="458" cy="60" r="5"/>
+            </g>
+            <circle class="brand-pulse" r="10"
+                cx=move || format!("{:.1}", pulse().0)
+                cy=move || format!("{:.1}", pulse().1)
+                opacity=move || match mark.get().pulse_shown { true => "1", false => "0" }/>
+            {move || match mark.get().healed {
+                true => view! { <circle class="brand-point healed" cx="256" cy="355" r="8"/> }.into_any(),
+                false => view! { <polygon class="brand-point" points=Trace::BREAK_STAR/> }.into_any(),
+            }}
+        </svg>
+    }
+}
+
+#[component]
+pub fn SyncStatus() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let tone = move || match state.synced.get() {
+        Synced::Indexed { complete: true, .. } => "brand-sync healed",
+        Synced::Failed(_reason) => "brand-sync failed",
+        Synced::Unchecked
+        | Synced::Connecting
+        | Synced::Verifying { .. }
+        | Synced::Building
+        | Synced::Indexed { complete: false, .. } => "brand-sync",
+    };
+    let count = move || match state.synced.get() {
+        Synced::Verifying { done, total, .. } => {
+            view! { <span class="brand-sync-count">{done}"/"{total}</span> }.into_any()
+        }
+        Synced::Unchecked
+        | Synced::Connecting
+        | Synced::Building
+        | Synced::Indexed { .. }
+        | Synced::Failed(_) => ().into_any(),
+    };
+    view! {
+        <div class=tone role="status">
+            {count}
+            <span class="brand-sync-label">{move || state.synced.get().label()}</span>
+        </div>
+    }
+}

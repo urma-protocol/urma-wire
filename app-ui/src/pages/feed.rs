@@ -31,7 +31,6 @@ pub fn FeedPage() -> impl IntoView {
                 <div class="stream-toolbar">
                     <h2>"Latest records"</h2>
                     <div class="stream-state">
-                        <span class="sync-status" role="status">{move || state.synced.get().summary()}</span>
                         <button type="button" class="btn btn-secondary btn-sm"
                             disabled=move || state.is_loading_feed.get()
                             on:click=move |_clicked| state.refresh_feed()>
@@ -61,7 +60,7 @@ fn Stream() -> impl IntoView {
                 }.into_any();
             }
             if state.is_loading_feed.get() {
-                return view! { <p class="loading-state" role="status">{move || state.synced.get().summary()}</p> }.into_any();
+                return view! { <p class="loading-state" role="status">"Loading records…"</p> }.into_any();
             }
             match state.only_followed.get() {
                 true => view! {
