@@ -125,7 +125,7 @@ fn verified_ingestion_migration_projection_and_cross_wire_filtering() {
     let fixture = Fixture { block, commits };
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("index.json");
-    let report = index::sync(&fixture, &path, 0, 1).unwrap();
+    let (report, _index) = index::sync(&fixture, &path, 0, 1).unwrap();
     assert_eq!(report.records, 3);
     assert!(report.complete_to_tip);
     let mut index = Index::load(&path).unwrap();
@@ -166,8 +166,8 @@ fn verified_ingestion_migration_projection_and_cross_wire_filtering() {
         .entries
         .retain(|entry| entry.txid == target.to_string());
     index.persist(&path).unwrap();
-    let migrated = index::sync(&fixture, &path, 0, 1).unwrap();
+    let (migrated, _migrated_index) = index::sync(&fixture, &path, 0, 1).unwrap();
     assert_eq!((migrated.scanned, migrated.records), (1, 3));
     assert_eq!(Index::load(&path).unwrap().format, "URMA-WIRE-INDEX-2");
-    assert_eq!(index::sync(&fixture, &path, 0, 1).unwrap().scanned, 0);
+    assert_eq!(index::sync(&fixture, &path, 0, 1).unwrap().0.scanned, 0);
 }

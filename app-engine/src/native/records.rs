@@ -24,7 +24,7 @@ impl Service {
     }
 
     fn scan(&self, max_blocks: u64) -> Result<(SyncReport, Index), NativeError> {
-        let report = self.with_node(|node| {
+        self.with_node(|node| {
             let start = self.start(node)?;
             Ok(index::sync(
                 &NodeReader(node),
@@ -32,8 +32,7 @@ impl Service {
                 start,
                 max_blocks,
             )?)
-        })?;
-        Ok((report, Index::load(&self.index_path())?))
+        })
     }
 
     pub fn sync(&self) -> Result<Feed, NativeError> {
