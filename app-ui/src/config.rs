@@ -1,3 +1,5 @@
+use wire_app_core::avatar::Urma;
+
 pub const VAULT_INPUT_ID: &str = "identity-vault-file";
 
 pub const MAX_NICKNAME_BYTES: usize = 32_760;
@@ -28,8 +30,8 @@ pub const REPLY_AVATAR_PIXELS: u32 = 32;
 
 pub const AVATAR_BACKGROUND: u8 = 15;
 
-pub fn avatar_when_unset() -> [u8; 1024] {
-    [AVATAR_BACKGROUND; 1024]
+pub fn avatar_when_unset() -> [u8; Urma::AVATAR_PIXELS] {
+    [AVATAR_BACKGROUND; Urma::AVATAR_PIXELS]
 }
 
 pub fn nickname_when_unset() -> String {

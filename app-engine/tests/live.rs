@@ -42,7 +42,7 @@ fn post(text: &str, structured: bool, wire: &str, addressed: Addressed) -> Conte
 
 fn content(kind: &str, structured: bool) -> Content {
     match kind {
-        "avatar" => Content::Avatar(vec![0x12; 512]),
+        "avatar" => Content::Avatar(vec![0x12; 128]),
         "profile" => Content::Nickname("  昵称\0e\u{301}\r\n".into()),
         _ => post("hello", structured, "rosint", Addressed::Standalone),
     }
@@ -92,7 +92,10 @@ fn publication_roundtrip(kind: &str, structured: bool) {
     if kind == "post" && !structured {
         service.discard_quote(&quote.id).unwrap();
         assert!(matches!(service.status().unwrap(), Pending::Settled));
-        assert!(service.advance(&quote.id, true).is_err(), "an edited draft cannot approve its discarded review");
+        assert!(
+            service.advance(&quote.id, true).is_err(),
+            "an edited draft cannot approve its discarded review"
+        );
         quote = service.quote(&expected).unwrap();
     }
     assert_eq!(quote.content, expected);
@@ -104,7 +107,10 @@ fn publication_roundtrip(kind: &str, structured: bool) {
     assert!(mock.state.lock().unwrap().submissions.is_empty());
     let first = service.advance(&quote.id, true).unwrap();
     if kind == "post" && !structured {
-        assert!(service.discard_quote(&quote.id).is_err(), "an approved plan cannot be discarded by a draft edit");
+        assert!(
+            service.discard_quote(&quote.id).is_err(),
+            "an approved plan cannot be discarded by a draft edit"
+        );
     }
     assert_eq!((first.confirmed, first.mempool), (0, 2));
     assert!(!first.complete);
@@ -144,7 +150,12 @@ fn publication_roundtrip(kind: &str, structured: bool) {
         .unlock(Credential::Password(PASSWORD.into()))
         .unwrap();
     let target = Txid::from_display_hex(&quote.txid).unwrap();
-    let answer = post("reply", structured, "another-wire", Addressed::Thread(target));
+    let answer = post(
+        "reply",
+        structured,
+        "another-wire",
+        Addressed::Thread(target),
+    );
     let reply = service.quote(&answer).unwrap();
     assert_eq!(reply.content, answer);
 }

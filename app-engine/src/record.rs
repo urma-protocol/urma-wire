@@ -1,13 +1,14 @@
 use crate::errors::RecordError;
 use bitcoin::hashes::Hash;
 use urma_core::{format::PublicRecord, topics::Topics};
+use wire_app_core::avatar::Urma;
 use wire_app_core::model::Txid;
 use wire_app_core::publication::{Addressed, Content};
 
 pub fn build(content: &Content) -> Result<PublicRecord, RecordError> {
     let record = match content {
         Content::Nickname(nickname) => PublicRecord::Profile(nickname.clone()),
-        Content::Avatar(pixels) => match <[u8; 512]>::try_from(pixels.as_slice()) {
+        Content::Avatar(pixels) => match <[u8; Urma::AVATAR_BYTES]>::try_from(pixels.as_slice()) {
             Ok(pixels) => PublicRecord::Avatar(Box::new(pixels)),
             Err(rejected) => {
                 tracing::warn!(error = %rejected, bytes = pixels.len(), "avatar refused");

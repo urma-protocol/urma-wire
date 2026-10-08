@@ -2,6 +2,7 @@ use crate::errors::ProjectionError;
 use crate::identities::{gathered, Named, Naming};
 use crate::record::wire_txid;
 use urma_core::format::PublicRecord;
+use urma_wire::cached::{decode_cached, CachedRecord};
 use urma_wire::index::{Entry, Index};
 use wire_app_core::feed::{Feed, Lookup};
 use wire_app_core::model::{AuthorId, Chain, ConfirmedStatus, Placement, Post, Txid};
@@ -60,7 +61,14 @@ pub fn project(index: &Index, complete_to_tip: bool) -> Result<Feed, ProjectionE
     let mut posts = Vec::new();
     let mut namings = Vec::new();
     for entry in &index.entries {
-        match decoded(PublicRecord::decode(&hex::decode(&entry.record)?)?) {
+        let record = match decode_cached(&hex::decode(&entry.record)?)? {
+            CachedRecord::Current(record) => record,
+            CachedRecord::LegacyAvatar => {
+                tracing::warn!(txid = %entry.txid, "unsupported legacy avatar omitted from feed projection; cached bytes retained");
+                continue;
+            }
+        };
+        match decoded(record) {
             Decoded::Said(said) => posts.push(confirmed(index, entry, tip, said)?),
             Decoded::Named(named) => namings.push(Naming {
                 height: entry.height,

@@ -235,26 +235,53 @@ remains separate work.
 
 ## Public profiles and pixel-art avatars
 
-Identity includes a nickname editor and a user-authored 32×32 drawing editor,
+Identity includes a nickname editor and a user-authored 16×16 drawing editor,
 using exactly the reference 16-color palette. Click/tap paints pixels; mouse
 dragging paints continuously. The preview and signed review use the same inert
 renderer. Nicknames preserve submitted UTF-8 exactly, including empty names;
 names are not unique. Empty/missing names fall back to the key fingerprint.
 
 Nickname (kind 05) and avatar (kind 06) updates each use the existing atomic
-quote → exact fee approval → commit/reveal → resume flow. The avatar is 512
-row-major pixel bytes, high nibble first, in a 520-byte URMA record; transaction
+quote → exact fee approval → commit/reveal → resume flow. The avatar is 128
+packed bytes containing 256 palette indices, scanned row-major from the top-left.
+Each byte stores the first pixel in its high nibble and the next in its low nibble,
+in a 136-byte URMA record; transaction
 overhead is additional. Review decodes the saved signed reveal, including its
 frozen avatar pixels, rather than reading the current editor. Both native and
 browser publishing use the same record construction and review code.
 
 Profiles and avatars are resolved independently from the selected network's
 verified confirmed index, ordered by block height and transaction position.
+The latest supported avatar wins; a newer legacy avatar is omitted and does not
+replace an earlier supported drawing.
 Every feed refresh rebuilds this disposable state, including after reorgs, and
 cards/replies/profile pages use it with fingerprint/identicon fallbacks. This
 inherits the current bounded history range: older identity updates outside that
 range are unavailable. **Load confirmed profile** copies the indexed state into
 the editor; drafts remain local and are not saved across page changes.
+
+The palette and dimensions come from `urma_core::format::Urma`; Wire reuses the
+core packing helpers. All 128-byte payloads are pixels, including bytes resembling
+image-file signatures. No image codec, SVG input, sniffing or automatic format
+conversion participates in avatar rendering. The renderer generates inert SVG
+rectangles in a 16×16 view box. The separate fallback identicon keeps its 32×32
+geometry. The pixel encoder refuses indices outside 0–15.
+
+Cached legacy avatar records with the exact V0 kind-06 prefix and 512-byte payload
+(520 bytes including the prefix) are retained unchanged and omitted from feed
+projection with a diagnostic. Valid posts, replies, nicknames and current avatars
+still load after restart in both engines. Other malformed records remain errors.
+A stored identity containing unsupported avatar bytes uses the identicon with an
+unsupported-avatar notice; loading it into the editor shows a blank canvas with a
+notice and leaves the stored bytes unchanged. Previously approved legacy avatar
+plans fail strict validation before approval changes or transaction submission.
+Native status/resume validates before RPC; browser resume may first read the
+source genesis hash, then refuses the plan before any transaction POST. Wire
+preserves these plans without conversion, re-signing, fee changes or automatic
+deletion. A saved legacy active
+plan also blocks status, discard and replacement quotes through strict validation;
+this upgrade supplies no in-app migration or removal path for that plan. Preserve
+the original files for recovery.
 
 ## External images
 
@@ -389,4 +416,22 @@ resume, fixed bytes/palette, colliding names/latest ordering/rollback projection
 destination/redirect bounds, MIME/signature/decode/size failures and inert browser
 capability errors. These are local fixtures, not live media-host acceptance or
 visual UI validation.
-They do not establish live acceptance of this desktop application.
+
+Avatar checks also cover all EGA palette indices, first/last pixels and row/nibble
+order, arbitrary 128-byte payloads including image signatures, the 16×16 editor
+grid, legacy cache restart and unchanged approved legacy-plan refusal. The
+existing disposable browser fixture gate accepts the same crypto-valid legacy
+plan exported by the native test:
+
+```sh
+WIRE_LEGACY_FIXTURE_OUTPUT="$PWD/target/legacy-avatar-plan.json" cargo test -p wire-app-engine --test legacy_pending --locked
+NO_COLOR=true trunk build --features fixture-harness --offline --dist target/avatar-fixture-dist
+WIRE_DIST="$PWD/target/avatar-fixture-dist" python3 scripts/browser_fixture_test.py --legacy-plan=target/legacy-avatar-plan.json
+```
+
+This gate runs real WASM/IndexedDB status, resume, approve and discard attempts,
+including a locked page restart, against an in-browser source mock. It checks
+that the error names the 128-byte format, no transaction POST occurs and the saved
+active-plan bytes stay unchanged. External chain fetches are blocked. The
+`fixture-harness` feature is disabled in ordinary builds.
+These fixture checks do not establish live acceptance of this desktop application.

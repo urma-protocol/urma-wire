@@ -1,5 +1,7 @@
 use super::mock_data::{mock_author_auditor, mock_author_investigator, mock_hawk_avatar_bytes};
+use crate::components::profile_editor::editor_preview;
 use leptos::prelude::*;
+use wire_app_core::avatar::Urma;
 use wire_app_core::avatar::{render_avatar_svg, render_identicon_svg};
 use wire_app_core::model::AuthorId;
 
@@ -20,7 +22,7 @@ pub fn IdentityVariantA() -> impl IntoView {
                 <div class="avatar-container" style="width: 48px; height: 48px;" inner_html=avatar_svg_48 />
                 <div class="sample-label">
                     <strong>"Pixel Avatar (48px)"</strong>
-                    <span>"512-byte user drawing"</span>
+                    <span>"128-byte user drawing"</span>
                 </div>
             </div>
             <div class="avatar-sample-item">
@@ -205,12 +207,12 @@ pub fn IdentityVariantD() -> impl IntoView {
 }
 
 /// Variant E: Interactive Avatar Drawing Studio
-/// Fully functional interactive 32x32 sandbox demonstrating brush types, flood fill,
+/// Fully functional interactive 16x16 sandbox demonstrating brush types, flood fill,
 /// color picker, and history undo/redo (Ctrl+Z / Ctrl+Y).
 #[component]
 pub fn IdentityVariantStudio() -> impl IntoView {
     use crate::components::profile_editor::{apply_brush, flood_fill, BrushShape, Tool};
-    use wire_app_core::avatar::{decode_avatar_pixels, encode_avatar_pixels, AvatarPalette};
+    use wire_app_core::avatar::{decode_avatar_pixels, AvatarPalette};
 
     let initial_pixels = decode_avatar_pixels(&mock_hawk_avatar_bytes());
     let pixels = RwSignal::new(initial_pixels);
@@ -218,10 +220,10 @@ pub fn IdentityVariantStudio() -> impl IntoView {
     let tool = RwSignal::new(Tool::Pencil);
     let brush = RwSignal::new(BrushShape::Single);
 
-    let history = RwSignal::new(Vec::<[u8; 1024]>::new());
-    let future = RwSignal::new(Vec::<[u8; 1024]>::new());
+    let history = RwSignal::new(Vec::<[u8; Urma::AVATAR_PIXELS]>::new());
+    let future = RwSignal::new(Vec::<[u8; Urma::AVATAR_PIXELS]>::new());
 
-    let push_undo = move |prev: [u8; 1024]| {
+    let push_undo = move |prev: [u8; Urma::AVATAR_PIXELS]| {
         history.update(|h| {
             if h.len() >= 60 {
                 h.remove(0);
@@ -256,7 +258,7 @@ pub fn IdentityVariantStudio() -> impl IntoView {
 
     let fill_canvas = move |fill_color: u8| {
         push_undo(pixels.get_untracked());
-        pixels.set([fill_color; 1024]);
+        pixels.set([fill_color; Urma::AVATAR_PIXELS]);
     };
 
     view! {
@@ -402,10 +404,10 @@ pub fn IdentityVariantStudio() -> impl IntoView {
 
             <div class="avatar-editor-layout">
                 <div class="canvas-wrapper">
-                    <div class="avatar-canvas" role="group" aria-label="32 by 32 avatar drawing canvas">
-                        {(0usize..1024).map(|index| {
-                            let x = index % 32;
-                            let y = index / 32;
+                    <div class="avatar-canvas" role="group" aria-label="16 by 16 avatar drawing canvas" style=format!("--avatar-side:{}", Urma::AVATAR_SIDE)>
+                        {(0usize..Urma::AVATAR_PIXELS).map(|index| {
+                            let x = index % Urma::AVATAR_SIDE;
+                            let y = index / Urma::AVATAR_SIDE;
                             view! {
                                 <button
                                     type="button"
@@ -459,7 +461,7 @@ pub fn IdentityVariantStudio() -> impl IntoView {
                         }).collect_view()}
                     </div>
                     <div class="canvas-coords-hint">
-                        <span>"32 × 32 Canvas"</span>
+                        <span>"16 × 16 Canvas"</span>
                         <span>"Try brushes, bucket, or undo"</span>
                     </div>
                 </div>
@@ -467,17 +469,17 @@ pub fn IdentityVariantStudio() -> impl IntoView {
                 <div class="avatar-preview-column">
                     <div class="preview-card-section">
                         <span class="preview-title">"Scaled Preview (96px)"</span>
-                        <div class="avatar-preview-frame large" inner_html=move || render_avatar_svg(&encode_avatar_pixels(&pixels.get()), 96) />
+                        <div class="avatar-preview-frame large" inner_html=move || editor_preview(&pixels.get(), 96) />
                     </div>
 
                     <div class="preview-scales-row">
                         <div class="preview-card-section mini">
                             <span class="preview-title">"Feed (36px)"</span>
-                            <div class="avatar-preview-frame" inner_html=move || render_avatar_svg(&encode_avatar_pixels(&pixels.get()), 36) />
+                            <div class="avatar-preview-frame" inner_html=move || editor_preview(&pixels.get(), 36) />
                         </div>
                         <div class="preview-card-section mini">
                             <span class="preview-title">"Reply (24px)"</span>
-                            <div class="avatar-preview-frame" inner_html=move || render_avatar_svg(&encode_avatar_pixels(&pixels.get()), 24) />
+                            <div class="avatar-preview-frame" inner_html=move || editor_preview(&pixels.get(), 24) />
                         </div>
                     </div>
                 </div>

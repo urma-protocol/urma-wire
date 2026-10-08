@@ -19,6 +19,10 @@ import urllib.request
 if "--public-probe" in sys.argv and "--chain" in sys.argv:
     raise SystemExit("Run --public-probe and --chain separately: each needs its own browser state.")
 
+LEGACY_PLAN = next((Path(arg.split("=", 1)[1]) for arg in sys.argv if arg.startswith("--legacy-plan=")), None)
+if LEGACY_PLAN is not None and ("--chain" in sys.argv or "--public-probe" in sys.argv):
+    raise SystemExit("Run --legacy-plan separately from --chain/--public-probe.")
+
 ROOT = Path(__file__).resolve().parents[1]
 PASSWORD = "URMA public test password 2026"
 VAULT = list((ROOT / "app-engine/tests/fixtures/valid.vault").read_bytes())
@@ -64,7 +68,7 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
             "goog:chromeOptions": {"binary": "/usr/bin/chromium", "args": ["--headless=new", "--no-sandbox", "--disable-dev-shm-usage", f"--user-data-dir={profile}"]}}}})["sessionId"]
         base = "/session/" + session
         request(base + "/timeouts", {"script": 150000, "pageLoad": 30000})
-        request(base + "/goog/cdp/execute", {"cmd": "Page.addScriptToEvaluateOnNewDocument", "params": {"source": "const fixtureFetch=window.fetch; window.fixtureNetworkFetch=fixtureFetch; window.fetch=(input,options)=>{ const url=new URL(typeof input==='string'?input:input.url,location.href); if(url.origin!==location.origin)return Promise.reject(new Error('Fixture prohibits live chain requests')); return fixtureFetch(input,options); };"}})
+        request(base + "/goog/cdp/execute", {"cmd": "Page.addScriptToEvaluateOnNewDocument", "params": {"source": "const fixtureFetch=window.fetch; window.fixtureNetworkFetch=fixtureFetch; window.fetch=(input,options)=>{ const url=new URL(input instanceof Request?input.url:String(input),location.href); if(url.origin!==location.origin)return Promise.reject(new Error('Fixture prohibits live chain requests')); return fixtureFetch(input,options); };"}})
 
         def js(script, *args):
             return request(base + "/execute/sync", {"script": script, "args": list(args)})
@@ -83,7 +87,7 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
                 "import_identity": lambda: {"ImportIdentity": {"vault": args["vaultBytes"], "password": args["password"]}},
                 "unlock_wallet": lambda: {"Unlock": {"Password": args["password"]}},
                 "lock_wallet": lambda: "Lock",
-                "set_chain_source": lambda: {"AdoptSource": {"url": args["url"]}},
+                "set_chain_source": lambda: {"AdoptSource": {"Esplora": args["url"]}},
                 "get_wallet_summary": lambda: {"Wallet": {"chain": chain}},
                 "get_feed": lambda: {"Feed": {"chain": chain}},
                 "quote_publication": lambda: {"Quote": {"chain": chain, "content": {"Post": {
@@ -91,6 +95,7 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
                     "hashtags": args.get("hashtags", []), "addressed": "Standalone"}}}},
                 "advance_publication": lambda: {"Advance": {"id": args["id"], "approve": args["approve"]}},
                 "publication_status": lambda: "PublicationStatus",
+                "discard_quote": lambda: {"DiscardQuote": {"id": args["id"]}},
             }
             return requests[cmd]()
 
@@ -143,6 +148,9 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
         if "--chain" in sys.argv:
             from browser_chain_fixture import run_chain_fixture
             run_chain_fixture(command, js, request, base)
+        if LEGACY_PLAN is not None:
+            from browser_avatar_fixture import run_legacy_avatar_fixture
+            run_legacy_avatar_fixture(command, js, request, base, LEGACY_PLAN)
         # Stop the actual origin server; do not toggle the browser offline flag.
         server.shutdown()
         server.server_close()

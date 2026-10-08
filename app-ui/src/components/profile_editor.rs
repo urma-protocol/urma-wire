@@ -40,9 +40,11 @@ use leptos::prelude::WithUntracked;
 use leptos::prelude::{component, event_target_value, view};
 use std::collections::VecDeque;
 use tracing::warn;
+use wire_app_core::avatar::Urma;
 use wire_app_core::avatar::{
     decode_avatar_pixels, encode_avatar_pixels, render_avatar_svg, AvatarPalette,
 };
+use wire_app_core::feed::PublicIdentity;
 use wire_app_core::publication::Content;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -150,41 +152,47 @@ impl BrushShape {
     }
 }
 
-pub fn apply_brush(pixels: &mut [u8; 1024], x: usize, y: usize, brush: BrushShape, color: u8) {
+pub fn apply_brush(
+    pixels: &mut [u8; Urma::AVATAR_PIXELS],
+    x: usize,
+    y: usize,
+    brush: BrushShape,
+    color: u8,
+) {
     for (index, pixel) in pixels.iter_mut().enumerate() {
-        if brush.covers(x, y, index % 32, index / 32) {
+        if brush.covers(x, y, index % Urma::AVATAR_SIDE, index / Urma::AVATAR_SIDE) {
             *pixel = color;
         }
     }
 }
 
 fn adjacent(index: usize) -> Vec<usize> {
-    let x = index % 32;
-    let y = index / 32;
+    let x = index % Urma::AVATAR_SIDE;
+    let y = index / Urma::AVATAR_SIDE;
     let mut cells = Vec::with_capacity(4);
     if x > 0 {
         cells.push(index - 1);
     }
-    if x + 1 < 32 {
+    if x + 1 < Urma::AVATAR_SIDE {
         cells.push(index + 1);
     }
     if y > 0 {
-        cells.push(index - 32);
+        cells.push(index - Urma::AVATAR_SIDE);
     }
-    if y + 1 < 32 {
-        cells.push(index + 32);
+    if y + 1 < Urma::AVATAR_SIDE {
+        cells.push(index + Urma::AVATAR_SIDE);
     }
     cells
 }
 
-pub fn flood_fill(pixels: &mut [u8; 1024], x: usize, y: usize, fill: u8) {
-    let start = y * 32 + x;
+pub fn flood_fill(pixels: &mut [u8; Urma::AVATAR_PIXELS], x: usize, y: usize, fill: u8) {
+    let start = y * Urma::AVATAR_SIDE + x;
     let target = pixels[start];
     if target == fill {
         return;
     }
     let mut queue = VecDeque::from([start]);
-    let mut visited = [false; 1024];
+    let mut visited = [false; Urma::AVATAR_PIXELS];
     visited[start] = true;
     loop {
         let Some(index) = queue.pop_front() else {
@@ -202,12 +210,13 @@ pub fn flood_fill(pixels: &mut [u8; 1024], x: usize, y: usize, fill: u8) {
 
 #[derive(Clone, Copy)]
 struct Studio {
-    pixels: RwSignal<[u8; 1024]>,
+    pixels: RwSignal<[u8; Urma::AVATAR_PIXELS]>,
     color: RwSignal<u8>,
     tool: RwSignal<Tool>,
     brush: RwSignal<BrushShape>,
-    history: RwSignal<Vec<[u8; 1024]>>,
-    future: RwSignal<Vec<[u8; 1024]>>,
+    history: RwSignal<Vec<[u8; Urma::AVATAR_PIXELS]>>,
+    future: RwSignal<Vec<[u8; Urma::AVATAR_PIXELS]>>,
+    notice: RwSignal<Said>,
 }
 
 impl Studio {
@@ -221,6 +230,7 @@ impl Studio {
             brush: RwSignal::new(BrushShape::Single),
             history: RwSignal::new(Vec::new()),
             future: RwSignal::new(Vec::new()),
+            notice: RwSignal::new(Said::Nothing),
         }
     }
 
@@ -259,18 +269,25 @@ impl Studio {
 
     fn fill(&self, color: u8) {
         self.remember();
-        self.pixels.set([color; 1024]);
+        self.pixels.set([color; Urma::AVATAR_PIXELS]);
     }
 
-    fn load(&self, pixels: [u8; 1024]) {
+    fn load(&self, pixels: [u8; Urma::AVATAR_PIXELS]) {
         self.remember();
         self.pixels.set(pixels);
     }
 
     fn stroke(&self, index: usize, color: u8) {
         let brush = self.brush.get_untracked();
-        self.pixels
-            .update(|pixels| apply_brush(pixels, index % 32, index / 32, brush, color));
+        self.pixels.update(|pixels| {
+            apply_brush(
+                pixels,
+                index % Urma::AVATAR_SIDE,
+                index / Urma::AVATAR_SIDE,
+                brush,
+                color,
+            )
+        });
     }
 
     fn press(&self, index: usize) {
@@ -283,8 +300,14 @@ impl Studio {
             Tool::Bucket => {
                 self.remember();
                 let color = self.color.get_untracked();
-                self.pixels
-                    .update(|pixels| flood_fill(pixels, index % 32, index / 32, color));
+                self.pixels.update(|pixels| {
+                    flood_fill(
+                        pixels,
+                        index % Urma::AVATAR_SIDE,
+                        index / Urma::AVATAR_SIDE,
+                        color,
+                    )
+                });
             }
             Tool::Eraser => {
                 self.remember();
@@ -331,7 +354,17 @@ impl Studio {
     }
 
     fn preview(&self, size: u32) -> String {
-        render_avatar_svg(&encode_avatar_pixels(&self.pixels.get()), size)
+        editor_preview(&self.pixels.get(), size)
+    }
+}
+
+pub fn editor_preview(pixels: &[u8; Urma::AVATAR_PIXELS], size: u32) -> String {
+    match encode_avatar_pixels(pixels) {
+        Ok(bytes) => render_avatar_svg(&bytes, size),
+        Err(error) => {
+            warn!(error = %error, "avatar preview refused invalid palette index");
+            String::from("<span>Avatar preview unavailable: invalid palette index.</span>")
+        }
     }
 }
 
@@ -414,7 +447,7 @@ fn load_confirmed(state: AppState, studio: Studio, nickname: RwSignal<String>) {
         return;
     };
     nickname.set(confirmed_nickname(identity.nickname.clone()));
-    studio.load(confirmed_pixels(identity.avatar.as_ref()));
+    studio.load(confirmed_pixels(identity, studio.notice));
 }
 
 fn confirmed_nickname(nickname: Option<String>) -> String {
@@ -424,14 +457,21 @@ fn confirmed_nickname(nickname: Option<String>) -> String {
     name
 }
 
-fn confirmed_pixels(avatar: Option<&Vec<u8>>) -> [u8; 1024] {
-    let Some(bytes) = avatar else {
+pub fn confirmed_pixels(
+    identity: &PublicIdentity,
+    notice: RwSignal<Said>,
+) -> [u8; Urma::AVATAR_PIXELS] {
+    notice.set(Said::Nothing);
+    let Some(bytes) = identity.avatar.as_ref() else {
         return avatar_when_unset();
     };
-    match <&[u8; 512]>::try_from(bytes.as_slice()) {
+    match <&[u8; Urma::AVATAR_BYTES]>::try_from(bytes.as_slice()) {
         Ok(packed) => decode_avatar_pixels(packed),
         Err(error) => {
-            warn!(error = %error, "confirmed avatar is not 512 packed bytes; starting blank");
+            warn!(error = %error, "confirmed avatar is not 128 packed bytes; starting blank");
+            notice.set(Said::Something(String::from(
+                "Unsupported stored avatar. A blank canvas is shown; the stored bytes are unchanged.",
+            )));
             avatar_when_unset()
         }
     }
@@ -462,17 +502,24 @@ pub fn ProfileEditor() -> impl IntoView {
             <NicknameEditor nickname=nickname disabled=disabled quote=quote />
 
             <h3 class="group-title">"Draw your avatar"</h3>
-            <p>"Create your 32 × 32 pixel identity. Choose tools, brush sizes, and 16 URMA colors. Full keyboard undo (Ctrl+Z) and redo (Ctrl+Y / Ctrl+Shift+Z) supported."</p>
+            <p>"Create your 16 × 16 pixel identity. Choose tools, brush sizes, and 16 URMA colors. Full keyboard undo (Ctrl+Z) and redo (Ctrl+Y / Ctrl+Shift+Z) supported."</p>
+            <Warning message=studio.notice.into() />
             <Toolbar studio=studio />
             <Palette studio=studio />
             <div class="avatar-editor-layout">
                 <Canvas studio=studio />
                 <Previews studio=studio />
             </div>
-            <p class="action-desc">"512 pixel bytes · 520-byte URMA record (transaction overhead extra). Pixel data is encoded high-nibble first and signed atomically on-chain."</p>
+            <p class="action-desc">"128 packed pixel bytes · 136-byte URMA record (transaction overhead extra). Pixel data is encoded high-nibble first and signed atomically on-chain."</p>
             <Actions>
                 <button class="btn btn-primary" disabled=disabled
-                    on:click=move |_clicked| quote.run(Content::Avatar(encode_avatar_pixels(&studio.pixels.get_untracked()).to_vec()))>
+                    on:click=move |_clicked| match encode_avatar_pixels(&studio.pixels.get_untracked()) {
+                        Ok(bytes) => quote.run(Content::Avatar(bytes.to_vec())),
+                        Err(error) => {
+                            warn!(error = %error, "avatar review refused invalid palette index");
+                            review.trouble.set(Said::Something(error.to_string()));
+                        }
+                    }>
                     "Review avatar & fee"
                 </button>
             </Actions>
@@ -608,18 +655,32 @@ fn Palette(studio: Studio) -> impl IntoView {
 #[component]
 fn Canvas(studio: Studio) -> impl IntoView {
     view! {
+        <AvatarGrid pixels=studio.pixels
+            press=Callback::new(move |index| studio.press(index))
+            drag=Callback::new(move |index| studio.drag(index)) />
+    }
+}
+
+#[component]
+pub fn AvatarGrid(
+    pixels: RwSignal<[u8; Urma::AVATAR_PIXELS]>,
+    press: Callback<usize>,
+    drag: Callback<usize>,
+) -> impl IntoView {
+    view! {
         <div class="canvas-wrapper">
-            <div class="avatar-canvas" role="group" aria-label="32 by 32 avatar drawing canvas">
-                {(0usize..1024).map(|index| view! {
+            <div class="avatar-canvas" role="group" aria-label="16 by 16 avatar drawing canvas"
+                style=format!("--avatar-side:{}", Urma::AVATAR_SIDE)>
+                {(0usize..Urma::AVATAR_PIXELS).map(|index| view! {
                     <button type="button" class="avatar-pixel"
-                        aria-label=format!("Pixel {}, {}", index % 32 + 1, index / 32 + 1)
-                        style=move || format!("background:{}", AvatarPalette::hex(studio.pixels.with(|pixels| pixels[index])))
-                        on:pointerdown=move |event| { event.prevent_default(); studio.press(index); }
-                        on:pointerenter=move |event| { if event.buttons() & 1 != 0 { studio.drag(index); } } />
+                        aria-label=format!("Pixel {}, {}", index % Urma::AVATAR_SIDE + 1, index / Urma::AVATAR_SIDE + 1)
+                        style=move || format!("background:{}", AvatarPalette::hex(pixels.with(|pixels| pixels[index])))
+                        on:pointerdown=move |event| { event.prevent_default(); press.run(index); }
+                        on:pointerenter=move |event| { if event.buttons() & 1 != 0 { drag.run(index); } } />
                 }).collect_view()}
             </div>
             <div class="canvas-coords-hint">
-                <span>"32 × 32 grid"</span>
+                <span>"16 × 16 grid"</span>
                 <span>"Click or drag to paint"</span>
             </div>
         </div>
