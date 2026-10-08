@@ -7,7 +7,7 @@ pub enum RecordError {
     Protocol(#[from] urma_core::error::Error),
     #[error("Write a post or reply first")]
     EmptyText,
-    #[error("An avatar must contain exactly 512 pixel bytes")]
+    #[error("An avatar must contain exactly 128 packed pixel bytes (16 × 16)")]
     AvatarSize,
     #[error("kind {0:02X} is not a Wire record")]
     NotWire(u8),
@@ -22,7 +22,7 @@ pub enum ProjectionError {
     #[error(transparent)]
     Hex(#[from] hex::FromHexError),
     #[error(transparent)]
-    Record(#[from] urma_core::error::Error),
+    Record(#[from] urma_wire::Error),
     #[error(transparent)]
     Id(#[from] IdError),
 }
@@ -123,7 +123,9 @@ pub enum NativeError {
     PlanMismatch,
     #[error("Exact plan approval required before broadcast")]
     ApprovalRequired,
-    #[error("{0}. Publication paused; approved fees unchanged. Resume explicitly after resolving it.")]
+    #[error(
+        "{0}. Publication paused; approved fees unchanged. Resume explicitly after resolving it."
+    )]
     Paused(String),
     #[error("Chain changed during observation; refresh or resume for fresh evidence")]
     ChainChanged,

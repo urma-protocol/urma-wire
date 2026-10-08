@@ -1,6 +1,6 @@
+use crate::components::markdown::PostText;
 use crate::components::Actions;
 use crate::components::Warning;
-use crate::components::markdown::PostText;
 use crate::config::AVATAR_PREVIEW_PIXELS;
 use crate::state::AppState;
 use leptos::prelude::expect_context;
@@ -26,6 +26,7 @@ use leptos::prelude::StoredValue;
 use leptos::prelude::{component, view};
 use tracing::warn;
 use wire_app_core::avatar::render_avatar_svg;
+use wire_app_core::avatar::Urma;
 use wire_app_core::markdown::{segments, Segment};
 use wire_app_core::publication::{Addressed, Content, Publication};
 
@@ -126,7 +127,7 @@ fn PublicationCard(publication: Publication) -> impl IntoView {
             {match frozen_avatar(&publication.content) {
                 Frozen::Avatar(svg) => view! {
                     <div class="avatar-container" inner_html=svg />
-                    <p class="action-desc">"Frozen avatar preview · 512 pixel bytes / 520 bytes total"</p>
+                    <p class="action-desc">"Frozen avatar preview · 128 packed pixel bytes / 136 bytes total"</p>
                 }.into_any(),
                 Frozen::Malformed(reason) => view! { <p class="alert alert-error" role="alert">{reason}</p> }.into_any(),
                 Frozen::Absent => ().into_any(),
@@ -251,12 +252,12 @@ fn frozen_avatar(content: &Content) -> Frozen {
     let Content::Avatar(bytes) = content else {
         return Frozen::Absent;
     };
-    match <&[u8; 512]>::try_from(bytes.as_slice()) {
+    match <&[u8; Urma::AVATAR_BYTES]>::try_from(bytes.as_slice()) {
         Ok(pixels) => Frozen::Avatar(render_avatar_svg(pixels, AVATAR_PREVIEW_PIXELS)),
         Err(error) => {
-            warn!(error = %error, "quoted avatar is not 512 pixel bytes");
+            warn!(error = %error, "quoted avatar is not 128 packed pixel bytes");
             Frozen::Malformed(format!(
-                "Quoted avatar carries {} bytes, not 512; it cannot be previewed.",
+                "Quoted avatar carries {} bytes, not 128; it cannot be previewed.",
                 bytes.len()
             ))
         }

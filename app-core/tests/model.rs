@@ -32,7 +32,10 @@ fn txid_display_hex_reverses_wire_order() {
     assert!(display.starts_with("fe"));
     assert!(display.ends_with("01"));
     assert_eq!(Txid::from_display_hex(&display).unwrap(), txid);
-    assert_eq!(txid.short_display(), format!("{}...{}", &display[..8], &display[58..]));
+    assert_eq!(
+        txid.short_display(),
+        format!("{}...{}", &display[..8], &display[58..])
+    );
 }
 
 #[test]
@@ -42,7 +45,7 @@ fn avatar_palette_and_rendering() {
     assert_eq!(AvatarPalette::hex(15), "#FFFFFF");
     assert_eq!(AvatarPalette::hex(0x1F), "#FFFFFF");
 
-    let mut bytes = [0u8; 512];
+    let mut bytes = [0u8; 128];
     bytes[0] = 0x1F;
     let pixels = decode_avatar_pixels(&bytes);
     assert_eq!(pixels[0], 1);
@@ -50,7 +53,7 @@ fn avatar_palette_and_rendering() {
 
     let svg = render_avatar_svg(&bytes, 64);
     assert!(svg.contains("<svg"));
-    assert!(svg.contains(r#"viewBox="0 0 32 32""#));
+    assert!(svg.contains(r#"viewBox="0 0 16 16""#));
     assert!(svg.contains(r#"width="64""#));
 
     let identicon = render_identicon_svg(&AuthorId::from_bytes([0x77; 32]), 64);

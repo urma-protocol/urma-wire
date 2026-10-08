@@ -1,45 +1,31 @@
 use crate::model::AuthorId;
+pub use urma_core::avatar::{
+    decode_pixels as decode_avatar_pixels, encode_pixels as encode_avatar_pixels,
+};
+pub use urma_core::format::Urma;
 
 pub struct AvatarPalette;
 
 impl AvatarPalette {
-    pub const COLORS: [&'static str; 16] = [
-        "#000000", "#0000AA", "#00AA00", "#00AAAA", "#AA0000", "#AA00AA", "#AA5500", "#AAAAAA",
-        "#555555", "#5555FF", "#55FF55", "#55FFFF", "#FF5555", "#FF55FF", "#FFFF55", "#FFFFFF",
-    ];
+    pub const COLORS: [&'static str; 16] = Urma::AVATAR_PALETTE;
 
     pub fn hex(index: u8) -> &'static str {
         Self::COLORS[usize::from(index & 0x0F)]
     }
 }
 
-pub fn decode_avatar_pixels(bytes: &[u8; 512]) -> [u8; 1024] {
-    let mut pixels = [0u8; 1024];
-    for (at, &byte) in bytes.iter().enumerate() {
-        pixels[at * 2] = (byte >> 4) & 0x0F;
-        pixels[at * 2 + 1] = byte & 0x0F;
-    }
-    pixels
-}
-
-pub fn encode_avatar_pixels(pixels: &[u8; 1024]) -> [u8; 512] {
-    let mut bytes = [0u8; 512];
-    for (at, pair) in pixels.as_chunks::<2>().0.iter().enumerate() {
-        bytes[at] = ((pair[0] & 0x0F) << 4) | (pair[1] & 0x0F);
-    }
-    bytes
-}
-
-pub fn render_avatar_svg(bytes: &[u8; 512], size: u32) -> String {
+pub fn render_avatar_svg(bytes: &[u8; Urma::AVATAR_BYTES], size: u32) -> String {
     let pixels = decode_avatar_pixels(bytes);
     let mut rects = String::with_capacity(4096);
-    for y in 0..32 {
+    for y in 0..Urma::AVATAR_SIDE {
         let mut x = 0;
-        while x < 32 {
-            let color_index = pixels[y * 32 + x];
+        while x < Urma::AVATAR_SIDE {
+            let color_index = pixels[y * Urma::AVATAR_SIDE + x];
             let color = AvatarPalette::hex(color_index);
             let mut width = 1;
-            while x + width < 32 && pixels[y * 32 + x + width] == color_index {
+            while x + width < Urma::AVATAR_SIDE
+                && pixels[y * Urma::AVATAR_SIDE + x + width] == color_index
+            {
                 width += 1;
             }
             rects.push_str(&format!(
@@ -48,7 +34,7 @@ pub fn render_avatar_svg(bytes: &[u8; 512], size: u32) -> String {
             x += width;
         }
     }
-    framed(&rects, size)
+    framed(&rects, size, Urma::AVATAR_SIDE)
 }
 
 pub fn render_identicon_svg(author: &AuthorId, size: u32) -> String {
@@ -81,11 +67,11 @@ pub fn render_identicon_svg(author: &AuthorId, size: u32) -> String {
             }
         }
     }
-    framed(&rects, size)
+    framed(&rects, size, 32)
 }
 
-fn framed(rects: &str, size: u32) -> String {
+fn framed(rects: &str, size: u32, side: usize) -> String {
     format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="{size}" height="{size}" shape-rendering="crispEdges">{rects}</svg>"#
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {side} {side}" width="{size}" height="{size}" shape-rendering="crispEdges">{rects}</svg>"#
     )
 }

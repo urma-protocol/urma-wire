@@ -299,7 +299,7 @@ pub fn ComponentsPage() -> impl IntoView {
                                     <span class="v-tag">"Standard Sizes"</span>
                                 </div>
                                 <h3 class="variant-title">"Pixel Avatar & Identicon Renderers"</h3>
-                                <p class="variant-desc">"32x32 pixel matrix rendered via run-length encoded SVG alongside algorithmic identicons."</p>
+                                <p class="variant-desc">"16x16 pixel matrix rendered via run-length encoded SVG alongside algorithmic identicons."</p>
                                 <span class="variant-code-ref">"Source: components_gallery/identity.rs::IdentityVariantA"</span>
                             </div>
                             <div class="variant-canvas">

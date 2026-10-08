@@ -19,7 +19,7 @@ fn profile_and_avatar_bytes_and_signed_review_are_exact() {
     assert!(build(&Content::Nickname("x".repeat(32761))).is_err());
     assert_eq!(encoded(&Content::Nickname(String::new())).len(), 8);
     let pixels = std::array::from_fn(|index| (index % 16) as u8);
-    let bytes = encode_avatar_pixels(&pixels);
+    let bytes = encode_avatar_pixels(&pixels).unwrap();
     assert_eq!(
         &bytes[..8],
         &[0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]
@@ -33,10 +33,10 @@ fn profile_and_avatar_bytes_and_signed_review_are_exact() {
         ]
     );
     let record = encoded(&Content::Avatar(bytes.to_vec()));
-    assert_eq!(record.len(), 520);
+    assert_eq!(record.len(), 136);
     assert_eq!(&record[8..], &bytes);
     assert_eq!(review(&record).unwrap(), Content::Avatar(bytes.to_vec()));
-    for length in [0, 511, 513] {
+    for length in [0, 127, 129, 512] {
         assert!(build(&Content::Avatar(vec![0; length])).is_err());
     }
 }
@@ -70,9 +70,9 @@ fn colliding_names_latest_order_and_rollback_rebuild_separate_identity_fields() 
             entry(&a, 101, 2, PublicRecord::Profile("last".into())),
             entry(&a, 100, 1, PublicRecord::Profile("collision".into())),
             entry(&b, 100, 2, PublicRecord::Profile("collision".into())),
-            entry(&a, 100, 3, PublicRecord::Avatar(Box::new([0x12; 512]))),
+            entry(&a, 100, 3, PublicRecord::Avatar(Box::new([0x12; 128]))),
             entry(&a, 101, 1, PublicRecord::Profile("earlier position".into())),
-            entry(&a, 101, 3, PublicRecord::Avatar(Box::new([0x34; 512]))),
+            entry(&a, 101, 3, PublicRecord::Avatar(Box::new([0x34; 128]))),
         ],
     };
     let latest = projection::project(&index, true).unwrap();
@@ -80,7 +80,7 @@ fn colliding_names_latest_order_and_rollback_rebuild_separate_identity_fields() 
     assert_eq!(latest.identities[&a].nickname.as_deref(), Some("last"));
     assert_eq!(
         latest.identities[&a].avatar.as_deref(),
-        Some([0x34; 512].as_slice())
+        Some([0x34; 128].as_slice())
     );
     index.entries.retain(|entry| entry.height <= 100);
     index.blocks.pop();
@@ -91,7 +91,7 @@ fn colliding_names_latest_order_and_rollback_rebuild_separate_identity_fields() 
     );
     assert_eq!(
         restored.identities[&a].avatar.as_deref(),
-        Some([0x12; 512].as_slice())
+        Some([0x12; 128].as_slice())
     );
     index
         .entries
