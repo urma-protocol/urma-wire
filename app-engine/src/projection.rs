@@ -63,6 +63,10 @@ pub fn project(index: &Index, complete_to_tip: bool) -> Result<Feed, ProjectionE
     for entry in &index.entries {
         let record = match decode_cached(&hex::decode(&entry.record)?)? {
             CachedRecord::Current(record) => record,
+            CachedRecord::LegacyProfile => {
+                tracing::warn!(txid = %entry.txid, "unsupported legacy profile omitted from feed projection; cached bytes retained");
+                continue;
+            }
             CachedRecord::LegacyAvatar => {
                 tracing::warn!(txid = %entry.txid, "unsupported legacy avatar omitted from feed projection; cached bytes retained");
                 continue;
