@@ -15,8 +15,8 @@ fn profile_and_avatar_bytes_and_signed_review_are_exact() {
     let record = encoded(&Content::Nickname(name.into()));
     assert_eq!(&record[8..], name.as_bytes());
     assert_eq!(review(&record).unwrap(), Content::Nickname(name.into()));
-    assert!(build(&Content::Nickname("x".repeat(32760))).is_ok());
-    assert!(build(&Content::Nickname("x".repeat(32761))).is_err());
+    assert!(build(&Content::Nickname("x".repeat(128))).is_ok());
+    assert!(build(&Content::Nickname("x".repeat(129))).is_err());
     assert_eq!(encoded(&Content::Nickname(String::new())).len(), 8);
     let pixels = std::array::from_fn(|index| (index % 16) as u8);
     let bytes = encode_avatar_pixels(&pixels).unwrap();

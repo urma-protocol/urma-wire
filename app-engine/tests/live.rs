@@ -43,7 +43,10 @@ fn post(text: &str, structured: bool, wire: &str, addressed: Addressed) -> Conte
 fn content(kind: &str, structured: bool) -> Content {
     match kind {
         "avatar" => Content::Avatar(vec![0x12; 128]),
-        "profile" => Content::Nickname("  昵称\0e\u{301}\r\n".into()),
+        "profile" => {
+            let exact = "  昵称\0e\u{301}\r\n";
+            Content::Nickname(format!("{exact}{}", "x".repeat(128 - exact.len())))
+        }
         _ => post("hello", structured, "rosint", Addressed::Standalone),
     }
 }

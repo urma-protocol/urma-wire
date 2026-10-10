@@ -2,7 +2,7 @@ use wire_app_core::avatar::Urma;
 
 pub const VAULT_INPUT_ID: &str = "identity-vault-file";
 
-pub const MAX_NICKNAME_BYTES: usize = 32_760;
+pub use wire_app_core::config::MAX_NICKNAME_BYTES;
 
 pub const MAX_DISPLAY_BYTES: usize = 64 * 1024 * 1024;
 

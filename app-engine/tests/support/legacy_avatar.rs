@@ -37,12 +37,16 @@ fn transaction(previous: OutPoint, output: TxOut) -> Transaction {
 }
 
 pub fn signed_plan() -> PublicationPlan {
+    let mut record = RecordKind::Avatar.prefix().to_vec();
+    record.extend_from_slice(&[0x12; 512]);
+    signed_record_plan(record)
+}
+
+pub fn signed_record_plan(record: Vec<u8>) -> PublicationPlan {
     let secp = Secp256k1::new();
     let signer = Keypair::from_secret_key(&secp, &SecretKey::from_slice(&[7; 32]).unwrap());
     let author = signer.x_only_public_key().0;
     let chain = Chain::LitecoinTestnet;
-    let mut record = RecordKind::Avatar.prefix().to_vec();
-    record.extend_from_slice(&[0x12; 512]);
     // Construct the historical script explicitly: current publication APIs must refuse it.
     let script = ScriptBuf::builder()
         .push_x_only_key(&author)

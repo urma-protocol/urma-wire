@@ -238,8 +238,12 @@ remains separate work.
 Identity includes a nickname editor and a user-authored 16×16 drawing editor,
 using exactly the reference 16-color palette. Click/tap paints pixels; mouse
 dragging paints continuously. The preview and signed review use the same inert
-renderer. Nicknames preserve submitted UTF-8 exactly, including empty names;
-names are not unique. Empty/missing names fall back to the key fingerprint.
+renderer. Kind-05 nicknames contain 0–128 UTF-8 bytes, in an 8–136-byte record;
+transaction overhead is additional. The editor counts octets and disables review
+above the shared core limit. Nicknames preserve submitted UTF-8 exactly, including
+empty names, U+0000, whitespace and distinct NFC/NFD spellings; there is no
+truncation or normalization. Names are not unique. Empty/missing names fall back
+to the key fingerprint.
 
 Nickname (kind 05) and avatar (kind 06) updates each use the existing atomic
 quote → exact fee approval → commit/reveal → resume flow. The avatar is 128
@@ -252,8 +256,8 @@ browser publishing use the same record construction and review code.
 
 Profiles and avatars are resolved independently from the selected network's
 verified confirmed index, ordered by block height and transaction position.
-The latest supported avatar wins; a newer legacy avatar is omitted and does not
-replace an earlier supported drawing.
+The latest supported nickname and avatar each win; a newer legacy record is
+omitted and does not replace an earlier supported value.
 Every feed refresh rebuilds this disposable state, including after reorgs, and
 cards/replies/profile pages use it with fingerprint/identicon fallbacks. This
 inherits the current bounded history range: older identity updates outside that
@@ -267,6 +271,15 @@ conversion participates in avatar rendering. The renderer generates inert SVG
 rectangles in a 16×16 view box. The separate fallback identicon keeps its 32×32
 geometry. The pixel encoder refuses indices outside 0–15.
 
+Cached legacy profile records require the exact V0 kind-05 prefix, valid UTF-8
+and a 129–32760-byte body. Their original index entries remain unchanged and are
+omitted with a diagnostic; only supported nicknames participate in identity
+selection. Other malformed headers, flags, UTF-8 and out-of-range lengths remain
+errors. An oversized nickname in a directly stored identity displays the key
+fingerprint. Loading it into the editor retains the exact text, reports its byte
+count and warns; review remains disabled until the operator explicitly edits it.
+The original cached identity remains unchanged.
+
 Cached legacy avatar records with the exact V0 kind-06 prefix and 512-byte payload
 (520 bytes including the prefix) are retained unchanged and omitted from feed
 projection with a diagnostic. Valid posts, replies, nicknames and current avatars
@@ -274,7 +287,8 @@ still load after restart in both engines. Other malformed records remain errors.
 A stored identity containing unsupported avatar bytes uses the identicon with an
 unsupported-avatar notice; loading it into the editor shows a blank canvas with a
 notice and leaves the stored bytes unchanged. Previously approved legacy avatar
-plans fail strict validation before approval changes or transaction submission.
+or oversized profile plans fail strict validation before approval changes or
+transaction submission.
 Native status/resume validates before RPC; browser resume may first read the
 source genesis hash, then refuses the plan before any transaction POST. Wire
 preserves these plans without conversion, re-signing, fee changes or automatic
@@ -435,3 +449,34 @@ that the error names the 128-byte format, no transaction POST occurs and the sav
 active-plan bytes stay unchanged. External chain fetches are blocked. The
 `fixture-harness` feature is disabled in ordinary builds.
 These fixture checks do not establish live acceptance of this desktop application.
+
+Focused kind-05 checks use the shared codec and independent UTF-8 reference:
+
+```sh
+cargo test -p wire-app-engine --test profile --test cached_profile --test legacy_profile_pending --test public_identity --test live --test legacy_pending --offline --locked
+cargo test -p wire-app-ui --test profile --offline --locked
+cargo check -p wire-app-ui --target wasm32-unknown-unknown --offline --locked
+```
+
+The existing optional browser gate also accepts a crypto-valid oversized profile
+plan (ordinary builds omit `fixture-harness`):
+
+```sh
+WIRE_PROFILE_FIXTURE_OUTPUT="$PWD/target/legacy-profile-plan.json" cargo test -p wire-app-engine --test legacy_profile_pending --offline --locked
+NO_COLOR=true trunk build --features fixture-harness --offline --dist target/profile-fixture-dist
+WIRE_DIST="$PWD/target/profile-fixture-dist" python3 scripts/browser_fixture_test.py --legacy-plan=target/legacy-profile-plan.json
+```
+
+UI state tests cover exact confirmed-name loading and the direct-cache display
+fallback. The ordinary UI remains CSR. The browser gate exercises the actual
+nickname textarea counter and Review enabled/disabled transition at ASCII
+128/129 and 32/33/32 emoji (128/132/128 bytes), without submitting a quote.
+NUL, CRLF and NFC/NFD exact-preservation assertions concern Rust editor state and
+record bytes; they do not assert browser textarea newline preservation.
+
+Native tests exercise exact write/read, mixed cache restart and approved signed
+oversized-plan refusal without changing saved bytes. The browser gate checks real
+IndexedDB plan preservation and refusal before transaction POST across a locked
+restart; a read-only mocked source genesis GET may precede validation. Serialized
+browser cache tests exercise the shared projection, rather than IndexedDB cache
+runtime. These commands use local fixtures and establish no live-chain acceptance.

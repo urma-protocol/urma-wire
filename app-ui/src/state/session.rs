@@ -1,3 +1,4 @@
+use crate::config::MAX_NICKNAME_BYTES;
 use crate::config::{EVIDENCE_UNAVAILABLE, PUBLICATION_POLL_MS, SYNC_POLL_MS, TRANSPORT_POLL_MS};
 use crate::data::chain;
 use crate::data::identity;
@@ -496,7 +497,7 @@ impl AppState {
             let Some(nickname) = identity.nickname.as_ref() else {
                 return Named::Unnamed;
             };
-            match nickname.is_empty() {
+            match nickname.is_empty() || nickname.len() > MAX_NICKNAME_BYTES {
                 true => Named::Unnamed,
                 false => Named::Nickname(nickname.clone()),
             }

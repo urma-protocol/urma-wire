@@ -446,15 +446,15 @@ fn load_confirmed(state: AppState, studio: Studio, nickname: RwSignal<String>) {
     let Some(identity) = identities.get(&author.to_hex()) else {
         return;
     };
-    nickname.set(confirmed_nickname(identity.nickname.clone()));
+    nickname.set(confirmed_nickname(identity));
     studio.load(confirmed_pixels(identity, studio.notice));
 }
 
-fn confirmed_nickname(nickname: Option<String>) -> String {
-    let Some(name) = nickname else {
+pub fn confirmed_nickname(identity: &PublicIdentity) -> String {
+    let Some(name) = &identity.nickname else {
         return nickname_when_unset();
     };
-    name
+    name.clone()
 }
 
 pub fn confirmed_pixels(
@@ -541,9 +541,12 @@ fn NicknameEditor(
             <textarea rows="2" prop:value=move || nickname.get()
                 on:input=move |event| nickname.set(event_target_value(&event)) />
             <span class="field-hint">
-                {move || nickname.read().len()} " / " {MAX_NICKNAME_BYTES}
-                " UTF-8 bytes. Empty uses your key fingerprint. Whitespace and Unicode are preserved exactly."
+                {move || format!("{} / {} UTF-8 bytes. Empty uses your key fingerprint. Whitespace and Unicode are preserved exactly.", nickname.read().len(), MAX_NICKNAME_BYTES)}
             </span>
+            <span class="field-hint" role="alert">{move || match too_long() {
+                true => "Nickname exceeds 128 UTF-8 bytes. Edit it explicitly before review; entered or loaded text is not truncated.",
+                false => "",
+            }}</span>
         </label>
         <Actions>
             <button class="btn btn-primary" disabled=move || disabled.get() || too_long()
