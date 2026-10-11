@@ -593,3 +593,35 @@ the ordinary WASM frontend and embedded debug desktop build passed. The isolated
 desktop IPC/navigation smoke passed, and its screenshots confirmed the remaining
 sidebar and Identity page. This is additional UI evidence, not a new full-workspace
 or live-network acceptance run.
+
+## Public source preparation (11 October 2026)
+
+The publication candidate `32b5ad1` (application code unchanged from `7c14f79`)
+was exported using only its 217 tracked files. Core
+`a17014a03071c2b72a056d0b4289db007ac1feaf` was freshly cloned from the public
+`urma-protocol/urma` repository into the documented sibling location. All 13
+local Cargo packages resolved within those two source trees. No private checkout
+or private Cargo configuration was needed.
+
+With the installed toolchain and an existing dependency/build cache, this
+ordinary WASM plus embedded debug desktop build passed:
+
+```sh
+CARGO_BUILD_JOBS=2 CARGO_NET_OFFLINE=true NO_COLOR=1 TRUNK_SKIP_VERSION_CHECK=true \
+cargo tauri build --debug --no-bundle --config \
+  '{"build":{"beforeBuildCommand":"python3 scripts/frontend.py build --offline"}}'
+```
+
+A shared `CARGO_TARGET_DIR` reused the local build cache; it is not a source
+dependency. First-time users should follow the online setup in the README;
+`--offline` requires dependencies and frontend tools to have been downloaded.
+Both Cargo lockfiles and every tracked application file remained unchanged.
+
+The resulting executable passed `scripts/desktop_smoke.py --binary PATH
+--local-fixture --evidence DIRECTORY` on a disposable profile. Native session IPC,
+Identity/Settings navigation and the local-source indicator were exercised;
+screenshots were reviewed and owned processes stopped. This check used a minimal
+loopback RPC fixture, not a live chain. GitHub's Markdown renderer accepted the
+README, including its headings, code blocks and architecture table; local document
+links and anchors were checked. Release-optimized installers and other platforms
+were not tested in this source-publication step.
