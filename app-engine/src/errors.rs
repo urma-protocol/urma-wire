@@ -113,6 +113,10 @@ pub enum NativeError {
     BalanceOverflow,
     #[error("Invalid active plan ID")]
     InvalidPlanId,
+    #[error(
+        "Saved publication cannot be read or validated: {0}. Keep a backup of the app data and original encrypted vault. Do not delete the saved publication to prepare another; its transactions may already have been submitted."
+    )]
+    SavedPlan(#[source] urma_runtime::error::Error),
     #[error("Active publication does not match its Litecoin Testnet plan")]
     ForeignPlan,
     #[error("Finish the existing publication before preparing another: resume it from your publication panel, or abandon it there if it never reached the network.")]
@@ -185,6 +189,7 @@ impl NativeError {
             Self::BalanceOverflow
             | Self::InvalidPlanId
             | Self::ForeignPlan
+            | Self::SavedPlan(_)
             | Self::Unfinished
             | Self::NoPublication
             | Self::PlanMismatch
@@ -306,6 +311,10 @@ pub enum BrowserError {
     BudgetOverflow,
     #[error("No single confirmed spendable output covers the exact fee and return outputs")]
     NoFundingOutput,
+    #[error(
+        "Saved publication cannot be read or validated: {0}. Keep a backup of the app data and original encrypted vault. Do not delete the saved publication to prepare another; its transactions may already have been submitted."
+    )]
+    SavedPlan(#[source] urma_runtime::error::Error),
     #[error("Active plan must contain one Litecoin Testnet record")]
     ForeignPlan,
     #[error("Stored approval does not match the exact signed plan")]
@@ -414,6 +423,7 @@ impl BrowserError {
             | Self::BudgetOverflow
             | Self::NoFundingOutput
             | Self::ForeignPlan
+            | Self::SavedPlan(_)
             | Self::ApprovalMismatch
             | Self::ObservationChanged
             | Self::InvalidPlanFee

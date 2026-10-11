@@ -8,6 +8,17 @@ wire/hashtag extension. Package versions are separate and recorded in the
 resolves URMA crates from the neighboring `../urma` checkout for both native
 and browser builds.
 
+## Local inspection and release scope
+
+Wire remains an application: a Tauri 2 desktop shell and a separately buildable
+browser/WASM frontend. Linux desktop development is the local inspection target.
+The presence of mobile icons or Tauri bundle targets does not establish tested
+Windows, macOS, Android or iOS releases. Browser hosting and public app distribution
+are separate release steps; this preparation does not publish either.
+
+Project-authored source uses [0BSD](LICENSE). Asset provenance and remaining
+redistribution questions are recorded in [NOTICES.md](NOTICES.md).
+
 ## Run locally
 
 Feed and Publish reuse the same compact composer and session post draft.
@@ -21,19 +32,50 @@ Wire/hashtag fields expand on demand; exact quote approval remains required.
 Feed refreshes confirmed posts on entry. Completed publication panels disappear;
 the Publish page retains its additional explanatory information.
 
-With Rust's `wasm32-unknown-unknown` target, Trunk, Cargo Tauri and the platform's
-Tauri native dependencies already installed:
+Use a Rust toolchain compatible with the committed `Cargo.lock`, the
+`wasm32-unknown-unknown` target, Trunk, Cargo Tauri 2, Python 3 and Linux native
+build dependencies (C compiler, pkg-config, GTK 3, WebKitGTK 4.1, librsvg,
+OpenSSL and the platform's app-indicator development libraries). Package names
+vary by distribution. Run the app from a graphical desktop session.
 
-```sh
-NO_COLOR=true cargo tauri dev
+Keep the repositories beside each other:
+
+```text
+workspace/
+  urma/           # public protocol/core repository
+  urma-wire-app/  # this application
 ```
 
-Keep the `urma-wire-app` and `urma` repositories beside each other. The sibling
-core checkout must include the Litecoin decoder changes (commit `f1547e9` or a
-later compatible revision). Cargo, Trunk and Tauri use the committed patches
-without a private `.cargo/config.toml` or extra command-line arguments. Separate
-app worktrees need the same sibling layout or explicit Cargo path overrides.
-The running app must be restarted by its operator to load new native code.
+The compatible core baseline is the public commit
+**`73f5972a0a3f9c06b3047fa7c669539f5f3f06ce`** of
+[urma-protocol/urma](https://github.com/urma-protocol/urma). For a fresh dependency
+checkout beside an existing app checkout:
+
+```sh
+git clone https://github.com/urma-protocol/urma.git ../urma
+git -C ../urma checkout --detach 73f5972a0a3f9c06b3047fa7c669539f5f3f06ce
+rustup target add wasm32-unknown-unknown
+cargo tauri dev
+```
+
+If the sibling repository already exists, inspect its status and revision before
+changing it; do not overwrite local work. Cargo's committed path patches select
+its actual working tree, **not a pinned Git dependency**. Verify its clean revision
+with `git -C ../urma status --short` and `git -C ../urma rev-parse HEAD`.
+The earlier documented `f1547e9` decoder baseline is insufficient: Wire also
+requires `Urma::MAX_PROFILE_BYTES` and `CachedRecord::LegacyProfile` introduced
+later and included in the revision above. No private Cargo configuration is
+required. Separate app worktrees need the same sibling layout.
+
+`cargo tauri dev` starts Trunk and the desktop shell. Tauri's development and
+build commands call `scripts/frontend.py`, which converts the common shell
+`NO_COLOR=1` value to Trunk's required boolean spelling. No manual environment
+change is needed for these Tauri commands. The development page is
+served on loopback `127.0.0.1:8080`; this is not a public deployment. Restart the
+running application after native changes. By default Wire can contact public
+chain sources; review Settings and use a disposable app-data/configuration when
+performing isolated acceptance tests. Never use the committed public test identity
+for real funds.
 
 For frontend-only builds: `trunk build --release`. If the surrounding shell sets
 `NO_COLOR=1`, use `NO_COLOR=true trunk build --release` (Trunk expects a boolean).
@@ -42,6 +84,24 @@ Lock, verified recent-history sync, confirmed spendable balances and exact-fee
 publication through direct public Esplora requests. It uses the same URMA vault,
 record proof, wallet signing and immutable-plan validation as native Wire. No node
 or miner is started by the app.
+
+## Desktop frontend boundary
+
+The packaged desktop frontend has an explicit Content Security Policy in
+`src-tauri/tauri.conf.json`: local scripts/assets and Tauri IPC, inert data images,
+no frames, objects or workers. Inline styles remain allowed for Thaw/Leptos;
+WebAssembly compilation is explicitly allowed. Native chain and checked image
+requests go through the engine, not arbitrary page JavaScript connections.
+The `main` window capability remains local and the host exposes the typed
+`engine` command. This configuration is a boundary, not an exhaustive security
+audit or a claim that all requested engine operations need no validation.
+
+`trunk serve` supplies its own development CSP header from `Trunk.toml`, including
+a per-response script nonce, the local reload WebSocket, and HTTPS for the
+frontend-only browser engine. Its policy is intentionally different from the
+packaged native frontend. Development mode does not install the offline service
+worker. A separately hosted release browser build still needs a hosting-policy
+review; Tauri's native CSP is not automatically a server policy for that build.
 
 ## Browser offline operation
 
@@ -297,6 +357,30 @@ plan also blocks status, discard and replacement quotes through strict validatio
 this upgrade supplies no in-app migration or removal path for that plan. Preserve
 the original files for recovery.
 
+## Saved publication recovery
+
+A saved plan that fails current validation remains blocked. The app reports the
+saved-plan failure separately from a transient chain-source error. It does not
+migrate signed bytes, re-sign, change fees, remove the active pointer or resume an
+invalid plan. Retrying a source cannot repair a structurally unsupported plan.
+
+For desktop recovery, stop Wire and preserve the **complete** `org.urma.wire`
+app-data directory: `active.json`, every `plans/` directory (plan, approval and
+progress), indexes, source settings and any imported `identity.urma`. Preserve the
+original encrypted vault and external configuration separately; they may be
+outside app-data. Keep the originals intact for expert recovery. Do not manually
+delete the active pointer to unblock publishing: deletion does not undo an
+already submitted transaction and can allow funding to be reused incorrectly.
+
+For the browser version, do not clear site data or IndexedDB to work around a
+saved-plan error. Retain the original encrypted vault backup; a vault backup
+alone does not back up the saved publication journal. This version does not supply
+an automated export or safe removal/migration flow for unsupported plans.
+
+For a fresh visual inspection, use an isolated empty app-data/profile and leave
+the affected state untouched. Do not import or sign with the same funded identity
+in the fresh profile while its old publication outcome is unresolved.
+
 ## External images
 
 Published photo references use the existing Markdown image representation
@@ -375,6 +459,54 @@ WebView localStorage); **View all N replies** opens the whole thread. A reply
 to a reply stays inside its parent reply's thread. A reply whose parent is
 outside the indexed history, or filtered out, stays top-level and names the
 record it answers. Grouping is display only: records and the index are unchanged.
+
+## Linux desktop inspection check
+
+After building the dependencies, an isolated desktop smoke can exercise native
+IPC and visible Identity/Settings navigation without a user vault or live chain
+source:
+
+```sh
+python3 scripts/desktop_smoke.py --evidence target/desktop-smoke
+```
+
+It launches `cargo tauri dev --no-watch` with disposable HOME/XDG paths, a missing
+vault and an explicit loopback source, using private Xvfb/DBus. It requires Python
+GObject/AT-SPI bindings, Xvfb, `dbus-run-session`, `xdotool` and ImageMagick's
+`import`. Its overall deadline and process-group cleanup bound the run. An
+already-built application can be selected with `--binary /absolute/path/to/app`.
+Logs, accessibility observations and screenshots go to the evidence directory;
+review the screenshots separately. This is a reproduction command, not a recorded
+PASS, packaged-platform certification or a signing/publication test.
+
+## Local readiness verification (11 October 2026)
+
+Against clean public core `73f5972a0a3f9c06b3047fa7c669539f5f3f06ce`, the
+readiness changes were checked on Linux with Rust 1.98.0, Tauri CLI 2.11.2,
+Trunk 0.21.14, GTK 3.24.52 and WebKitGTK 2.52.6:
+
+- All core/engine/UI native tests passed: **107 passed, zero failed or ignored**.
+- Ordinary WASM and native desktop builds passed. The offline worker regression
+  passed; the fixture WASM build and real Chromium/IndexedDB legacy-profile gate
+  passed, including actionable recovery text, preserved saved bytes and no
+  mocked submissions.
+- Actual `cargo tauri dev --no-watch` passed the isolated desktop smoke. The
+  served CSP header had a per-response nonce matching the bootstrap HTML.
+  Identity, native session response and Settings/local-node controls worked;
+  screenshots were reviewed.
+- A debug `cargo tauri build --no-bundle` using an offline debug frontend also
+  passed the same desktop smoke from embedded assets with the packaged CSP.
+  This is not a release-optimized binary, installer or signing certification.
+- Lawkeeper still reports the same **29 pre-existing findings** as baseline
+  `637f47ab`; normalized rule/path diagnostics are unchanged. It is not a full
+  Lawkeeper PASS. These structural findings remain maintenance work.
+
+Both desktop checks used disposable HOME/XDG paths and an unavailable loopback
+node; no operator vault or live chain was used. Browser sources were mocked.
+These checks do not establish live-provider availability, mainnet readiness or
+exhaustive CSP security. Desktop test processes were stopped after verification.
+Public distribution still needs the branding decision recorded in NOTICES and a
+separate release decision; the application is ready for local Linux inspection.
 
 ## Focused local checks
 

@@ -3,6 +3,8 @@ name = "wire-app-engine"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "0BSD"
+authors = ["Cristian Zmole <urma@rosint.org>"]
 description = "URMA Wire engines: one shared projection and record codec, a native and a browser backend"
 
 [features]

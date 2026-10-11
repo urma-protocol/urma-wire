@@ -102,6 +102,8 @@ def run_legacy_avatar_fixture(command, js, request, base, fixture_path):
         ]:
             error = command(cmd, args, failure=True)
             assert error_contains in error, error
+            assert "Keep a backup" in error, error
+            assert "Do not delete the saved publication" in error, error
             assert stored() == active
         assert js("return avatarFixtureSubmissions.length") == 0
 

@@ -30,7 +30,8 @@ impl Service {
             return Err(NativeError::InvalidPlanId);
         }
         let directory = self.directory.join(Self::PLANS_DIR).join(&id);
-        let plan = PublicationPlan::load(&directory.join(Self::PLAN_FILE))?;
+        let plan = PublicationPlan::load(&directory.join(Self::PLAN_FILE))
+            .map_err(NativeError::SavedPlan)?;
         if plan.id()? != id
             || !matches!(plan.chain, Network::LitecoinTestnet)
             || plan.records.len() != 1

@@ -63,11 +63,17 @@ fn approved_signed_oversized_profile_refuses_restart_status_and_resume_before_su
         cache_dir: dir.path().join("runtime"),
     };
     let service = Service::open(dir.path(), settings.clone()).unwrap();
-    assert!(service
-        .status()
-        .unwrap_err()
+    let error = service.status().unwrap_err();
+    assert!(error
         .to_string()
         .contains("profile body exceeds 128 UTF-8 bytes"));
+    assert!(std::error::Error::source(&error).is_some());
+    let fault = wire_app_core::errors::Fault::from(error);
+    assert_eq!(fault.kind, wire_app_core::errors::FaultKind::Publication);
+    assert!(fault.message.contains("Keep a backup"));
+    assert!(fault
+        .message
+        .contains("Do not delete the saved publication"));
     assert!(service
         .advance(&id, false)
         .unwrap_err()

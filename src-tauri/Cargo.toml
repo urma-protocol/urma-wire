@@ -3,6 +3,8 @@ name = "urma-wire-app"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "0BSD"
+authors = ["Cristian Zmole <urma@rosint.org>"]
 description = "URMA Wire Tauri 2 host shell"
 
 [lib]

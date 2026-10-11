@@ -3,6 +3,8 @@ name = "wire-app-ui"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "0BSD"
+authors = ["Cristian Zmole <urma@rosint.org>"]
 description = "URMA Wire Leptos CSR user interface"
 
 [features]

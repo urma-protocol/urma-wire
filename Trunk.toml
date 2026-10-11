@@ -1,6 +1,9 @@
 [build]
 target = "index.html"
 dist = "dist"
+# Required for serve.csp: Trunk emits its nonce/header only when this is true.
+# Static browser output has no CSP by itself; packaged Tauri hashes inline JS.
+create_nonce = true
 
 [watch]
 watch = ["app-core", "app-engine", "app-ui", "styles.css", "index.html", "assets", "web"]
@@ -9,6 +12,24 @@ watch = ["app-core", "app-engine", "app-ui", "styles.css", "index.html", "assets
 address = "127.0.0.1"
 port = 8080
 open = false
+
+# Trunk 0.21.14 serves desktop devUrl directly; Tauri's bundled-asset CSP
+# does not supply this HTTP header. Trunk replaces {{NONCE}} per response.
+# Inline styles support Thaw/Leptos. HTTPS is for frontend-only browser sources;
+# the packaged native frontend permits only local assets and engine IPC.
+csp = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval' 'nonce-{{NONCE}}'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:8080 https:",
+  "object-src 'none'",
+  "frame-src 'none'",
+  "worker-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+]
 
 [[hooks]]
 stage = "post_build"

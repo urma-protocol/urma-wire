@@ -63,7 +63,10 @@ pub async fn active() -> Result<Planned, BrowserError> {
     let Stored::Found(active) = store::read::<Active>(ACTIVE_KEY).await? else {
         return Ok(Planned::Idle);
     };
-    active.validate()?;
+    active.validate().map_err(|error| match error {
+        BrowserError::Runtime(cause) => BrowserError::SavedPlan(cause),
+        other => other,
+    })?;
     Ok(Planned::Active(active))
 }
 
@@ -176,7 +179,11 @@ pub fn offline_status(active: &Active) -> Result<Publication, BrowserError> {
     Ok(publication)
 }
 
-fn reviewed(active: &Active, confirmed: usize, mempool: usize) -> Result<Publication, BrowserError> {
+fn reviewed(
+    active: &Active,
+    confirmed: usize,
+    mempool: usize,
+) -> Result<Publication, BrowserError> {
     active.validate()?;
     let pair = &active.plan.records[0];
     let commit = transaction(&pair.commit)?;
@@ -213,7 +220,11 @@ fn waiting(confirmed: usize, approved: bool) -> &'static str {
     }
 }
 
-pub async fn advance(source: &Source, id: &str, approve: bool) -> Result<Publication, BrowserError> {
+pub async fn advance(
+    source: &Source,
+    id: &str,
+    approve: bool,
+) -> Result<Publication, BrowserError> {
     let Planned::Active(mut active) = active().await? else {
         return Err(BrowserError::NoPublication);
     };

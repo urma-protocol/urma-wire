@@ -3,6 +3,8 @@ name = "wire-app-core"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "0BSD"
+authors = ["Cristian Zmole <urma@rosint.org>"]
 description = "URMA Wire domain types and the typed contract between the interface and its engines"
 
 [dependencies]
