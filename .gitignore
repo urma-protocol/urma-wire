@@ -3,6 +3,7 @@
 !/Cargo.toml
 !/Cargo.lock
 !/README.md
+!/docs/*.md
 !/LICENSE
 !/NOTICES.md
 !/Trunk.toml

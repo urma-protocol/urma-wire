@@ -34,10 +34,11 @@ coin asset bytes were changed during this verification.
 
 `assets/circuit-eagle.svg` and `assets/urma-wire.svg` are the existing ROSINT eagle
 and URMA Wire artwork. `assets/urma-wire-icon.png` and `src-tauri/icons/` contain
-the static Wire icon and generated platform sizes. Application source licensing
-alone is not an explicit branding grant. Record the rights holder's redistribution
-permission before public distribution; regenerating sizes does not establish
-rights to the source artwork. This does not block local operator inspection.
+the static Wire icon and generated platform sizes. Publication of these bundled assets with URMA Wire was explicitly authorized
+by the project operator on 11 October 2026. That authorization covers this
+repository publication; it does not assign the artwork a new open-content
+license or grant trademark rights. The 0BSD source-code license does not by
+itself extend to the Wire/ROSINT marks.
 
 ## Public test identities
 
