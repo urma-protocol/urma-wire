@@ -1,4 +1,3 @@
-pub mod components_gallery;
 pub mod compose;
 pub mod connection;
 pub mod feed;
@@ -9,7 +8,6 @@ pub mod settings;
 pub mod source_settings;
 pub mod wallet;
 
-pub use components_gallery::ComponentsPage;
 pub use compose::ComposePage;
 pub use connection::ConnectionPage;
 pub use feed::FeedPage;

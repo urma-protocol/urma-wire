@@ -152,16 +152,3 @@ disabled = []
 # swallow in that file forever. so keep a pardoned file small, and keep this list shorter.
 # "generated.rs" = ["DECOMPOSITION:1", "DEAD:2"]
 # "legacy/parser.rs" = ["ALL"]
-
-# the components gallery is a developer-only exploration lab of hardcoded mockups behind
-# /components. it is not shipped surface and its replicas are meant to be thrown away.
-"pages/components_gallery/mod.rs" = ["ALL"]
-"pages/components_gallery/composer.rs" = ["ALL"]
-"pages/components_gallery/identity.rs" = ["ALL"]
-"pages/components_gallery/investigation.rs" = ["ALL"]
-"pages/components_gallery/media.rs" = ["ALL"]
-"pages/components_gallery/metrics.rs" = ["ALL"]
-"pages/components_gallery/mock_data.rs" = ["ALL"]
-"pages/components_gallery/posts.rs" = ["ALL"]
-"pages/components_gallery/publication.rs" = ["ALL"]
-"pages/components_gallery/replies.rs" = ["ALL"]

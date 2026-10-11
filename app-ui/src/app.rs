@@ -1,6 +1,5 @@
 use crate::components::Missing;
 use crate::components::Navbar;
-use crate::pages::ComponentsPage;
 use crate::pages::ComposePage;
 use crate::pages::ConnectionPage;
 use crate::pages::FeedPage;
@@ -50,7 +49,6 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/post/:txid") view=PostDetailPage />
                         <Route path=path!("/profile/:author") view=ProfilePage />
                         <Route path=path!("/compose") view=ComposePage />
-                        <Route path=path!("/components") view=ComponentsPage />
                         <Route path=path!("/settings") view=SettingsPage />
                         <Route path=path!("/wallet") view=WalletPage />
                         <Route path=path!("/identity") view=IdentityPage />
