@@ -101,8 +101,17 @@ impl TransportStatus {
     pub fn remote_sources(&self) -> Vec<&SourceState> {
         self.sources
             .iter()
-            .filter(|source| source.kind != SourceKind::Peers)
+            .filter(|source| matches!(source.kind, SourceKind::Electrum | SourceKind::Http))
             .collect()
+    }
+
+    pub fn local_source(&self) -> LocalStatus<'_> {
+        for source in &self.sources {
+            if source.kind == SourceKind::LocalNode {
+                return LocalStatus::Configured(source);
+            }
+        }
+        LocalStatus::Unconfigured
     }
 
     pub fn ready_sources(&self) -> usize {
@@ -140,4 +149,9 @@ fn numeric_port(authority: &str) -> bool {
         return true;
     };
     !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
+}
+
+pub enum LocalStatus<'a> {
+    Unconfigured,
+    Configured(&'a SourceState),
 }

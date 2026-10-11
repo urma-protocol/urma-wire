@@ -14,7 +14,7 @@ use leptos::prelude::Memo;
 use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
 use leptos::prelude::{component, view};
-use wire_app_core::connection::{SourceKind, SourceStanding, TransportStatus};
+use wire_app_core::connection::{LocalStatus, SourceKind, SourceStanding, TransportStatus};
 
 pub struct Trace;
 
@@ -273,6 +273,24 @@ pub fn sources_hint(status: &TransportStatus) -> String {
     lines.join("\n")
 }
 
+pub fn local_hint(status: &TransportStatus) -> String {
+    match status.local_source() {
+        LocalStatus::Configured(source) => match source.standing {
+            SourceStanding::Ready => format!("{}: verified local node, preferred for block reads", source.label),
+            SourceStanding::Cold => format!("{}: unavailable, unverified or still syncing; checked automatically", source.label),
+            SourceStanding::Blocked { seconds } => format!("{}: retrying in {seconds} s; public fallback available", source.label),
+        },
+        LocalStatus::Unconfigured => "Local node not configured: set rpc_url and node_auth_file in URMA config".into(),
+    }
+}
+
+fn local_ready(status: &TransportStatus) -> bool {
+    match status.local_source() {
+        LocalStatus::Configured(source) => source.standing == SourceStanding::Ready,
+        LocalStatus::Unconfigured => false,
+    }
+}
+
 fn net_tone(live: bool, partial: bool) -> &'static str {
     match (live, partial) {
         (false, _partial) => "brand-net-item down",
@@ -290,6 +308,11 @@ pub fn Transport() -> impl IntoView {
             let total = status.remote_sources().len();
             view! {
                 <div class="brand-net">
+                    <span role="img" class=net_tone(local_ready(&status), false)
+                        title=local_hint(&status) attr:aria-label=local_hint(&status)>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8M12 16v5M7 7h2M7 11h2"/></svg>
+                        <span>"Local"</span>
+                    </span>
                     <span class=net_tone(status.peers > 0, false) title=peers_hint(&status)>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>
                         <span>{status.peers}</span>

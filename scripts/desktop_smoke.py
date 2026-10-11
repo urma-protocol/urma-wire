@@ -6,6 +6,9 @@ The missing-vault session response exercises native IPC; this is not a signing,
 chain, publication, or exhaustive CSP/security test. Screenshots need visual review.
 """
 import argparse
+import contextlib
+import http.server
+import threading
 import json
 import os
 from pathlib import Path
@@ -125,6 +128,9 @@ def child(args):
             assert "object-src 'none'" in policy
             (evidence / 'dev-csp.json').write_text(json.dumps({'header': policy, 'nonce_matches_html': True}, indent=2))
             checks.append('served CSP nonce matches bootstrap HTML')
+        if args.local_fixture:
+            text('verified local node, preferred for block reads')
+            run(['import', '-window', 'root', str(evidence / 'local-source.png')])
         click('Identity')
         text('Import an encrypted URMA vault to begin.')
         text('Locked')
@@ -140,7 +146,7 @@ def child(args):
             [{'name': name, 'role': role} for _, name, role in tree()], indent=2))
         (evidence / 'result.json').write_text(json.dumps({
             'status': 'PASS', 'checks': checks, 'command': command,
-            'profile': 'disposable; missing vault; loopback port 9 local source',
+            'profile': 'disposable; missing vault; isolated RPC fixture' if args.local_fixture else 'disposable; missing vault; loopback port 9 local source',
             'scope': 'native IPC and visible navigation, screenshots require review',
         }, indent=2) + '\n')
         print('PASS: desktop IPC/session/navigation smoke', flush=True)
@@ -167,10 +173,50 @@ def child(args):
         xlog.close()
 
 
+def local_fixture(stack, work):
+    genesis = '4966625a4b2851d9fdee139e56211a0d88575f59ed816ff5e6a63deb4e3e29a0'
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        def log_message(self, *_args):
+            pass
+        def do_POST(self):
+            self.connection.settimeout(2)
+            size = int(self.headers.get('Content-Length', '0'))
+            assert 0 < size < 16384
+            request = json.loads(self.rfile.read(size))
+            method = request['method']
+            if method == 'getblockhash' and request['params'] == [0]:
+                value = genesis
+            elif method == 'getblockchaininfo':
+                value = {'chain': 'test', 'blocks': 0, 'headers': 0,
+                         'bestblockhash': genesis, 'initialblockdownload': False}
+            else:
+                value = None
+            response = {'id': request['id'], 'result': value,
+                        'error': None if value is not None else {'code': -5, 'message': 'fixture has no block body'}}
+            body = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(body)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    def cleanup():
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+    stack.callback(cleanup)
+    return f'http://127.0.0.1:{server.server_port}'
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument('--evidence', required=True)
+    parser.add_argument('--local-fixture', action='store_true', help='show the local indicator using an isolated minimal RPC fixture (no real chain)')
     parser.add_argument('--binary', help='test already-built packaged executable instead of cargo tauri dev')
     parser.add_argument('--child', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -183,7 +229,7 @@ def main():
         return
     evidence = Path(args.evidence)
     evidence.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='wire-desktop-smoke-') as directory:
+    with tempfile.TemporaryDirectory(prefix='wire-desktop-smoke-') as directory, contextlib.ExitStack() as stack:
         work = Path(directory)
         env = {key: os.environ[key] for key in
                ('PATH', 'CARGO_HOME', 'RUSTUP_HOME', 'CARGO_TARGET_DIR', 'CARGO_BUILD_JOBS')
@@ -201,7 +247,8 @@ def main():
         cookie.write_text('fixture:fixture')
         cookie.chmod(0o600)
         config = work / 'config.json'
-        config.write_text(json.dumps({'rpc_url': 'http://127.0.0.1:9',
+        rpc_url = local_fixture(stack, work) if args.local_fixture else 'http://127.0.0.1:9'
+        config.write_text(json.dumps({'rpc_url': rpc_url,
             'node_auth_file': str(cookie), 'vault': str(work / 'missing.urma'),
             'unlock_file': str(work / 'missing-unlock')}))
         env.update(URMA_CONFIG=str(config), LANG='C.UTF-8', NO_COLOR='1',
@@ -213,6 +260,8 @@ def main():
                    '--child', '--repo', args.repo, '--evidence', args.evidence]
         if args.binary:
             command += ['--binary', args.binary]
+        if args.local_fixture:
+            command += ['--local-fixture']
         process = subprocess.Popen(command, env=env, start_new_session=True)
         try:
             code = process.wait(timeout=660)

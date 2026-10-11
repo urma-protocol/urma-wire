@@ -18,7 +18,7 @@ impl Service {
             LightSync::Cold(_progress) => 0,
             LightSync::Absent => 0,
         };
-        let sources = node
+        let mut sources: Vec<SourceState> = node
             .standings()
             .into_iter()
             .map(|standing| {
@@ -30,6 +30,16 @@ impl Service {
                 }
             })
             .collect();
+        if self.settings().source == SourceChoice::Public {
+            for source in &mut sources {
+                if source.kind == SourceKind::LocalNode {
+                    source.standing = match self.local_node.ready() {
+                        true => source.standing.clone(),
+                        false => SourceStanding::Cold,
+                    };
+                }
+            }
+        }
         Ok(TransportStatus { peers, sources })
     }
 
@@ -61,11 +71,13 @@ impl Service {
 
     pub fn adopt_source(&self, choice: SourceChoice) -> Result<SourceStatus, NativeError> {
         let settings = self.settings().with_source(choice);
-        let node = settings.connect()?;
+        let node = self.connect_node(&settings)?;
         urma_io::write_replace(
             &self.directory.join(SOURCE_FILE),
             &serde_json::to_vec(&settings.source)?,
         )?;
+        self.local_node
+            .set_enabled(settings.source == SourceChoice::Public);
         *self.settings_mut() = settings;
         self.replace_link(node);
         Ok(self.source_status())

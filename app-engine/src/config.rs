@@ -270,3 +270,6 @@ mod settings {
         }
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub const LOCAL_NODE_PROBE_SECONDS: u64 = 3;

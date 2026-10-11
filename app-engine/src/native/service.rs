@@ -1,5 +1,6 @@
-use crate::config::{Settings, EVIDENCE_UNAVAILABLE, LIGHT_CLIENT_COLD};
+use crate::config::{Settings, EVIDENCE_UNAVAILABLE, LIGHT_CLIENT_COLD, NETWORK};
 use crate::errors::NativeError;
+use crate::native::local_node::{LocalNode, LocalSource};
 use crate::native::wallet::{Balance, WireWallet};
 use fs2::FileExt;
 use std::fs::File;
@@ -12,7 +13,7 @@ use urma_runtime::error::Error as RuntimeError;
 use urma_runtime::light::LightSync;
 use urma_runtime::node::Node;
 use urma_wire::index::Index;
-use wire_app_core::connection::{ConnectionHealth, Trouble};
+use wire_app_core::connection::{ConnectionHealth, SourceChoice, Trouble};
 use wire_app_core::feed::SyncStatus;
 use wire_app_core::model::{AuthorId, Chain, WalletSummary};
 use wire_app_core::session::{Credential, IdentityStatus, Session, VaultSource};
@@ -34,6 +35,7 @@ pub(super) enum Identity {
 }
 
 pub struct Service {
+    pub(super) local_node: LocalSource,
     pub(super) directory: PathBuf,
     settings: RwLock<Settings>,
     identity: Mutex<Identity>,
@@ -65,6 +67,7 @@ impl Service {
             .map_err(NativeError::AlreadyRunning)?;
         Ok(Self {
             directory: directory.into(),
+            local_node: LocalNode::configured(&settings)?,
             settings: RwLock::new(settings),
             identity: Mutex::new(Identity::Locked),
             link: Arc::new(Mutex::new(Link::Closed)),
@@ -111,13 +114,25 @@ impl Service {
         locked_sync(&self.sync)
     }
 
+    pub(super) fn connect_node(&self, settings: &Settings) -> Result<Node, NativeError> {
+        if settings.source == SourceChoice::Public {
+            let providers = self.local_node.providers();
+            return Ok(Node::public_in_with_providers(
+                NETWORK,
+                &settings.cache_dir,
+                providers,
+            )?);
+        }
+        settings.connect()
+    }
+
     pub(super) fn node(&self) -> Result<Arc<Node>, NativeError> {
         let mut link = self.link();
         match &*link {
             Link::Open(node) => Ok(node.clone()),
             Link::Closed => {
                 let settings = self.settings().clone();
-                let node = Arc::new(settings.connect()?);
+                let node = Arc::new(self.connect_node(&settings)?);
                 opened(&node);
                 *link = Link::Open(node.clone());
                 Ok(node)

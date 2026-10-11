@@ -46,14 +46,17 @@ workspace/
   urma-wire-app/  # this application
 ```
 
-The compatible core baseline is the public commit
-**`73f5972a0a3f9c06b3047fa7c669539f5f3f06ce`** of
-[urma-protocol/urma](https://github.com/urma-protocol/urma). For a fresh dependency
-checkout beside an existing app checkout:
+This local revision requires core commit
+**`a17014a03071c2b72a056d0b4289db007ac1feaf`**, which adds
+`Node::public_in_with_providers`. It follows the published baseline
+`73f5972a0a3f9c06b3047fa7c669539f5f3f06ce` in
+[urma-protocol/urma](https://github.com/urma-protocol/urma). The new dependency is
+committed locally; it has not been pushed as part of this change. A fresh public
+clone of the older baseline is insufficient for this revision. Use the matching
+local sibling checkout until that core commit is published.
 
 ```sh
-git clone https://github.com/urma-protocol/urma.git ../urma
-git -C ../urma checkout --detach 73f5972a0a3f9c06b3047fa7c669539f5f3f06ce
+git -C ../urma rev-parse HEAD
 rustup target add wasm32-unknown-unknown
 cargo tauri dev
 ```
@@ -84,6 +87,33 @@ Lock, verified recent-history sync, confirmed spendable balances and exact-fee
 publication through direct public Esplora requests. It uses the same URMA vault,
 record proof, wallet signing and immutable-plan validation as native Wire. No node
 or miner is started by the app.
+
+## Automatic local block source
+
+In native **Public sources** mode, Wire checks the configured loopback RPC daemon
+in the background about every three seconds. Configure `rpc_url` and
+`node_auth_file` in the URMA config before launching Wire. The daemon may start
+later: no app restart or source-selection change is needed. Each check reads the
+current cookie, verifies the Litecoin Testnet genesis and requires initial block
+download to be finished with blocks caught up to the node's headers.
+
+Once verified, the local daemon is preferred for block hashes, headers and raw
+blocks through the existing router, including an already-running index scan.
+An in-flight public request is allowed to finish or time out; subsequent requests
+can use the local source. Missing/pruned blocks, RPC failure or invalid responses
+fall back through the normal public-source validation. Availability is probed
+again after loss or cookie rotation. RPC operations retain their existing bounded
+network timeouts, so a hung daemon can take longer than the polling interval.
+
+The monitor icon labelled **Local**, beneath the loading counter, is separate
+from P2P peers and remote RPC/API counts. Its tooltip describes availability;
+ready does not certify that a particular block was served locally. Public tip
+selection, transaction lookup and publication/submission routing remain as before:
+this automatic addition is block-read-only and never changes `source.json`.
+Explicit **Local node → Verify & use** still selects local-only operations.
+The detector does not start the system service, create credentials, scan ports,
+or reload edited RPC configuration while running. Browser/WASM builds cannot
+probe the native daemon.
 
 ## Desktop frontend boundary
 
@@ -532,9 +562,9 @@ complete to the tip. Under the logo a short status reads `X/Y` while verifying,
 `Retrying in N s` while the engine backs off after a source failure (5 s doubling
 to 60 s, eight attempts, progress kept), then `Up to date`, `History incomplete`
 or `Sync failed`; the feed itself carries no sync text. Below it a person icon
-counts the light client's connected peers and a globe counts ready public sources
-out of the configured ones; hovering either lists what each one is and whether it
-is ready, cold or cooling down. The eagle lives in
+counts the light client's connected peers, a globe counts ready remote sources
+out of the configured ones, and a monitor labelled Local shows the local daemon.
+Hovering each gives its ready, unavailable or cooldown status. The eagle lives in
 `assets/circuit-eagle.svg`; `assets/urma-wire.svg` remains the self-contained
 favicon with its own timed animation.
 
@@ -612,3 +642,26 @@ IndexedDB plan preservation and refusal before transaction POST across a locked
 restart; a read-only mocked source genesis GET may precede validation. Serialized
 browser cache tests exercise the shared projection, rather than IndexedDB cache
 runtime. These commands use local fixtures and establish no live-chain acceptance.
+
+## Local-node detection verification (11 October 2026)
+
+The current change passed 110 native core/engine/UI tests, including a running
+20-block index scan that begins with a public fixture and switches to a local RPC
+fixture without replacing the reader. The same router covers outage fallback,
+cookie rotation and malformed-block rejection; separate cases refuse wrong-genesis
+and initial-download nodes and verify the local icon does not inflate remote counts.
+The core dependency passed 18 focused transport/private-scan regressions, including
+construction of the standard pool with an additional local provider. These use
+synthetic or loopback fixtures, not a live-chain acceptance claim.
+
+The ordinary WebAssembly frontend and embedded debug desktop build also passed.
+The full app Lawkeeper result remains 29 pre-existing violations, with no added
+rule/path findings; the core dependency passes Lawkeeper.
+
+The packaged desktop smoke passed with `scripts/desktop_smoke.py --binary PATH
+--local-fixture --evidence DIRECTORY`: native IPC, session refresh, Settings and
+the accessible local-node status were checked. The screenshot shows the monitor,
+P2P and remote indicators together below the counter. This GUI fixture uses
+explicit Local-node mode with a minimal loopback RPC server; live discovery
+mid-sync is covered by the engine regression above, not claimed as a real-chain
+GUI experiment. The fixture contains no downloadable block bodies.

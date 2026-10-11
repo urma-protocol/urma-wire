@@ -1,4 +1,5 @@
 pub mod dispatch;
+pub mod local_node;
 pub mod media;
 pub mod publishing;
 pub mod reader;

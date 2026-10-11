@@ -160,3 +160,34 @@ fn transport_hints_describe_peers_and_sources() {
     };
     assert!(peers_hint(&cold).contains("warming up"));
 }
+
+#[test]
+fn local_daemon_has_its_own_status_and_is_not_counted_as_public_rpc() {
+    use wire_app_core::connection::{SourceKind, SourceStanding, SourceState, TransportStatus};
+    use wire_app_ui::components::brand::{local_hint, sources_hint};
+    let mut status = TransportStatus {
+        peers: 2,
+        sources: vec![
+            SourceState {
+                label: "http://127.0.0.1:19332".into(),
+                kind: SourceKind::LocalNode,
+                standing: SourceStanding::Cold,
+            },
+            SourceState {
+                label: "https://public.example".into(),
+                kind: SourceKind::Http,
+                standing: SourceStanding::Ready,
+            },
+        ],
+    };
+    assert!(local_hint(&status).contains("checked automatically"));
+    assert_eq!(status.remote_sources().len(), 1);
+    assert_eq!(status.ready_sources(), 1);
+    status.sources[0].standing = SourceStanding::Ready;
+    assert!(local_hint(&status).contains("preferred for block reads"));
+    assert!(!sources_hint(&status).contains("127.0.0.1"));
+    status.sources[0].standing = SourceStanding::Blocked { seconds: 3 };
+    assert!(local_hint(&status).contains("retrying in 3 s"));
+    status.sources.remove(0);
+    assert!(local_hint(&status).contains("not configured"));
+}

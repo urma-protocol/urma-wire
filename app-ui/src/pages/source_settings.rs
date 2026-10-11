@@ -166,11 +166,11 @@ fn public_hosts(status: Option<SourceStatus>) -> String {
     };
     match status.choice {
         SourceChoice::Public => format!(
-            "Litecoin Testnet providers, verified by genesis on every connection, tried in order with Electrum servers first: {}. Evidence tiers: light-client inclusion beats public provider observation, and only a local validating node checks blocks itself.",
+            "Litecoin Testnet providers: {}. A configured local node is detected automatically and preferred for block reads when ready. Evidence tiers: light-client inclusion beats public provider observation, and only a local validating node checks blocks itself.",
             status.endpoints.join(", ")
         ),
         SourceChoice::LocalNode | SourceChoice::Esplora(_) => {
-            "Litecoin Testnet providers from urma-runtime, verified by genesis when selected. Works with the local node off. Evidence tiers: light-client inclusion beats public provider observation, and only a local validating node checks blocks itself.".to_owned()
+            "Litecoin Testnet providers from urma-runtime, verified by genesis when selected. Works with the local node off; automatically uses a configured local node for block reads when ready. Evidence tiers: light-client inclusion beats public provider observation, and only a local validating node checks blocks itself.".to_owned()
         }
     }
 }
