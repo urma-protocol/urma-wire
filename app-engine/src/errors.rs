@@ -81,6 +81,8 @@ pub enum MediaError {
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Error)]
 pub enum NativeError {
+    #[error("Optional URMA archive: {0}")]
+    Archive(String),
     #[error("HOME is not set")]
     NoHome,
     #[error("RPC URL must be UTF-8")]
@@ -199,9 +201,11 @@ impl NativeError {
             | Self::Protocol(_)
             | Self::Hex(_)
             | Self::Consensus(_) => FaultKind::Publication,
-            Self::ChainChanged | Self::Runtime(_) | Self::Sync(_) | Self::Genesis(_) => {
-                FaultKind::Source
-            }
+            Self::Archive(_)
+            | Self::ChainChanged
+            | Self::Runtime(_)
+            | Self::Sync(_)
+            | Self::Genesis(_) => FaultKind::Source,
             Self::NoHome
             | Self::RpcUrlEncoding(_)
             | Self::LocalNodeUnconfigured

@@ -29,6 +29,7 @@ urma-wire = "0.3.0"
 bitcoin = { version = "0.32", features = ["rand-std"] }
 urma-io = "0.3.0"
 urma-workflows = "0.3.0"
+urma-node-client = "0.5.1"
 fs2 = "0.4"
 url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }

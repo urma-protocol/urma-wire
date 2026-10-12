@@ -15,7 +15,7 @@ use urma_runtime::node::Node;
 use urma_wallet::account::Account;
 use urma_wire::index::Index;
 use wire_app_core::connection::{ConnectionHealth, SourceChoice, Trouble};
-use wire_app_core::feed::SyncStatus;
+use wire_app_core::feed::{Feed, SyncStatus};
 use wire_app_core::model::{AuthorId, Chain, WalletSummary};
 use wire_app_core::session::{Credential, IdentityStatus, Session, VaultSource};
 use zeroize::Zeroizing;
@@ -40,7 +40,8 @@ pub struct Service {
     pub(super) directory: PathBuf,
     settings: RwLock<Settings>,
     identity: Mutex<Identity>,
-    link: Arc<Mutex<Link>>,
+    pub(super) link: Arc<Mutex<Link>>,
+    pub(super) archive_feed: Arc<Mutex<Option<Feed>>>,
     pub(super) sync: Arc<Mutex<SyncStatus>>,
     _lock: File,
 }
@@ -72,6 +73,7 @@ impl Service {
             settings: RwLock::new(settings),
             identity: Mutex::new(Identity::Locked),
             link: Arc::new(Mutex::new(Link::Closed)),
+            archive_feed: Arc::new(Mutex::new(None)),
             sync: Arc::new(Mutex::new(SyncStatus::idle())),
             _lock: lock,
         })
@@ -425,7 +427,7 @@ pub(super) fn drop_link(link: &Mutex<Link>, failed: &Arc<Node>) {
     }
 }
 
-fn opened(node: &Node) {
+pub(super) fn opened(node: &Node) {
     tracing::info!(providers = ?node.provider_labels(), evidence = node.inclusion_evidence(), "chain link opened");
     match node.warm_light_client() {
         Ok(()) => {

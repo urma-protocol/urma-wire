@@ -55,7 +55,8 @@ complete protocol conformance or a production wallet release. Application versio
 - Verification checks records and the available chain evidence. Public-provider
   observations are not equivalent to running a validating node; transparent
   Litecoin reads do not establish full MWEB consensus validation.
-- Sync runs while Wire is open. A background indexing daemon is not implemented.
+- Autonomous sync runs while Wire is open. Native builds can optionally consume
+  an explicitly configured URMA Node index; Wire does not start that daemon.
 - Use test identities and testnet coins. The committed fixture identity is public;
   never use it for valuable funds. Keep your original encrypted vault backup.
 
@@ -182,3 +183,44 @@ Original application source is licensed under **[0BSD](LICENSE)**, matching the
 URMA core. Bundled artwork, coin icons and dependency notices are documented in
 [NOTICES.md](NOTICES.md). Publication of the bundled Wire/ROSINT branding was
 approved for this repository; no trademark license or endorsement is implied.
+
+## Optional local archive feed
+
+Native Wire can reuse an already running URMA Node's selected Wire index. In the
+existing desktop `URMA_CONFIG` JSON, add an explicit loopback endpoint and a
+private bearer-token file:
+
+```json
+{
+  "archive": {
+    "endpoint": "127.0.0.1:8472",
+    "token_file": "/absolute/path/to/urma-node.token"
+  }
+}
+```
+
+This is independent of `rpc_url`, `node_auth_file` and the wallet/publication
+source choice. It is disabled by default; mobile defaults and the standalone
+browser retain their existing sources. Wire never generates a token or starts
+the service. Configure a Litecoin Testnet archive with an explicit application
+start; this option does not select a historical start or checkpoint for Node.
+
+The configured local operator is trusted for this feed. Parsing an index page is
+not independent verification of signatures, inclusion or complete chain history.
+The application collects one stable snapshot before publishing it in memory;
+it does not write a second archive index or use sparse record placements as scan
+coverage. Selected records can appear with incomplete scanned coverage. Feed
+completion describes only the archive's contiguous scanned interval from its
+explicit start through its selected tip, not all historical URMA records.
+
+A missing service, changed snapshot, invalid response or exceeded traversal bound
+discards that attempted snapshot and uses the existing autonomous scanner. No
+partial page becomes the feed. Each refresh retries the optional archive first;
+there is no automatic daemon startup. The last autonomous disk index remains
+available. Wallet and publication operations continue using their own sources.
+
+Traversal is capped at 50,000 records, 64 MiB of record hex, and a cooperative
+30-second budget with a five-second bound per HTTP operation. Existing I/O or
+projection work is not forcibly interrupted. The shared HTTP client is
+`urma-node-client`; production Wire does not gain a dependency on the Node
+archive engine, SQLite or its overlay through this adapter.
