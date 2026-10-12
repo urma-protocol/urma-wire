@@ -179,7 +179,14 @@ impl Drop for Mock {
     fn drop(&mut self) {
         self.stopped.store(true, Ordering::Release);
         let address = self.config.rpc_url.strip_prefix("http://").unwrap();
-        let _connection = TcpStream::connect(address).unwrap();
+        // A final in-flight probe may already have woken accept after stop was
+        // set, letting the worker close its listener before this wake-up call.
+        // Still join it and propagate its panic; refusal alone is not a leak.
+        let _connection = match TcpStream::connect(address) {
+            Ok(connection) => Some(connection),
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => None,
+            Err(error) => panic!("mock wake-up failed: {error}"),
+        };
         self.thread.take().unwrap().join().unwrap();
     }
 }
