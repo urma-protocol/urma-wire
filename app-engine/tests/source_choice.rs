@@ -11,6 +11,7 @@ fn settings(rpc_url: Option<String>, cookie: Option<std::path::PathBuf>) -> Sett
         node_auth_file: cookie,
         vault: None,
         unlock_file: None,
+        archive: None,
         source: SourceChoice::LocalNode,
         cache_dir: std::env::temp_dir().join("wire-source-choice-runtime"),
     }

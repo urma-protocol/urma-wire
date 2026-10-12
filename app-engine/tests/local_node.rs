@@ -144,6 +144,7 @@ impl Rpc {
             node_auth_file: Some(cookie),
             vault: None,
             unlock_file: None,
+            archive: None,
             source: SourceChoice::Public,
             cache_dir: dir.join("runtime"),
         }

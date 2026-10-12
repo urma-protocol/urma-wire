@@ -55,6 +55,7 @@ fn approved_signed_oversized_profile_refuses_restart_status_and_resume_before_su
         node_auth_file: Some(mock.config.cookie_file.clone()),
         vault: None,
         unlock_file: None,
+        archive: None,
         source: SourceChoice::LocalNode,
         cache_dir: dir.path().join("runtime"),
     };

@@ -34,6 +34,7 @@ fn open(dir: &std::path::Path) -> (node::Mock, Service) {
         node_auth_file: Some(mock.config.cookie_file.clone()),
         vault: Some(vault_path),
         unlock_file: None,
+        archive: None,
         source: SourceChoice::LocalNode,
         cache_dir: app.join("runtime"),
     };

@@ -75,6 +75,7 @@ fn publication_roundtrip(kind: &str, structured: bool) {
         node_auth_file: Some(mock.config.cookie_file.clone()),
         vault: Some(vault_path.clone()),
         unlock_file: None,
+        archive: None,
         source: SourceChoice::LocalNode,
         cache_dir: dir.path().join("app/runtime"),
     };

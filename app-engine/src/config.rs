@@ -132,16 +132,29 @@ pub const MAX_UTXOS: usize = 1000;
 pub const COINBASE_MATURITY: u64 = 100;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use settings::Settings;
+pub use settings::{ArchiveSettings, Settings};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod settings {
     use super::{CONFIG_FILE_BYTES, NETWORK, RUNTIME_DIR, SOURCE_FILE, SOURCE_FILE_BYTES};
     use crate::errors::NativeError;
     use serde::Deserialize;
-    use std::path::{Path, PathBuf};
+    use std::{
+        net::SocketAddr,
+        path::{Path, PathBuf},
+    };
     use urma_runtime::node::{Node, NodeConfig};
     use wire_app_core::connection::SourceChoice;
+
+    /// Explicit local archive configuration, independent of chain and wallet
+    /// sources. Deserialization neither reads the token file nor connects;
+    /// endpoint and token authorization are checked by the runtime client.
+    #[derive(Clone, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ArchiveSettings {
+        pub endpoint: SocketAddr,
+        pub token_file: PathBuf,
+    }
 
     #[derive(Clone, Deserialize)]
     #[serde(default)]
@@ -150,6 +163,7 @@ mod settings {
         pub node_auth_file: Option<PathBuf>,
         pub vault: Option<PathBuf>,
         pub unlock_file: Option<PathBuf>,
+        pub archive: Option<ArchiveSettings>,
         #[serde(skip)]
         pub source: SourceChoice,
         #[serde(skip)]
@@ -163,6 +177,7 @@ mod settings {
                 node_auth_file: None,
                 vault: None,
                 unlock_file: None,
+                archive: None,
                 source: SourceChoice::Public,
                 cache_dir: PathBuf::from(RUNTIME_DIR),
             }
