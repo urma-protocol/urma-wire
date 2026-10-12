@@ -3,7 +3,7 @@ use crate::identities::{gathered, Named, Naming};
 use crate::record::wire_txid;
 use urma_core::format::PublicRecord;
 use urma_wire::cached::{decode_cached, CachedRecord};
-use urma_wire::index::{Entry, Index};
+use urma_wire::index::{Checkpoint, Entry, Index};
 use wire_app_core::feed::{Feed, Lookup};
 use wire_app_core::model::{AuthorId, Chain, ConfirmedStatus, Placement, Post, Txid};
 
@@ -56,11 +56,33 @@ fn decoded(record: PublicRecord) -> Decoded {
     }
 }
 
+/// Borrowed projection inputs. Checkpoints may contain only record placements;
+/// the caller supplies the tip and coverage independently. Projection does not
+/// authenticate records, checkpoints, or chain membership.
+pub struct View<'a> {
+    pub start: u64,
+    pub tip: u64,
+    pub blocks: &'a [Checkpoint],
+    pub entries: &'a [Entry],
+}
+
 pub fn project(index: &Index, complete_to_tip: bool) -> Result<Feed, ProjectionError> {
-    let tip = tip_of(index);
+    project_view(
+        &View {
+            start: index.start,
+            tip: tip_of(index),
+            blocks: &index.blocks,
+            entries: &index.entries,
+        },
+        complete_to_tip,
+    )
+}
+
+pub fn project_view(view: &View<'_>, complete_to_tip: bool) -> Result<Feed, ProjectionError> {
+    let tip = view.tip;
     let mut posts = Vec::new();
     let mut namings = Vec::new();
-    for entry in &index.entries {
+    for entry in view.entries {
         let record = match decode_cached(&hex::decode(&entry.record)?)? {
             CachedRecord::Current(record) => record,
             CachedRecord::LegacyProfile => {
@@ -73,7 +95,7 @@ pub fn project(index: &Index, complete_to_tip: bool) -> Result<Feed, ProjectionE
             }
         };
         match decoded(record) {
-            Decoded::Said(said) => posts.push(confirmed(index, entry, tip, said)?),
+            Decoded::Said(said) => posts.push(confirmed(view, entry, said)?),
             Decoded::Named(named) => namings.push(Naming {
                 height: entry.height,
                 position: entry.position,
@@ -90,7 +112,7 @@ pub fn project(index: &Index, complete_to_tip: bool) -> Result<Feed, ProjectionE
     Ok(Feed {
         identities: gathered(namings),
         posts,
-        start: index.start,
+        start: view.start,
         tip,
         complete_to_tip,
     })
@@ -119,15 +141,15 @@ fn tip_of(index: &Index) -> u64 {
     last.height
 }
 
-fn confirmed(index: &Index, entry: &Entry, tip: u64, said: Said) -> Result<Post, ProjectionError> {
-    let Some(block) = index
+fn confirmed(view: &View<'_>, entry: &Entry, said: Said) -> Result<Post, ProjectionError> {
+    let Some(block) = view
         .blocks
         .iter()
         .find(|block| block.height == entry.height)
     else {
         return Err(ProjectionError::NoCheckpoint);
     };
-    let Some(behind) = tip.checked_sub(entry.height) else {
+    let Some(behind) = view.tip.checked_sub(entry.height) else {
         return Err(ProjectionError::HeightAboveTip);
     };
     Ok(Post {
