@@ -18,17 +18,17 @@ hex = "0.4"
 thiserror = "2"
 tracing = "0.1"
 zeroize = "1"
-urma-core = "0.2.0"
-urma-chain = "0.2.0"
-urma-identity = "0.2.0"
-urma-runtime = "0.2.0"
-urma-wallet = "0.2.0"
-urma-wire = "0.2.0"
+urma-core = "0.3.0"
+urma-chain = "0.3.0"
+urma-identity = "0.3.0"
+urma-runtime = "0.3.0"
+urma-wallet = "0.3.0"
+urma-wire = "0.3.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 bitcoin = { version = "0.32", features = ["rand-std"] }
-urma-io = "0.2.0"
-urma-workflows = "0.2.0"
+urma-io = "0.3.0"
+urma-workflows = "0.3.0"
 fs2 = "0.4"
 url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
@@ -42,7 +42,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 bitcoin = { version = "0.32", features = ["serde"] }
-urma-profiles = "0.2.0"
+urma-profiles = "0.3.0"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

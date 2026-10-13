@@ -11,7 +11,7 @@ description = "URMA Wire domain types and the typed contract between the interfa
 serde = { version = "1", features = ["derive"] }
 hex = { version = "0.4", features = ["serde"] }
 thiserror = "2"
-urma-core = "0.2.0"
+urma-core = "0.3.0"
 tracing = "0.1"
 pulldown-cmark = { version = "0.13", default-features = false }
 url = "2"
