@@ -5,7 +5,7 @@ mod node;
 
 use bitcoin::hashes::{sha256, Hash};
 use urma_core::{envelope, multipart::VerifiedRecord};
-use urma_identity::{keyring::Keyring, phrase::IdentityPhrase};
+use urma_identity::keyring::Keyring;
 use wire_app_core::connection::SourceChoice;
 use wire_app_engine::{config::Settings, native::service::Service, record::review};
 
@@ -36,12 +36,8 @@ fn approved_signed_legacy_plan_refuses_restart_status_and_resume_before_network(
         .unwrap();
     }
     let dir = tempfile::tempdir().unwrap();
-    let phrase = IdentityPhrase::parse(&format!("{}art", "abandon ".repeat(23))).unwrap();
-    let signer = Keyring::create(&phrase, "public fixture")
-        .unwrap()
-        .active()
-        .unwrap();
-    let mock = node::Mock::new(dir.path(), signer);
+    let keys = Keyring::create(&node::phrase(), "public fixture").unwrap();
+    let mock = node::Mock::new(dir.path(), &keys);
     let directory = dir.path().join("plans").join(&id);
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join("plan.json"), &saved).unwrap();

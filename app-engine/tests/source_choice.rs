@@ -1,6 +1,6 @@
 #[path = "support/node.rs"]
 mod node;
-use urma_identity::{keyring::Keyring, phrase::IdentityPhrase};
+use urma_identity::keyring::Keyring;
 use wire_app_core::connection::SourceChoice;
 use wire_app_engine::config::Settings;
 use wire_app_engine::native::service::Service;
@@ -40,9 +40,8 @@ fn local_node_choice_needs_both_fields_and_a_cookie_file() {
 #[test]
 fn adopting_the_local_node_verifies_then_persists_the_choice() {
     let dir = tempfile::tempdir().unwrap();
-    let phrase = IdentityPhrase::parse(&format!("{}art", "abandon ".repeat(23))).unwrap();
-    let keys = Keyring::create(&phrase, "source test fixture").unwrap();
-    let mock = node::Mock::new(dir.path(), keys.active().unwrap());
+    let keys = Keyring::create(&node::phrase(), "source test fixture").unwrap();
+    let mock = node::Mock::new(dir.path(), &keys);
     let app = dir.path().join("app");
     let configured = settings(
         Some(mock.config.rpc_url.clone()),
@@ -74,9 +73,8 @@ fn adopting_the_local_node_verifies_then_persists_the_choice() {
 #[test]
 fn one_node_is_held_across_requests_and_handed_over_on_adoption() {
     let dir = tempfile::tempdir().unwrap();
-    let phrase = IdentityPhrase::parse(&format!("{}art", "abandon ".repeat(23))).unwrap();
-    let keys = Keyring::create(&phrase, "held node fixture").unwrap();
-    let mock = node::Mock::new(dir.path(), keys.active().unwrap());
+    let keys = Keyring::create(&node::phrase(), "held node fixture").unwrap();
+    let mock = node::Mock::new(dir.path(), &keys);
     let configured = settings(
         Some(mock.config.rpc_url.clone()),
         Some(mock.config.cookie_file.clone()),

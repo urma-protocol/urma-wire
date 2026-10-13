@@ -12,7 +12,7 @@ fn password(text: &str) -> Credential {
 #[test]
 fn session_and_import_preserve_identity_without_a_working_source() {
     let dir = tempfile::tempdir().unwrap();
-    let phrase = IdentityPhrase::parse(&format!("{}art", "abandon ".repeat(23))).unwrap();
+    let phrase = IdentityPhrase::parse(&format!("{}about", "abandon ".repeat(11))).unwrap();
     let keys = Keyring::create(&phrase, "public fixture").unwrap();
     let vault = UnlockedVault::create(keys, "fixture-password", &mut rand::rngs::OsRng).unwrap();
     let bytes = vault
@@ -44,7 +44,7 @@ fn session_and_import_preserve_identity_without_a_working_source() {
     assert!(service
         .import_identity(bytes.clone(), "wrong".into())
         .is_err());
-    assert!(!app.join("identity.urma").exists());
+    assert!(!app.join("identity-v2.urma").exists());
     assert!(service
         .import_identity(vec![0; MAX_VAULT_BYTES + 1], "fixture-password".into())
         .is_err());
@@ -57,7 +57,7 @@ fn session_and_import_preserve_identity_without_a_working_source() {
     assert!(service
         .import_identity(vec![0; 300], "fixture-password".into())
         .is_err());
-    assert_eq!(std::fs::read(app.join("identity.urma")).unwrap(), bytes);
+    assert_eq!(std::fs::read(app.join("identity-v2.urma")).unwrap(), bytes);
     assert_eq!(std::fs::read(&original).unwrap(), bytes);
     assert_eq!(imported, service.identity_status().unwrap());
     service.lock();

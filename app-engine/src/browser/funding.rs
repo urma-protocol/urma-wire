@@ -1,16 +1,27 @@
-use crate::browser::session::{with_signer, Epoch};
+use crate::browser::session::{funder, with_signer, Epoch};
 use crate::browser::source::{Presence, Source};
-use crate::config::{COINBASE_MATURITY, MAX_UTXOS, NETWORK};
+use crate::config::{COINBASE_MATURITY, MAX_UTXOS};
 use crate::errors::BrowserError;
-use bitcoin::{ScriptBuf, Txid};
+use bitcoin::Txid;
 use serde_json::Value;
+use std::cmp::Reverse;
 use std::collections::HashSet;
+use urma_runtime::config::{WALLET_GAP, WALLET_RANGE, WALLET_VERIFY_OUTPUTS};
+use urma_runtime::wallet::FundingInput;
+use urma_wallet::account::{Account, Branch, KeyPath};
 use urma_wallet::funding::Funding;
 use wire_app_core::model::{AuthorId, Chain, WalletSummary};
 
 pub struct Spendable {
-    pub funding: Funding,
+    pub input: FundingInput,
     pub value: u64,
+}
+
+struct Listed {
+    txid: Txid,
+    vout: u32,
+    value: u64,
+    path: KeyPath,
 }
 
 enum Checked {
@@ -18,26 +29,38 @@ enum Checked {
     Skipped,
 }
 
-pub async fn outputs(
-    source: &Source,
-    address: &str,
-    script: &ScriptBuf,
-) -> Result<Vec<Spendable>, BrowserError> {
+struct Scan<'a> {
+    source: &'a Source,
+    account: &'a Account,
+    seen: HashSet<(Txid, u32)>,
+    listed: Vec<Listed>,
+}
+
+pub async fn outputs(source: &Source, account: &Account) -> Result<Vec<Spendable>, BrowserError> {
     let (tip, anchor) = source.tip().await?;
-    let listed = source.json(&format!("/address/{address}/utxo")).await?;
-    let Some(rows) = listed.as_array() else {
-        return Err(BrowserError::UtxoResponse);
+    let mut scan = Scan {
+        source,
+        account,
+        seen: HashSet::new(),
+        listed: Vec::new(),
     };
-    if rows.len() > MAX_UTXOS {
-        return Err(BrowserError::UtxoCapacity);
-    }
-    let mut spendable = Vec::new();
-    let mut seen = HashSet::new();
-    for row in rows {
-        if row["status"]["confirmed"] != true {
-            continue;
+    for branch in [Branch::External, Branch::Internal] {
+        let mut empty = 0;
+        let mut index = 0;
+        while empty < WALLET_GAP && index < WALLET_RANGE {
+            let used = scan.address(KeyPath::new(branch, index)).await?;
+            empty = match used {
+                true => 0,
+                false => empty + 1,
+            };
+            index += 1;
         }
-        match checked(source, row, script, tip, &mut seen).await? {
+    }
+    let mut listed = scan.listed;
+    listed.sort_by_key(|coin| (Reverse(coin.value), coin.txid, coin.vout));
+    let mut spendable = Vec::new();
+    for coin in listed.iter().take(WALLET_VERIFY_OUTPUTS) {
+        match checked(source, account, coin, tip).await? {
             Checked::Spendable(output) => spendable.push(output),
             Checked::Skipped => (),
         }
@@ -45,45 +68,70 @@ pub async fn outputs(
     if source.hash(tip).await? != anchor {
         return Err(BrowserError::FundingChanged);
     }
-    spendable.sort_by_key(|output| {
-        (
-            output.value,
-            output.funding.raw_transaction.clone(),
-            output.funding.vout,
-        )
-    });
     Ok(spendable)
+}
+
+impl Scan<'_> {
+    async fn address(&mut self, path: KeyPath) -> Result<bool, BrowserError> {
+        let address = self.account.address(path)?;
+        let answer = self
+            .source
+            .json(&format!("/address/{address}/utxo"))
+            .await?;
+        let Some(rows) = answer.as_array() else {
+            return Err(BrowserError::UtxoResponse);
+        };
+        if rows.len() > MAX_UTXOS {
+            return Err(BrowserError::UtxoCapacity);
+        }
+        for row in rows {
+            if row["status"]["confirmed"] != true {
+                continue;
+            }
+            let coin = listed(row, path)?;
+            if !self.seen.insert((coin.txid, coin.vout)) {
+                return Err(BrowserError::DuplicateFunding);
+            }
+            self.listed.push(coin);
+        }
+        Ok(!rows.is_empty())
+    }
+}
+
+fn listed(row: &Value, path: KeyPath) -> Result<Listed, BrowserError> {
+    let Some(id) = row["txid"].as_str() else {
+        return Err(BrowserError::UtxoField("ID"));
+    };
+    let Some(vout) = row["vout"].as_u64() else {
+        return Err(BrowserError::UtxoField("output index"));
+    };
+    let Some(value) = row["value"].as_u64() else {
+        return Err(BrowserError::UtxoField("amount"));
+    };
+    Ok(Listed {
+        txid: id.parse()?,
+        vout: u32::try_from(vout)?,
+        value,
+        path,
+    })
 }
 
 async fn checked(
     source: &Source,
-    row: &Value,
-    script: &ScriptBuf,
+    account: &Account,
+    coin: &Listed,
     tip: u64,
-    seen: &mut HashSet<(Txid, u32)>,
 ) -> Result<Checked, BrowserError> {
-    let Some(id) = row["txid"].as_str() else {
-        return Err(BrowserError::UtxoField("ID"));
-    };
-    let id: Txid = id.parse()?;
-    let Some(vout) = row["vout"].as_u64() else {
-        return Err(BrowserError::UtxoField("output index"));
-    };
-    let vout = u32::try_from(vout)?;
-    let Some(value) = row["value"].as_u64() else {
-        return Err(BrowserError::UtxoField("amount"));
-    };
-    if !seen.insert((id, vout)) {
-        return Err(BrowserError::DuplicateFunding);
-    }
-    let tx = source.transaction(id).await?;
-    let Some(previous) = tx.output.get(usize::try_from(vout)?) else {
+    let tx = source.transaction(coin.txid).await?;
+    let Some(previous) = tx.output.get(usize::try_from(coin.vout)?) else {
         return Err(BrowserError::UtxoAbsent);
     };
-    if previous.value.to_sat() != value || &previous.script_pubkey != script {
+    if previous.value.to_sat() != coin.value
+        || previous.script_pubkey != account.script(coin.path)?
+    {
         return Err(BrowserError::FundingMismatch);
     }
-    let Presence::Confirmed { height, .. } = source.presence(id).await? else {
+    let Presence::Confirmed { height, .. } = source.presence(coin.txid).await? else {
         return Ok(Checked::Skipped);
     };
     let Some(behind) = tip.checked_sub(height) else {
@@ -92,30 +140,32 @@ async fn checked(
     if tx.is_coinbase() && behind + 1 < COINBASE_MATURITY {
         return Ok(Checked::Skipped);
     }
-    let spend = source.json(&format!("/tx/{id}/outspend/{vout}")).await?;
+    let spend = source
+        .json(&format!("/tx/{}/outspend/{}", coin.txid, coin.vout))
+        .await?;
     match spend["spent"].as_bool() {
         Some(true) => return Ok(Checked::Skipped),
         Some(false) => (),
         None => return Err(BrowserError::SpendStatus),
     }
     Ok(Checked::Spendable(Spendable {
-        funding: Funding {
-            raw_transaction: hex::encode(bitcoin::consensus::serialize(&tx)),
-            vout,
+        input: FundingInput {
+            funding: Funding {
+                raw_transaction: hex::encode(bitcoin::consensus::serialize(&tx)),
+                vout: coin.vout,
+            },
+            path: coin.path,
         },
-        value,
+        value: coin.value,
     }))
 }
 
 pub async fn wallet(source: &Source) -> Result<WalletSummary, BrowserError> {
-    let (author, address, script) = with_signer(Epoch::Any, |signer| {
-        Ok((
-            AuthorId(signer.author().0.serialize()),
-            urma_wallet::address::receive_address(signer, NETWORK)?,
-            urma_wallet::signing::script(signer)?,
-        ))
+    let author = with_signer(Epoch::Any, |signer| {
+        Ok(AuthorId(signer.author().0.serialize()))
     })?;
-    let spendable = outputs(source, &address, &script).await?;
+    let account = funder(Epoch::Any)?;
+    let spendable = outputs(source, &account).await?;
     let mut balance: u64 = 0;
     for output in &spendable {
         balance = balance
@@ -125,7 +175,7 @@ pub async fn wallet(source: &Source) -> Result<WalletSummary, BrowserError> {
     Ok(WalletSummary {
         author_pubkey: author.to_hex(),
         author_fingerprint: author.fingerprint(),
-        receive_address: address,
+        receive_address: account.receive_address()?,
         chain: Chain::Litecoin,
         network_name: Chain::Litecoin.network_name().into(),
         confirmed_balance_sats: balance,

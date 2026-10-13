@@ -1,6 +1,6 @@
 #[path = "support/node.rs"]
 mod node;
-use urma_identity::{keyring::Keyring, phrase::IdentityPhrase, vault::UnlockedVault};
+use urma_identity::{keyring::Keyring, vault::UnlockedVault};
 use wire_app_core::connection::SourceChoice;
 use wire_app_core::publication::{Addressed, Content, Pending};
 use wire_app_core::session::Credential;
@@ -19,9 +19,8 @@ fn post(text: &str) -> Content {
 }
 
 fn open(dir: &std::path::Path) -> (node::Mock, Service) {
-    let phrase = IdentityPhrase::parse(&format!("{}art", "abandon ".repeat(23))).unwrap();
-    let keys = Keyring::create(&phrase, "abandon fixture").unwrap();
-    let mock = node::Mock::new(dir, keys.active().unwrap());
+    let keys = Keyring::create(&node::phrase(), "abandon fixture").unwrap();
+    let mock = node::Mock::new(dir, &keys);
     let vault = UnlockedVault::create(keys, PASSWORD, &mut rand::rngs::OsRng).unwrap();
     let vault_path = dir.join("fixture.vault");
     std::fs::write(

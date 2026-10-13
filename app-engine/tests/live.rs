@@ -1,6 +1,6 @@
 #[path = "support/node.rs"]
 mod node;
-use urma_identity::{keyring::Keyring, phrase::IdentityPhrase, vault::UnlockedVault};
+use urma_identity::{keyring::Keyring, vault::UnlockedVault};
 use wire_app_core::connection::SourceChoice;
 use wire_app_core::feed::Lookup;
 use wire_app_core::model::{Placement, Txid};
@@ -60,9 +60,9 @@ fn awaiting(pending: Pending) -> Publication {
 
 fn publication_roundtrip(kind: &str, structured: bool) {
     let dir = tempfile::tempdir().unwrap();
-    let phrase = IdentityPhrase::parse(&format!("{}art", "abandon ".repeat(23))).unwrap();
-    let keys = Keyring::create(&phrase, "public test fixture").unwrap();
-    let mock = node::Mock::new(dir.path(), keys.active().unwrap());
+    let keys = Keyring::create(&node::phrase(), "public test fixture").unwrap();
+    let mock = node::Mock::new(dir.path(), &keys);
+    let receive = node::funder(&keys).receive_script().unwrap();
     let vault = UnlockedVault::create(keys, PASSWORD, &mut rand::rngs::OsRng).unwrap();
     let vault_path = dir.path().join("fixture.vault");
     std::fs::write(
@@ -117,6 +117,15 @@ fn publication_roundtrip(kind: &str, structured: bool) {
     }
     assert_eq!((first.confirmed, first.mempool), (0, 2));
     assert!(!first.complete);
+    let submitted = mock.state.lock().unwrap().submissions.clone();
+    for raw in &submitted {
+        let tx: bitcoin::Transaction =
+            bitcoin::consensus::deserialize(&hex::decode(raw).unwrap()).unwrap();
+        assert!(tx
+            .output
+            .iter()
+            .any(|output| output.script_pubkey == receive));
+    }
     assert!(service
         .quote(&post("another", false, "", Addressed::Standalone))
         .is_err());
@@ -171,7 +180,7 @@ fn confirmed_index_projects_posts_and_actual_replies() {
     let child = "02".repeat(32);
     let author = "03".repeat(32);
     let index = Index {
-        format: "URMA-WIRE-INDEX-1".into(),
+        format: Index::FORMAT.into(),
         genesis: "04".repeat(32),
         start: 100,
         blocks: vec![Checkpoint {
@@ -185,6 +194,7 @@ fn confirmed_index_projects_posts_and_actual_replies() {
                 txid: parent.clone(),
                 author: author.clone(),
                 record: hex::encode(PublicRecord::Post("exact text\n".into()).encode().unwrap()),
+                return_script: None,
             },
             Entry {
                 height: 100,
@@ -199,6 +209,7 @@ fn confirmed_index_projects_posts_and_actual_replies() {
                     .encode()
                     .unwrap(),
                 ),
+                return_script: None,
             },
         ],
     };

@@ -51,9 +51,10 @@ fn colliding_names_latest_order_and_rollback_rebuild_separate_identity_fields() 
         author: author.into(),
         txid: format!("{height:064x}"),
         record: hex::encode(record.encode().unwrap()),
+        return_script: None,
     };
     let mut index = Index {
-        format: "URMA-WIRE-INDEX-2".into(),
+        format: Index::FORMAT.into(),
         genesis: "00".repeat(32),
         start: 100,
         blocks: vec![

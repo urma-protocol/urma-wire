@@ -3,7 +3,7 @@ mod node;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use urma_identity::{keyring::Keyring, phrase::IdentityPhrase, vault::UnlockedVault};
+use urma_identity::{keyring::Keyring, vault::UnlockedVault};
 use wire_app_core::connection::SourceChoice;
 use wire_app_core::feed::SyncPhase;
 use wire_app_core::session::{Credential, Session};
@@ -22,9 +22,8 @@ struct Harness {
 
 fn harness() -> Harness {
     let dir = tempfile::tempdir().unwrap();
-    let phrase = IdentityPhrase::parse(&format!("{}art", "abandon ".repeat(23))).unwrap();
-    let keys = Keyring::create(&phrase, "engine lock fixture").unwrap();
-    let mock = node::Mock::new(dir.path(), keys.active().unwrap());
+    let keys = Keyring::create(&node::phrase(), "engine lock fixture").unwrap();
+    let mock = node::Mock::new(dir.path(), &keys);
     mock.state.lock().unwrap().delay_ms = DELAY_MS;
     let vault = UnlockedVault::create(keys, PASSWORD, &mut rand::rngs::OsRng).unwrap();
     let vault_path = dir.path().join("fixture.vault");
@@ -92,7 +91,10 @@ fn identity_requests_answer_while_a_sync_runs() {
         .map(|(_phase, done, _total)| *done)
         .collect();
     assert!(counted.windows(2).all(|pair| pair[1] >= pair[0]));
-    assert!(counted.len() >= 2, "progress was observed in steps: {counted:?}");
+    assert!(
+        counted.len() >= 2,
+        "progress was observed in steps: {counted:?}"
+    );
     assert_eq!(harness.service.start_sync().unwrap().run, 2);
     harness.service.lock();
     let started = Instant::now();

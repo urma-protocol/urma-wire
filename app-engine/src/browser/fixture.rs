@@ -1,5 +1,5 @@
 use crate::browser::dispatch::handle;
-use crate::browser::session::{with_signer, Epoch};
+use crate::browser::session::{funder, with_signer, Epoch};
 use crate::browser::source::Source;
 use crate::config::NETWORK;
 use crate::errors::BrowserError;
@@ -74,10 +74,16 @@ async fn probe(asked: Probe) -> Result<Value, BrowserError> {
     let source = Source::connect(asked.url).await?;
     let (height, _anchor) = source.tip().await?;
     let block = source.block(height).await?;
-    Ok(json!({"height": height, "hash": block.block_hash().to_string(), "transactions": block.txdata.len()}))
+    Ok(
+        json!({"height": height, "hash": block.block_hash().to_string(), "transactions": block.txdata.len()}),
+    )
 }
 
-fn mined(previous: BlockHash, transactions: Vec<Transaction>, nonce: u32) -> Result<Block, BrowserError> {
+fn mined(
+    previous: BlockHash,
+    transactions: Vec<Transaction>,
+    nonce: u32,
+) -> Result<Block, BrowserError> {
     let mut block = bitcoin::blockdata::constants::genesis_block(bitcoin::Network::Regtest);
     block.header.prev_blockhash = previous;
     block.header.nonce = nonce;
@@ -105,24 +111,22 @@ fn encoded(block: &Block) -> Value {
 }
 
 fn funding() -> Result<Transaction, BrowserError> {
-    with_signer(Epoch::Any, |signer| {
-        Ok(Transaction {
-            version: Version::TWO,
-            lock_time: LockTime::ZERO,
-            input: vec![TxIn {
-                previous_output: OutPoint {
-                    txid: bitcoin::Txid::all_zeros(),
-                    vout: 1,
-                },
-                script_sig: ScriptBuf::new(),
-                sequence: Sequence::MAX,
-                witness: Witness::new(),
-            }],
-            output: vec![TxOut {
-                value: Amount::from_sat(100_000_000),
-                script_pubkey: urma_wallet::signing::script(signer)?,
-            }],
-        })
+    Ok(Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint {
+                txid: bitcoin::Txid::all_zeros(),
+                vout: 1,
+            },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::new(),
+        }],
+        output: vec![TxOut {
+            value: Amount::from_sat(100_000_000),
+            script_pubkey: funder(Epoch::Any)?.receive_script()?,
+        }],
     })
 }
 
@@ -143,7 +147,7 @@ fn chain() -> Result<Value, BrowserError> {
     Ok(json!({
         "genesis": genesis.to_string(),
         "blocks": blocks,
-        "funding": {"txid": funding.compute_txid().to_string(), "raw": hex::encode(serialize(&funding)), "value": 100_000_000},
+        "funding": {"txid": funding.compute_txid().to_string(), "raw": hex::encode(serialize(&funding)), "value": 100_000_000, "address": funder(Epoch::Any)?.receive_address()?},
     }))
 }
 
@@ -152,7 +156,11 @@ fn block(asked: Mined) -> Result<Value, BrowserError> {
     for raw in &asked.transactions {
         transactions.push(deserialize::<Transaction>(&hex::decode(raw)?)?);
     }
-    Ok(encoded(&mined(asked.previous.parse()?, transactions, asked.nonce)?))
+    Ok(encoded(&mined(
+        asked.previous.parse()?,
+        transactions,
+        asked.nonce,
+    )?))
 }
 
 fn txid(asked: Raw) -> Result<Value, BrowserError> {

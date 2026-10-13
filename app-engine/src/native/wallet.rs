@@ -5,6 +5,7 @@ use urma_identity::{
     identity::IdentityKey,
     vault::{EncryptedVault, UnlockCredential, UnlockedVault},
 };
+use urma_wallet::account::Account;
 use wire_app_core::model::{AuthorId, Chain, WalletSummary};
 
 pub struct WireWallet {
@@ -16,6 +17,13 @@ pub struct Balance {
     pub unconfirmed: u64,
     pub outputs: usize,
     pub tip_height: u64,
+}
+
+fn network(chain: Chain) -> Network {
+    match chain {
+        Chain::Bitcoin => Network::BitcoinTestnet4,
+        Chain::Litecoin => Network::LitecoinTestnet,
+    }
 }
 
 impl WireWallet {
@@ -32,19 +40,19 @@ impl WireWallet {
         self.vault.keyring().active()
     }
 
+    pub fn funder(&self, chain: Chain) -> Result<Account, NativeError> {
+        Ok(Account::from_root(
+            network(chain),
+            self.vault.keyring().root(),
+        )?)
+    }
+
     pub fn author_id(&self) -> Result<AuthorId, IdentityError> {
         Ok(AuthorId(self.signer()?.author().0.serialize()))
     }
 
     pub fn receive_address(&self, chain: Chain) -> Result<String, NativeError> {
-        let network = match chain {
-            Chain::Bitcoin => Network::BitcoinTestnet4,
-            Chain::Litecoin => Network::LitecoinTestnet,
-        };
-        Ok(urma_wallet::address::receive_address(
-            &self.signer()?,
-            network,
-        )?)
+        Ok(self.funder(chain)?.receive_address()?)
     }
 
     pub fn summary(&self, chain: Chain, balance: Balance) -> Result<WalletSummary, NativeError> {

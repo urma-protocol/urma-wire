@@ -20,7 +20,17 @@ use std::{
     time::Duration,
 };
 use urma_chain::observation::Chain;
+use urma_identity::{keyring::Keyring, phrase::IdentityPhrase};
 use urma_runtime::node::NodeConfig;
+use urma_wallet::account::Account;
+
+pub fn phrase() -> IdentityPhrase {
+    IdentityPhrase::parse(&format!("{}about", "abandon ".repeat(11))).unwrap()
+}
+
+pub fn funder(keys: &Keyring) -> Account {
+    Account::from_root(Chain::LitecoinTestnet, keys.root()).unwrap()
+}
 
 #[derive(Default)]
 pub struct State {
@@ -84,7 +94,7 @@ pub struct Mock {
 }
 
 impl Mock {
-    pub fn new(directory: &Path, signer: urma_identity::identity::IdentityKey) -> Self {
+    pub fn new(directory: &Path, keys: &Keyring) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let funding = Transaction {
@@ -93,7 +103,7 @@ impl Mock {
             input: vec![TxIn::default()],
             output: vec![TxOut {
                 value: Amount::from_sat(100_000_000),
-                script_pubkey: urma_wallet::signing::script(&signer).unwrap(),
+                script_pubkey: funder(keys).receive_script().unwrap(),
             }],
         };
         let state = Arc::new(Mutex::new(State::default()));
@@ -213,7 +223,7 @@ fn respond(
         }
         "getindexinfo" => Ok(json!({"txindex":{"synced":true}})),
         "scantxoutset" => Ok(
-            json!({"success":true,"unspents":[{"txid":funding.compute_txid(),"vout":0,"amount":1,"height":1}]}),
+            json!({"success":true,"unspents":[{"txid":funding.compute_txid(),"vout":0,"amount":1,"height":1,"scriptPubKey":hex::encode(funding.output[0].script_pubkey.as_bytes())}]}),
         ),
         "gettxout" => Ok(
             json!({"value":1,"confirmations":100,"scriptPubKey":{"hex":hex::encode(funding.output[0].script_pubkey.as_bytes())}}),

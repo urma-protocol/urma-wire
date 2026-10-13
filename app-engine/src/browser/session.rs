@@ -1,8 +1,10 @@
+use crate::config::{NETWORK, VAULT_KEY};
 use crate::errors::BrowserError;
 use std::cell::{Cell, RefCell};
 use std::num::Wrapping;
 use urma_identity::identity::IdentityKey;
 use urma_identity::vault::{EncryptedVault, UnlockCredential, UnlockedVault};
+use urma_wallet::account::Account;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use wire_app_core::model::AuthorId;
@@ -21,23 +23,23 @@ function database() {
         request.onerror = () => reject(new Error('Browser storage unavailable'));
     });
 }
-export async function vault_read() {
+export async function vault_read(key) {
     const db = await database();
     try {
         return await new Promise((resolve, reject) => {
             const tx = db.transaction('private', 'readonly');
-            const request = tx.objectStore('private').get('identity-v1');
+            const request = tx.objectStore('private').get(key);
             tx.oncomplete = () => resolve(request.result || null);
             tx.onabort = tx.onerror = () => reject(new Error('Cannot read encrypted vault'));
         });
     } finally { db.close(); }
 }
-export async function vault_insert(bytes) {
+export async function vault_insert(key, bytes) {
     const db = await database();
     try {
         await new Promise((resolve, reject) => {
             const tx = db.transaction('private', 'readwrite');
-            tx.objectStore('private').add(bytes, 'identity-v1');
+            tx.objectStore('private').add(bytes, key);
             tx.oncomplete = resolve;
             tx.onabort = tx.onerror = () => reject(new Error('Vault already exists or storage failed; existing vault was preserved'));
         });
@@ -46,9 +48,9 @@ export async function vault_insert(bytes) {
 "#)]
 extern "C" {
     #[wasm_bindgen(catch)]
-    async fn vault_read() -> Result<JsValue, JsValue>;
+    async fn vault_read(key: &str) -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch)]
-    async fn vault_insert(bytes: &str) -> Result<(), JsValue>;
+    async fn vault_insert(key: &str, bytes: &str) -> Result<(), JsValue>;
 }
 
 enum Vault {
@@ -66,7 +68,7 @@ fn vault_storage(thrown: JsValue) -> BrowserError {
 }
 
 async fn stored() -> Result<Vault, BrowserError> {
-    let held = vault_read().await.map_err(vault_storage)?;
+    let held = vault_read(VAULT_KEY).await.map_err(vault_storage)?;
     let Some(text) = held.as_string() else {
         return Ok(Vault::Absent);
     };
@@ -114,9 +116,9 @@ fn bump_epoch() {
     EPOCH.with(|epoch| epoch.set(epoch.get() + Wrapping(1)));
 }
 
-pub fn with_signer<T>(
+fn with_vault<T>(
     epoch: Epoch,
-    act: impl FnOnce(&IdentityKey) -> Result<T, BrowserError>,
+    act: impl FnOnce(&UnlockedVault) -> Result<T, BrowserError>,
 ) -> Result<T, BrowserError> {
     match epoch {
         Epoch::Exactly(expected) if expected != session_epoch() => {
@@ -129,7 +131,20 @@ pub fn with_signer<T>(
         let Some(vault) = session.as_ref() else {
             return Err(BrowserError::Locked);
         };
-        act(&vault.keyring().active()?)
+        act(vault)
+    })
+}
+
+pub fn with_signer<T>(
+    epoch: Epoch,
+    act: impl FnOnce(&IdentityKey) -> Result<T, BrowserError>,
+) -> Result<T, BrowserError> {
+    with_vault(epoch, |vault| act(&vault.keyring().active()?))
+}
+
+pub fn funder(epoch: Epoch) -> Result<Account, BrowserError> {
+    with_vault(epoch, |vault| {
+        Ok(Account::from_root(NETWORK, vault.keyring().root())?)
     })
 }
 
@@ -153,7 +168,7 @@ pub async fn import(vault: Vec<u8>, password: String) -> Result<IdentityStatus, 
     let epoch = session_epoch();
     let password = Zeroizing::new(password);
     let opened = unlocked(&vault, &password)?;
-    vault_insert(&serde_json::to_string(&vault)?)
+    vault_insert(VAULT_KEY, &serde_json::to_string(&vault)?)
         .await
         .map_err(vault_storage)?;
     adopt(epoch, opened)?;

@@ -90,6 +90,8 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
                 "set_chain_source": lambda: {"AdoptSource": {"Esplora": args["url"]}},
                 "get_wallet_summary": lambda: {"Wallet": {"chain": chain}},
                 "get_feed": lambda: {"Feed": {"chain": chain}},
+                "start_sync": lambda: {"StartSync": {"chain": chain}},
+                "sync_status": lambda: {"SyncStatus": {"chain": chain}},
                 "quote_publication": lambda: {"Quote": {"chain": chain, "content": {"Post": {
                     "text": args["text"], "wire": args.get("wire", ""),
                     "hashtags": args.get("hashtags", []), "addressed": "Standalone"}}}},

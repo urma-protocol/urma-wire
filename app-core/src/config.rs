@@ -2,7 +2,7 @@ use urma_core::format::Urma;
 
 pub const MAX_NICKNAME_BYTES: usize = Urma::MAX_PROFILE_BYTES;
 
-pub const MAX_VAULT_BYTES: usize = 4532;
+pub const MAX_VAULT_BYTES: usize = 4516;
 
 pub const MAX_POST_BYTES: usize = 32_760;
 

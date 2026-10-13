@@ -104,7 +104,9 @@ uses public-provider chain observations, not an independently validating node or
 full-chain history. No offline transaction confirmation is claimed.
 
 Funding checks exact raw transaction amounts/scripts, block inclusion, unspent
-status and coinbase maturity. Preparing stores an immutable signed plan with an
+status and coinbase maturity. The account's addresses are listed with a gap
+limit of 20 per chain; only the 64 largest confirmed coins are verified and
+offered for funding, so dust sent to the public address cannot block publishing. Preparing stores an immutable signed plan with an
 exact quoted fee, without submitting. Approval saves that plan's validated ID
 before any broadcast. The journal persists submission intent and observations;
 restart or a lost response reconciles the same signed bytes. Reveal submission
@@ -161,9 +163,11 @@ those sizes with `cargo tauri icon assets/urma-wire-icon.png`.
    fields. The review displays the exact frozen text, wire, hashtags, reply target,
    total fee, selected funding and value returned. See the
    [configuration sources](#configuration-and-state) for the fee policy; there is
-   no automatic fee increase. Funding currently
-   needs one adequate confirmed spendable output; total balance is insufficient
-   to prove that such an output exists.
+   no automatic fee increase. Funding comes from the vault's BIP84 Litecoin
+   Testnet account (`m/84'/1'/0'`, Identity/Vault v2): confirmed coins found on
+   its external and internal chains (gap limit 20) are spent largest first, up
+   to 50 inputs, and the change and return output go to the designated address
+   `0/0`. The identity slot only signs as author and never funds.
 3. **Approve fee & publish** approves that exact plan and begins submission.
    The commit is submitted first; once observed in the mempool or confirmed,
    its reveal is submitted in the same pass. The frontend periodically reconciles
@@ -217,7 +221,9 @@ validated locally), together with the light client's header and peer counts
 while it syncs. Record signatures are verified at every tier.
 
 Default vault/unlock paths match the CLI. Passwords are never saved by Wire.
-The Identity page copies a validated encrypted vault into app-data `identity.urma`,
+Only Identity/Vault v2 files (12-word phrase) unlock; v1 vaults are refused and
+an older imported `identity.urma` is ignored, not converted.
+The Identity page copies a validated encrypted vault into app-data `identity-v2.urma`,
 subject to the shared URMA vault format validation. Import requires its password,
 validates its active author before writing, and never overwrites an existing
 imported vault or the CLI vault. The imported copy takes precedence for future
@@ -227,7 +233,9 @@ only reads public session status and never automatically unlocks. A source or
 balance failure does not lock the identity or change its author.
 State is under Tauri's platform app-data directory for `org.urma.wire`:
 `plans/<plan-id>/plan.json`, exact approval, progress journal, `active.json`,
-`ltc-testnet-index.json` and `ltc-testnet-start.json`. Existing prototype
+`ltc-testnet-index-v3.json` (index format 3, which records each reveal's return
+script; an older index file is ignored and history is resynced) and
+`ltc-testnet-start.json`. Existing prototype
 `wire_store.json` is left untouched and not used as verified chain evidence.
 
 First sync starts within a bounded recent range before the current tip and remembers

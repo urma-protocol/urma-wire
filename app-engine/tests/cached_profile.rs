@@ -21,6 +21,7 @@ fn entry(position: u32, raw: &[u8]) -> Entry {
         author: author(),
         txid: format!("{position:064x}"),
         record: hex::encode(raw),
+        return_script: None,
     }
 }
 
@@ -32,7 +33,7 @@ fn legacy() -> Vec<u8> {
 
 fn mixed() -> Index {
     Index {
-        format: "URMA-WIRE-INDEX-2".into(),
+        format: Index::FORMAT.into(),
         genesis: "00".repeat(32),
         start: 100,
         blocks: vec![Checkpoint {

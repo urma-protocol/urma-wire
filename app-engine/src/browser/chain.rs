@@ -257,6 +257,10 @@ async fn verified_entries(
                 txid: tx.compute_txid().to_string(),
                 author: verified.author().0.to_string(),
                 record: hex::encode(verified.raw_record()),
+                return_script: tx
+                    .output
+                    .first()
+                    .map(|output| hex::encode(output.script_pubkey.as_bytes())),
             }),
             Err(error) => tracing::warn!(error = %error, "rejected Wire author proof"),
         }

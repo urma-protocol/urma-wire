@@ -26,6 +26,12 @@ pub const HISTORY_BLOCKS: u64 = 100;
 
 pub const FEE_RATE: NonZeroU64 = NonZeroU64::MIN;
 
+pub const FUNDING_INPUT_VBYTES: u64 = 68;
+
+pub const EXTRA_FUNDING_INPUTS: u64 = 49;
+
+pub const FEE_HEADROOM: u64 = EXTRA_FUNDING_INPUTS * FUNDING_INPUT_VBYTES * FEE_RATE.get();
+
 #[cfg(not(target_arch = "wasm32"))]
 pub const CONFIG_FILE_BYTES: usize = 16384;
 
@@ -99,13 +105,16 @@ pub const SOURCE_KEY: &str = "chain-source";
 pub const BROWSER_EVIDENCE: &str = "public_provider_observation";
 
 #[cfg(target_arch = "wasm32")]
-pub const INDEX_KEY: &str = "ltc-testnet-index-v2";
+pub const INDEX_KEY: &str = "ltc-testnet-index-v3";
 
 #[cfg(target_arch = "wasm32")]
 pub const ACTIVE_KEY: &str = "ltc-testnet-active-plan";
 
 #[cfg(target_arch = "wasm32")]
-pub const INDEX_FORMAT: &str = "URMA-WIRE-INDEX-2";
+pub const VAULT_KEY: &str = "identity-v2";
+
+#[cfg(target_arch = "wasm32")]
+pub const INDEX_FORMAT: &str = urma_wire::index::Index::FORMAT;
 
 #[cfg(target_arch = "wasm32")]
 pub const MAX_CHECKPOINTS: usize = 500_000;
@@ -163,7 +172,7 @@ mod settings {
     impl Settings {
         pub fn mobile(app_data_dir: &Path) -> Self {
             Self {
-                vault: Some(app_data_dir.join("identity.urma")),
+                vault: Some(app_data_dir.join("identity-v2.urma")),
                 cache_dir: app_data_dir.join(RUNTIME_DIR),
                 ..Self::default()
             }

@@ -9,8 +9,10 @@ use bitcoin::{
 use std::{collections::HashMap, num::NonZeroU64};
 use urma_chain::observation::Chain;
 use urma_core::{format::PublicRecord, topics::Topics};
-use urma_runtime::publication::prepare_signed_bytes;
+use urma_identity::{phrase::IdentityPhrase, root::Root};
+use urma_runtime::{publication::prepare_signed_bytes, wallet::FundingInput};
 use urma_wallet::{
+    account::{Account, KeyPath},
     funding::Funding,
     wallet::{FeeBudget, FeeRate},
 };
@@ -49,26 +51,35 @@ impl Reader for Fixture {
     }
 }
 
+fn funder() -> Account {
+    let phrase = IdentityPhrase::parse(&format!("{}about", "abandon ".repeat(11))).unwrap();
+    Account::from_root(Chain::BitcoinRegtest, &Root::from_phrase(&phrase).unwrap()).unwrap()
+}
+
 fn pair(record: PublicRecord) -> (Transaction, Transaction) {
     let signer =
         Keypair::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&[7; 32]).unwrap());
+    let funder = funder();
     let funding = Transaction {
         version: Version::TWO,
         lock_time: absolute::LockTime::ZERO,
         input: vec![TxIn::default()],
         output: vec![TxOut {
             value: Amount::from_sat(100_000),
-            script_pubkey: urma_wallet::signing::script(&signer).unwrap(),
+            script_pubkey: funder.receive_script().unwrap(),
         }],
     };
     let prepared = prepare_signed_bytes(
         &record.encode().unwrap(),
         &signer,
-        Funding {
-            raw_transaction: hex::encode(serialize(&funding)),
-            vout: 0,
-        },
-        Chain::BitcoinRegtest,
+        &funder,
+        &[FundingInput {
+            funding: Funding {
+                raw_transaction: hex::encode(serialize(&funding)),
+                vout: 0,
+            },
+            path: KeyPath::RECEIVE,
+        }],
         FeeBudget {
             chain: Chain::BitcoinRegtest.genesis().unwrap(),
             rate: FeeRate(NonZeroU64::new(1).unwrap()),
@@ -129,7 +140,12 @@ fn verified_ingestion_migration_projection_and_cross_wire_filtering() {
     assert_eq!(report.records, 3);
     assert!(report.complete_to_tip);
     let mut index = Index::load(&path).unwrap();
-    assert_eq!(index.format, "URMA-WIRE-INDEX-2");
+    assert_eq!(index.format, Index::FORMAT);
+    let receive = hex::encode(funder().receive_script().unwrap().as_bytes());
+    assert!(index
+        .entries
+        .iter()
+        .all(|entry| entry.return_script.as_deref() == Some(receive.as_str())));
     let feed = projection::project(&index, true).unwrap();
     assert_eq!(feed.posts[1].wire, "rosint");
     assert_eq!(feed.posts[1].hashtags, vec!["investigation".to_owned()]);
@@ -161,15 +177,6 @@ fn verified_ingestion_migration_projection_and_cross_wire_filtering() {
     assert_eq!(replies[0].wire, "other");
     let rendered = urma_wire::view::records(&index, 10).unwrap();
     assert_eq!(rendered[0]["payload"]["hashtags"][0], "investigation");
-    index.format = "URMA-WIRE-INDEX-1".into();
-    index
-        .entries
-        .retain(|entry| entry.txid == target.to_string());
-    index.persist(&path).unwrap();
-    let (migrated, _migrated_index) =
-        index::sync(&fixture, &path, 0, 1, |_height, _tip| ()).unwrap();
-    assert_eq!((migrated.scanned, migrated.records), (1, 3));
-    assert_eq!(Index::load(&path).unwrap().format, "URMA-WIRE-INDEX-2");
     assert_eq!(
         index::sync(&fixture, &path, 0, 1, |_height, _tip| ())
             .unwrap()
@@ -177,4 +184,7 @@ fn verified_ingestion_migration_projection_and_cross_wire_filtering() {
             .scanned,
         0
     );
+    index.format = "URMA-WIRE-INDEX-2".into();
+    index.persist(&path).unwrap();
+    assert!(index::sync(&fixture, &path, 0, 1, |_height, _tip| ()).is_err());
 }

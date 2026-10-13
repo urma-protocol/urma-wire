@@ -12,6 +12,7 @@ use urma_identity::vault::{EncryptedVault, UnlockCredential};
 use urma_runtime::error::Error as RuntimeError;
 use urma_runtime::light::LightSync;
 use urma_runtime::node::Node;
+use urma_wallet::account::Account;
 use urma_wire::index::Index;
 use wire_app_core::connection::{ConnectionHealth, SourceChoice, Trouble};
 use wire_app_core::feed::SyncStatus;
@@ -45,8 +46,8 @@ pub struct Service {
 }
 
 impl Service {
-    pub(super) const IDENTITY_FILE: &'static str = "identity.urma";
-    pub(super) const INDEX_FILE: &'static str = "ltc-testnet-index.json";
+    pub(super) const IDENTITY_FILE: &'static str = "identity-v2.urma";
+    pub(super) const INDEX_FILE: &'static str = "ltc-testnet-index-v3.json";
     pub(super) const START_FILE: &'static str = "ltc-testnet-start.json";
     pub(super) const ACTIVE_FILE: &'static str = "active.json";
     pub(super) const PLANS_DIR: &'static str = "plans";
@@ -197,6 +198,13 @@ impl Service {
         }
     }
 
+    pub(super) fn funder(&self) -> Result<Account, NativeError> {
+        match &*self.identity() {
+            Identity::Unlocked(wallet) => wallet.funder(Chain::Litecoin),
+            Identity::Locked => Err(NativeError::SignerLocked),
+        }
+    }
+
     fn author(&self) -> Result<AuthorId, NativeError> {
         match &*self.identity() {
             Identity::Unlocked(wallet) => Ok(wallet.author_id()?),
@@ -301,15 +309,13 @@ impl Service {
 
     pub fn wallet(&self) -> Result<WalletSummary, NativeError> {
         let author = self.author()?;
-        let signer = self.signer()?;
-        let (outputs, tip_height) = self.with_node(|node| {
-            let outputs = node.available_utxos(&signer)?;
-            Ok((outputs, node.tip_height()?))
-        })?;
+        let funder = self.funder()?;
+        let (view, tip_height) =
+            self.with_node(|node| Ok((node.wallet(&funder)?, node.tip_height()?)))?;
         let mut confirmed: u64 = 0;
-        for output in &outputs {
+        for coin in &view.coins {
             confirmed = confirmed
-                .checked_add(output.value)
+                .checked_add(coin.value)
                 .ok_or(NativeError::BalanceOverflow)?;
         }
         let identity = self.identity();
@@ -326,7 +332,7 @@ impl Service {
             Balance {
                 confirmed,
                 unconfirmed: 0,
-                outputs: outputs.len(),
+                outputs: view.coins.len(),
                 tip_height,
             },
         )

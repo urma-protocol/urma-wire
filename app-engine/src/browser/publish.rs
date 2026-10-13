@@ -1,8 +1,8 @@
-use crate::browser::funding::outputs;
-use crate::browser::session::{session_epoch, with_signer, Epoch};
+use crate::browser::funding::{outputs, Spendable};
+use crate::browser::session::{funder, session_epoch, with_signer, Epoch};
 use crate::browser::source::{Presence, Source};
 use crate::browser::store::{self, Stored};
-use crate::config::{ACTIVE_KEY, FEE_RATE, NETWORK};
+use crate::config::{ACTIVE_KEY, FEE_HEADROOM, FEE_RATE, NETWORK};
 use crate::errors::BrowserError;
 use crate::record::{build, review};
 use bitcoin::consensus::deserialize;
@@ -10,9 +10,10 @@ use bitcoin::Transaction;
 use serde::{Deserialize, Serialize};
 use urma_chain::observation::Chain as Network;
 use urma_core::envelope;
-use urma_runtime::config::publication_return;
+use urma_runtime::config::{publication_return, WALLET_MAX_INPUTS};
 use urma_runtime::plan::PublicationPlan;
 use urma_runtime::publication;
+use urma_runtime::wallet::FundingInput;
 use urma_wallet::wallet::{FeeBudget, FeeRate};
 use wire_app_core::publication::{Content, Publication};
 
@@ -101,34 +102,27 @@ pub async fn quote(source: &Source, content: &Content) -> Result<Publication, Br
     refuse_while_unfinished(source).await?;
     let record = build(content)?.encode()?;
     let epoch = session_epoch();
-    let (author, address, script) = with_signer(Epoch::Exactly(epoch), |signer| {
-        Ok((
-            signer.author().0,
-            urma_wallet::address::receive_address(signer, NETWORK)?,
-            urma_wallet::signing::script(signer)?,
-        ))
-    })?;
-    let fee = publication::quote_record(&record, author, &script, FEE_RATE.get())?;
-    let minimum = fee
+    let author = with_signer(Epoch::Exactly(epoch), |signer| Ok(signer.author().0))?;
+    let account = funder(Epoch::Exactly(epoch))?;
+    let return_script = account.receive_script()?;
+    let quoted = publication::quote_record(&record, author, &return_script, FEE_RATE.get())?;
+    let maximum = quoted
+        .checked_add(FEE_HEADROOM)
+        .ok_or(BrowserError::BudgetOverflow)?;
+    let minimum = maximum
         .checked_add(2 * publication_return(NETWORK))
         .ok_or(BrowserError::BudgetOverflow)?;
-    let Some(chosen) = outputs(source, &address, &script)
-        .await?
-        .into_iter()
-        .find(|output| output.value >= minimum)
-    else {
-        return Err(BrowserError::NoFundingOutput);
-    };
+    let inputs = selected(outputs(source, &account).await?, minimum)?;
     let pair = with_signer(Epoch::Exactly(epoch), |signer| {
         Ok(publication::prepare_signed_bytes(
             &record,
             signer,
-            chosen.funding,
-            NETWORK,
+            &account,
+            &inputs,
             FeeBudget {
                 chain: NETWORK.genesis()?,
                 rate: FeeRate(FEE_RATE),
-                maximum_base_units: fee,
+                maximum_base_units: maximum,
             },
         )?)
     })?;
@@ -137,12 +131,14 @@ pub async fn quote(source: &Source, content: &Content) -> Result<Publication, Br
         version: 1,
         chain: NETWORK,
         author: author.to_string(),
+        return_script: hex::encode(return_script.as_bytes()),
         root_txid: reveal.compute_txid().to_string(),
         total_fee: pair.fee,
-        maximum_fee: fee,
+        maximum_fee: maximum,
         records: vec![pair.plan],
     };
     plan.validate()?;
+    plan.require_funder(&account)?;
     let active = Active {
         plan,
         approved: None,
@@ -152,6 +148,37 @@ pub async fn quote(source: &Source, content: &Content) -> Result<Publication, Br
     };
     store::write(ACTIVE_KEY, &active).await?;
     observe(source, &active).await
+}
+
+fn selected(spendable: Vec<Spendable>, minimum: u64) -> Result<Vec<FundingInput>, BrowserError> {
+    let mut inputs = Vec::new();
+    let mut total: u64 = 0;
+    for output in spendable {
+        if total >= minimum {
+            break;
+        }
+        if inputs.len() >= WALLET_MAX_INPUTS {
+            return Err(BrowserError::NoFundingOutput);
+        }
+        total = total
+            .checked_add(output.value)
+            .ok_or(BrowserError::BalanceOverflow)?;
+        inputs.push(output.input);
+    }
+    match total >= minimum {
+        true => Ok(inputs),
+        false => Err(BrowserError::NoFundingOutput),
+    }
+}
+
+fn selected_funding(active: &Active) -> Result<u64, BrowserError> {
+    let mut total: u64 = 0;
+    for funding in &active.plan.records[0].funding {
+        total = total
+            .checked_add(funding.prevout()?.1.value.to_sat())
+            .ok_or(BrowserError::InvalidPlanFee)?;
+    }
+    Ok(total)
 }
 
 pub async fn observe(source: &Source, active: &Active) -> Result<Publication, BrowserError> {
@@ -189,7 +216,7 @@ fn reviewed(
     let commit = transaction(&pair.commit)?;
     let reveal = transaction(&pair.reveal)?;
     let signed = envelope::verify_reveal(&reveal, &commit)?;
-    let funding = pair.funding.prevout()?.1.value.to_sat();
+    let funding = selected_funding(active)?;
     let Some(returned) = funding.checked_sub(active.plan.total_fee) else {
         return Err(BrowserError::InvalidPlanFee);
     };
@@ -232,6 +259,7 @@ pub async fn advance(
         return Err(BrowserError::PlanMismatch);
     }
     if approve {
+        active.plan.require_funder(&funder(Epoch::Any)?)?;
         active.approved = Some(id.into());
         store::write(ACTIVE_KEY, &active).await?;
     }

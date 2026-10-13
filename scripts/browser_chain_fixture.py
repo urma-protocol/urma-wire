@@ -3,6 +3,40 @@ import json
 import time
 
 
+def idle(phase):
+    return phase in ("Idle", "Complete") or (isinstance(phase, dict) and "Failed" in phase)
+
+
+def synced(command, failing=False):
+    for _ in range(1600):
+        if idle(command("sync_status")["phase"]):
+            break
+        time.sleep(.05)
+    begun = command("start_sync")
+    assert begun["phase"] == "Connecting", begun
+    run = begun["run"]
+    for _ in range(1200):
+        status = command("sync_status")
+        phase = status["phase"]
+        if status["run"] == run and phase == "Complete":
+            assert not failing, status
+            return command("get_feed", {"chain": "ltc"})
+        if status["run"] == run and isinstance(phase, dict) and ("Retrying" in phase or "Failed" in phase):
+            assert failing, status
+            return command("get_feed", {"chain": "ltc"})
+        time.sleep(.05)
+    raise AssertionError(f"sync did not settle: {status}")
+
+
+def settled(command):
+    for _ in range(1600):
+        status = command("sync_status")
+        if status["phase"] == "Complete":
+            return command("get_feed", {"chain": "ltc"})
+        time.sleep(.05)
+    raise AssertionError(f"sync did not recover: {status}")
+
+
 def run_chain_fixture(command, js, request, base):
     fixture = command("fixture-chain")
     js("window.chainFixture=arguments[0]", fixture)
@@ -29,7 +63,11 @@ def run_chain_fixture(command, js, request, base):
                 if(f.corruptHash===block.hash)raw=raw.slice(0,-2)+(raw.endsWith('00')?'01':'00');
                 return new Response(Uint8Array.from(raw.match(/../g),b=>parseInt(b,16)));
             }
-            if(p.startsWith('/address/'))return respond([{txid:f.funding.txid,vout:0,value:f.funding.value,status:f.statuses[f.funding.txid]}]);
+            if(p.startsWith('/address/')){
+                f.scanned=(f.scanned||0)+1;
+                if(p.split('/')[2]!==f.funding.address)return respond([]);
+                return respond([{txid:f.funding.txid,vout:0,value:f.funding.value,status:f.statuses[f.funding.txid]}]);
+            }
             if(p==='/tx'&&options.method==='POST'){
                 if(f.reject) return new Response('fixture policy rejected',{status:400});
                 const id=JSON.parse(await window.wasmBindings.browser_fixture_command('fixture-txid',JSON.stringify({raw:options.body})));
@@ -52,10 +90,10 @@ def run_chain_fixture(command, js, request, base):
     js("chainFixture.wrongGenesis=false")
     wallet = command("get_wallet_summary", {"chain": "ltc"})
     assert wallet["confirmed_balance_sats"] == 100_000_000
-    first = command("get_feed", {"chain": "ltc"})
-    assert first["start"] == 100 and first["tip"] == 199 and not first["complete_to_tip"], first
-    second = command("get_feed", {"chain": "ltc"})
-    assert second["tip"] == 200 and second["complete_to_tip"]
+    assert wallet["receive_address"] == fixture["funding"]["address"]
+    assert js("return chainFixture.scanned") == 41, js("return chainFixture.scanned")
+    first = synced(command)
+    assert first["start"] == 100 and first["tip"] == 200 and first["complete_to_tip"], first
     args = {"chain": "ltc", "text": "browser fixture post", "wire": "rosint", "hashtags": ["investigation"]}
     quote = command("quote_publication", args)
     assert not quote["approved"] and quote["fee"] == quote["selected_funding"]-quote["returned"]
@@ -110,23 +148,23 @@ def run_chain_fixture(command, js, request, base):
     reveal_block = confirm()
     complete = command("advance_publication", {"id": quote["id"], "approve": False})
     assert complete["complete"] and complete["confirmed"] == 2
-    feed = command("get_feed", {"chain": "ltc"})
+    feed = synced(command)
     assert len(feed["posts"]) == 1 and feed["posts"][0]["text"] == args["text"]
     assert feed["posts"][0]["wire"] == "rosint"
     # Replace the last block at the same height: cached hash rollback removes its post.
     previous = js("return chainFixture.blocks[chainFixture.tip-2].hash")
     replacement = command("fixture-block", {"previous": previous, "transactions": [], "nonce": 999})
     js("chainFixture.blocks[chainFixture.tip-1]=arguments[0]", replacement)
-    rolled = command("get_feed", {"chain": "ltc"})
+    rolled = synced(command)
     assert rolled["posts"] == []
     # Corrupt a new block body: no checkpoint is advanced, cached verified state survives.
     corrupt = command("fixture-block", {"previous": replacement["hash"], "transactions": [], "nonce": 1000})
     js("chainFixture.blocks.push(arguments[0]);chainFixture.tip++;chainFixture.corruptHash=arguments[0].hash", corrupt)
-    failed = command("get_feed", {"chain": "ltc"})
-    assert failed["tip"] == rolled["tip"] and not failed["complete_to_tip"]
-    # Restore the real reveal block for the final offline cached-history reload.
+    failed = synced(command, failing=True)
+    assert failed["tip"] == rolled["tip"] and not failed["complete_to_tip"], (failed, rolled)
+    # Restore the real reveal block; the engine's retry catches up for the offline reload.
     js("chainFixture.tip=202;chainFixture.blocks.length=202;chainFixture.blocks[201]=arguments[0];chainFixture.corruptHash=null", reveal_block)
-    assert len(command("get_feed", {"chain": "ltc"})["posts"]) == 1
+    assert len(settled(command)["posts"]) == 1
     # Origin-wide lock rejects overlapping operations without selecting funding twice.
     request(base + "/execute/async", {"script": "const done=arguments[0];navigator.locks.request('urma-wire-chain-operation',()=>new Promise(resolve=>{window.releaseFixtureLock=resolve;done(true)}))", "args": []})
     command("quote_publication", args, failure=True)

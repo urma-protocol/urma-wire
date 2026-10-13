@@ -17,8 +17,10 @@ use urma_core::{
     format::{RecordKind, Urma},
     multipart::VerifiedRecord,
 };
+use urma_identity::{phrase::IdentityPhrase, root::Root};
 use urma_runtime::{plan::PublicationPlan, publication::PublicPlan};
 use urma_wallet::{
+    account::{Account, KeyPath},
     funding::Funding,
     wallet::{FeeBudget, FeeRate, SpendRequest},
 };
@@ -62,9 +64,11 @@ pub fn signed_record_plan(record: Vec<u8>) -> PublicationPlan {
         .unwrap()
         .finalize(&secp, author)
         .unwrap();
+    let phrase = IdentityPhrase::parse(&format!("{}about", "abandon ".repeat(11))).unwrap();
+    let funder = Account::from_root(chain, &Root::from_phrase(&phrase).unwrap()).unwrap();
     let funding_output = TxOut {
         value: Amount::from_sat(100_000),
-        script_pubkey: urma_wallet::signing::script(&signer).unwrap(),
+        script_pubkey: funder.receive_script().unwrap(),
     };
     let funding = transaction(OutPoint::null(), funding_output.clone());
     let retained = urma_runtime::config::publication_return(chain);
@@ -98,15 +102,16 @@ pub fn signed_record_plan(record: Vec<u8>) -> PublicationPlan {
         rate: FeeRate(NonZeroU64::MIN),
         maximum_base_units: 10_000,
     };
-    let commit = urma_wallet::signing::sign(
-        &signer,
-        &SpendRequest {
-            transaction: &commit,
-            prevouts: &[funding_output],
-            budget,
-        },
-    )
-    .unwrap();
+    let commit = funder
+        .sign(
+            &SpendRequest {
+                transaction: &commit,
+                prevouts: &[funding_output],
+                budget,
+            },
+            &[KeyPath::RECEIVE],
+        )
+        .unwrap();
     reveal.input[0].previous_output = OutPoint {
         txid: commit.compute_txid(),
         vout: 0,
@@ -128,16 +133,17 @@ pub fn signed_record_plan(record: Vec<u8>) -> PublicationPlan {
         version: 1,
         chain,
         author: author.to_string(),
+        return_script: hex::encode(funder.receive_script().unwrap().as_bytes()),
         root_txid: reveal.compute_txid().to_string(),
         total_fee: commit_fee + reveal_fee,
         maximum_fee: 10_000,
         records: vec![PublicPlan {
             version: 0,
             chain,
-            funding: Funding {
+            funding: vec![Funding {
                 raw_transaction: hex::encode(serialize(&funding)),
                 vout: 0,
-            },
+            }],
             commit: hex::encode(serialize(&commit)),
             reveal: hex::encode(serialize(&reveal)),
             fee_rate: 1,

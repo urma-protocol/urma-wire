@@ -69,7 +69,7 @@ impl Service {
         let index = match self.index_path().exists() {
             true => Index::load(&self.index_path())?,
             false => Index {
-                format: "URMA-WIRE-INDEX-2".into(),
+                format: Index::FORMAT.into(),
                 genesis: NETWORK.genesis()?.0.to_string(),
                 start: status.start,
                 blocks: Vec::new(),

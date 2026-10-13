@@ -1,4 +1,6 @@
-use crate::config::{APPROVAL_FILE_BYTES, FEE_RATE, PLAN_ID_FILE_BYTES, PROGRESS_FILE_BYTES};
+use crate::config::{
+    APPROVAL_FILE_BYTES, FEE_HEADROOM, FEE_RATE, PLAN_ID_FILE_BYTES, PROGRESS_FILE_BYTES,
+};
 use crate::errors::NativeError;
 use crate::native::service::Service;
 use crate::record::{build, review};
@@ -10,6 +12,7 @@ use urma_core::envelope;
 use urma_identity::identity::IdentitySigner;
 use urma_runtime::node::{Node, Presence};
 use urma_runtime::plan::{self, PlanLimits, PublicationPlan};
+use urma_runtime::publication::PublicPlan;
 use urma_runtime::publish::{self, PublishReport};
 use wire_app_core::publication::{Content, Pending, Publication};
 
@@ -56,10 +59,11 @@ impl Service {
     pub fn quote(&self, content: &Content) -> Result<Publication, NativeError> {
         let record = build(content)?;
         let signer = self.signer()?;
+        let funder = self.funder()?;
         let fee = urma_runtime::publication::quote_record(
             &record.encode()?,
             signer.public_key().inner.x_only_public_key().0,
-            &urma_wallet::signing::script(&signer)?,
+            &funder.receive_script()?,
             FEE_RATE.get(),
         )?;
         self.with_node(|node| {
@@ -67,10 +71,13 @@ impl Service {
             let plan = plan::prepare_atomic(
                 node,
                 &signer,
+                &funder,
                 &record,
                 PlanLimits {
                     fee_rate: FEE_RATE.get(),
-                    max_fee: fee,
+                    max_fee: fee
+                        .checked_add(FEE_HEADROOM)
+                        .ok_or(NativeError::InvalidPlanFee)?,
                     max_records: 1,
                 },
             )?;
@@ -128,6 +135,7 @@ impl Service {
         }
         let approval = directory.join(Self::APPROVAL_FILE);
         if approve {
+            plan.require_funder(&self.funder()?)?;
             urma_io::write_replace(&approval, id.as_bytes())?;
         }
         if urma_io::read_bounded(&approval, APPROVAL_FILE_BYTES)? != id.as_bytes() {
@@ -171,7 +179,7 @@ fn observe(
         return Err(NativeError::ChainChanged);
     }
     let approved = directory.join(Service::APPROVAL_FILE).exists();
-    let funding = pair.funding.prevout()?.1.value.to_sat();
+    let funding = selected_funding(pair)?;
     let Some(returned) = funding.checked_sub(plan.total_fee) else {
         return Err(NativeError::InvalidPlanFee);
     };
@@ -189,6 +197,16 @@ fn observe(
         message: observed(confirmed, approved).into(),
         abandonable: approved && confirmed == 0 && mempool == 0 && never_submitted(directory)?,
     })
+}
+
+fn selected_funding(pair: &PublicPlan) -> Result<u64, NativeError> {
+    let mut total: u64 = 0;
+    for funding in &pair.funding {
+        total = total
+            .checked_add(funding.prevout()?.1.value.to_sat())
+            .ok_or(NativeError::InvalidPlanFee)?;
+    }
+    Ok(total)
 }
 
 fn never_submitted(directory: &Path) -> Result<bool, NativeError> {
