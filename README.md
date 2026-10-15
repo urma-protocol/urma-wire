@@ -80,37 +80,17 @@ cargo +1.98.0 install trunk --version 0.21.14 --locked
 cargo +1.98.0 install tauri-cli --version 2.11.2 --locked
 ```
 
-### Clone both public repositories
+### Clone and run
 
-Use a new directory. The sibling **`urma/` directory is required** by the committed
-Cargo path patches and shared test vectors; installing published crates alone is
-insufficient for this app revision.
+The URMA crates come from crates.io at the versions locked in `Cargo.lock`.
 
 ```sh
-mkdir urma-workspace
-cd urma-workspace
-
-git clone https://github.com/urma-protocol/urma.git urma
-git -C urma checkout --detach a17014a03071c2b72a056d0b4289db007ac1feaf
-
-git clone https://github.com/urma-protocol/urma-wire.git urma-wire
+git clone https://github.com/urma-protocol/urma-wire.git
 cd urma-wire
 rustup override set 1.98.0
 cargo tauri dev
 ```
 
-The resulting layout is:
-
-```text
-urma-workspace/
-├── urma/       # shared crates and protocol test vectors at the revision above
-└── urma-wire/  # this application
-```
-
-The required core revision adds the runtime block-provider API used by local-node
-adoption. Older core revisions, including `73f5972`, cannot build this app.
-Cargo uses the sibling working tree, not a pinned Git dependency: preserve the
-specified revision and check `git -C ../urma status --short` before building.
 No private Cargo configuration, node, API key or separately installed URMA CLI
 is required to compile Wire. Initial dependency/tool downloads need internet access.
 
@@ -173,7 +153,7 @@ Lawkeeper result.
 | `src-tauri/` | Desktop host, native IPC and application configuration |
 | `scripts/`, `web/` | Frontend tooling, offline assets and fixture checks |
 
-For bug reports, include the app and sibling core commits, operating system,
+For bug reports, include the app commit, operating system,
 source mode, and redacted logs. Never attach vault passwords, unlock files,
 RPC cookies or recovery phrases.
 

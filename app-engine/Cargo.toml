@@ -21,13 +21,13 @@ zeroize = "1"
 urma-core = "0.3.0"
 urma-chain = "0.3.0"
 urma-identity = "0.3.0"
-urma-runtime = "0.3.0"
+urma-runtime = "0.3.4"
 urma-wallet = "0.3.0"
 urma-wire = "0.3.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 bitcoin = { version = "0.32", features = ["rand-std"] }
-urma-io = "0.3.0"
+urma-io = "0.3.3"
 urma-workflows = "0.3.0"
 urma-node-client = "0.5.1"
 fs2 = "0.4"
@@ -53,3 +53,7 @@ ring = { version = "0.17", features = ["wasm32_unknown_unknown_js"] }
 [dev-dependencies]
 tempfile = "3"
 rand = "0.8"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# Integration fixtures exercise an actual local service; never a product dependency.
+urma-node = "0.7.2"

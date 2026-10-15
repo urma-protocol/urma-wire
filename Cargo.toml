@@ -6,15 +6,3 @@ members = [
     "app-ui",
     "src-tauri",
 ]
-
-# Keep native and browser consumers on the same reviewed sibling workspace.
-[patch.crates-io]
-urma-core = { path = "../urma/urma-core" }
-urma-chain = { path = "../urma/urma-chain" }
-urma-identity = { path = "../urma/urma-identity" }
-urma-wallet = { path = "../urma/urma-wallet" }
-urma-io = { path = "../urma/urma-io" }
-urma-workflows = { path = "../urma/urma-workflows" }
-urma-profiles = { path = "../urma/urma-profiles" }
-urma-runtime = { path = "../urma/urma-runtime" }
-urma-wire = { path = "../urma/urma-wire" }
