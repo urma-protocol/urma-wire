@@ -132,7 +132,7 @@ pub const MAX_UTXOS: usize = 1000;
 pub const COINBASE_MATURITY: u64 = 100;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use settings::{ArchiveSettings, Settings};
+pub use settings::{ArchiveSettings, FeedRoute, Settings};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod settings {
@@ -146,14 +146,46 @@ mod settings {
     use urma_runtime::node::{Node, NodeConfig};
     use wire_app_core::connection::SourceChoice;
 
-    /// Explicit local archive configuration, independent of chain and wallet
-    /// sources. Deserialization neither reads the token file nor connects;
-    /// endpoint and token authorization are checked by the runtime client.
-    #[derive(Clone, Deserialize)]
+    #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
+    struct ArchiveFields {
+        endpoint: SocketAddr,
+        token_file: PathBuf,
+    }
+
+    #[derive(Clone, Deserialize)]
+    #[serde(try_from = "ArchiveFields")]
     pub struct ArchiveSettings {
         pub endpoint: SocketAddr,
         pub token_file: PathBuf,
+    }
+
+    impl TryFrom<ArchiveFields> for ArchiveSettings {
+        type Error = NativeError;
+
+        fn try_from(fields: ArchiveFields) -> Result<Self, NativeError> {
+            if !fields.endpoint.ip().is_loopback() {
+                return Err(NativeError::Archive(format!(
+                    "archive endpoint {} is not loopback",
+                    fields.endpoint
+                )));
+            }
+            if !fields.token_file.is_absolute() {
+                return Err(NativeError::Archive(format!(
+                    "archive token_file {} is not an absolute path",
+                    fields.token_file.display()
+                )));
+            }
+            Ok(Self {
+                endpoint: fields.endpoint,
+                token_file: fields.token_file,
+            })
+        }
+    }
+
+    pub enum FeedRoute {
+        Operator(ArchiveSettings),
+        Autonomous,
     }
 
     #[derive(Clone, Deserialize)]
@@ -185,6 +217,13 @@ mod settings {
     }
 
     impl Settings {
+        pub fn route(&self) -> FeedRoute {
+            match &self.archive {
+                Some(archive) => FeedRoute::Operator(archive.clone()),
+                None => FeedRoute::Autonomous,
+            }
+        }
+
         pub fn mobile(app_data_dir: &Path) -> Self {
             Self {
                 vault: Some(app_data_dir.join("identity-v2.urma")),

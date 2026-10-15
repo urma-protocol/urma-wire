@@ -4,7 +4,7 @@ use crate::record::wire_txid;
 use urma_core::format::PublicRecord;
 use urma_wire::cached::{decode_cached, CachedRecord};
 use urma_wire::index::{Checkpoint, Entry, Index};
-use wire_app_core::feed::{Feed, Lookup};
+use wire_app_core::feed::{Feed, FeedSource, Lookup};
 use wire_app_core::model::{AuthorId, Chain, ConfirmedStatus, Placement, Post, Txid};
 
 struct Said {
@@ -56,9 +56,6 @@ fn decoded(record: PublicRecord) -> Decoded {
     }
 }
 
-/// Borrowed projection inputs. Checkpoints may contain only record placements;
-/// the caller supplies the tip and coverage independently. Projection does not
-/// authenticate records, checkpoints, or chain membership.
 pub struct View<'a> {
     pub start: u64,
     pub tip: u64,
@@ -115,6 +112,7 @@ pub fn project_view(view: &View<'_>, complete_to_tip: bool) -> Result<Feed, Proj
         start: view.start,
         tip,
         complete_to_tip,
+        source: FeedSource::AutonomousLocal,
     })
 }
 

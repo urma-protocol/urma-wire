@@ -398,8 +398,8 @@ fn reflected_bearer_is_not_published_in_app_errors_or_worker_logs() {
             assert!(
                 events
                     .iter()
-                    .any(|event| event.contains("optional archive unavailable")
-                        && event.contains("feed unavailable or snapshot changed")),
+                    .any(|event| event.contains("operator archive view refused")
+                        && event.contains("Optional URMA archive: feed")),
                 "{events:?}"
             );
             assert!(!reason.contains(TOKEN));

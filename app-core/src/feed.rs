@@ -9,6 +9,30 @@ pub struct PublicIdentity {
     pub avatar: Option<Vec<u8>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum FeedSource {
+    AutonomousLocal,
+    LocalNodeOperator {
+        indexed_through: Option<u64>,
+        peer_synced_through: Option<u64>,
+        generation: u64,
+        trust: String,
+    },
+}
+
+impl FeedSource {
+    pub const OPERATOR_TRUST: &'static str =
+        "local operator projection; not portable chain or ownership evidence";
+
+    pub fn operator_held(&self) -> bool {
+        match self {
+            Self::AutonomousLocal => false,
+            Self::LocalNodeOperator { .. } => true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Feed {
     pub identities: BTreeMap<String, PublicIdentity>,
@@ -16,6 +40,7 @@ pub struct Feed {
     pub start: u64,
     pub tip: u64,
     pub complete_to_tip: bool,
+    pub source: FeedSource,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +68,7 @@ pub struct SyncStatus {
     pub done: u64,
     pub total: u64,
     pub complete_to_tip: bool,
+    pub source: FeedSource,
 }
 
 impl SyncStatus {
@@ -57,6 +83,7 @@ impl SyncStatus {
             done: 0,
             total: 0,
             complete_to_tip: false,
+            source: FeedSource::AutonomousLocal,
         }
     }
 

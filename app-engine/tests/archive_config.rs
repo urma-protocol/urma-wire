@@ -22,8 +22,7 @@ fn archive_is_absent_by_default_and_for_existing_or_null_json() {
 fn explicit_archive_deserializes_ipv4_and_ipv6_without_reading_token_or_dialing() {
     let dir = tempfile::tempdir().unwrap();
     let missing_token = dir.path().join("not-created.token");
-    // Loopback authorization belongs to Client::new, not config parsing.
-    for endpoint in ["127.0.0.1:1234", "[::1]:5678", "192.0.2.1:1234"] {
+    for endpoint in ["127.0.0.1:1234", "[::1]:5678", "127.8.9.10:1234"] {
         let settings: Settings = serde_json::from_value(json!({
             "archive": {"endpoint":endpoint, "token_file":missing_token},
         }))
@@ -36,14 +35,35 @@ fn explicit_archive_deserializes_ipv4_and_ipv6_without_reading_token_or_dialing(
 }
 
 #[test]
+fn nonloopback_endpoint_and_relative_token_file_are_rejected_at_load() {
+    for archive in [
+        json!({"endpoint":"192.0.2.1:1234", "token_file":"/run/urma/archive.token"}),
+        json!({"endpoint":"0.0.0.0:1234", "token_file":"/run/urma/archive.token"}),
+        json!({"endpoint":"[2001:db8::1]:1234", "token_file":"/run/urma/archive.token"}),
+        json!({"endpoint":"127.0.0.1:1234", "token_file":"archive.token"}),
+        json!({"endpoint":"127.0.0.1:1234", "token_file":"./archive.token"}),
+    ] {
+        let refused = serde_json::from_value::<Settings>(json!({ "archive": archive.clone() }));
+        let Err(error) = refused else {
+            panic!("accepted {archive}")
+        };
+        let message = error.to_string();
+        assert!(
+            message.contains("not loopback") || message.contains("not an absolute path"),
+            "{message}"
+        );
+    }
+}
+
+#[test]
 fn archive_unknown_fields_and_missing_required_fields_are_rejected() {
     for archive in [
-        json!({"endpoint":"127.0.0.1:1234", "token_file":"archive.token", "unknown":true}),
-        json!({"endpoint":"127.0.0.1:1234", "token_file":"archive.token", "token":"inline"}),
+        json!({"endpoint":"127.0.0.1:1234", "token_file":"/run/urma/archive.token", "unknown":true}),
+        json!({"endpoint":"127.0.0.1:1234", "token_file":"/run/urma/archive.token", "token":"inline"}),
         json!({"endpoint":"127.0.0.1:1234"}),
-        json!({"token_file":"archive.token"}),
+        json!({"token_file":"/run/urma/archive.token"}),
         json!({}),
-        json!({"endpoint":null, "token_file":"archive.token"}),
+        json!({"endpoint":null, "token_file":"/run/urma/archive.token"}),
         json!({"endpoint":"127.0.0.1:1234", "token_file":null}),
     ] {
         assert!(serde_json::from_value::<Settings>(json!({"archive":archive})).is_err());
@@ -64,7 +84,7 @@ fn archive_endpoint_requires_socket_address_syntax_without_dns() {
     ] {
         assert!(
             serde_json::from_value::<Settings>(json!({
-                "archive": {"endpoint":endpoint, "token_file":"archive.token"},
+                "archive": {"endpoint":endpoint, "token_file":"/run/urma/archive.token"},
             }))
             .is_err(),
             "accepted {endpoint}"
@@ -72,7 +92,7 @@ fn archive_endpoint_requires_socket_address_syntax_without_dns() {
     }
     for endpoint in [json!(1234), json!([127, 0, 0, 1])] {
         assert!(serde_json::from_value::<Settings>(json!({
-            "archive": {"endpoint":endpoint, "token_file":"archive.token"},
+            "archive": {"endpoint":endpoint, "token_file":"/run/urma/archive.token"},
         }))
         .is_err());
     }
@@ -81,7 +101,7 @@ fn archive_endpoint_requires_socket_address_syntax_without_dns() {
 #[test]
 fn archive_does_not_select_rpc_or_wallet_configuration() {
     let settings: Settings = serde_json::from_value(json!({
-        "archive":{"endpoint":"127.0.0.1:1234", "token_file":"archive.token"},
+        "archive":{"endpoint":"127.0.0.1:1234", "token_file":"/run/urma/archive.token"},
     }))
     .unwrap();
     assert_eq!(settings.source, SourceChoice::Public);
@@ -99,7 +119,7 @@ fn changing_chain_source_preserves_archive_rpc_and_wallet_settings() {
         "node_auth_file":"rpc.cookie",
         "vault":"identity.urma",
         "unlock_file":"identity.unlock",
-        "archive":{"endpoint":"[::1]:1234", "token_file":"archive.token"},
+        "archive":{"endpoint":"[::1]:1234", "token_file":"/run/urma/archive.token"},
     }))
     .unwrap();
     for source in [
@@ -114,7 +134,7 @@ fn changing_chain_source_preserves_archive_rpc_and_wallet_settings() {
             archive.endpoint,
             settings.archive.as_ref().unwrap().endpoint
         );
-        assert_eq!(archive.token_file, PathBuf::from("archive.token"));
+        assert_eq!(archive.token_file, PathBuf::from("/run/urma/archive.token"));
         assert_eq!(changed.rpc_url, settings.rpc_url);
         assert_eq!(changed.node_auth_file, settings.node_auth_file);
         assert_eq!(changed.vault, settings.vault);
@@ -130,7 +150,7 @@ fn mobile_settings_ignore_a_desktop_config_in_the_owned_directory() {
     let config = json!({
         "rpc_url":"http://127.0.0.1:2345",
         "node_auth_file":"rpc.cookie",
-        "archive":{"endpoint":"127.0.0.1:1234", "token_file":"archive.token"},
+        "archive":{"endpoint":"127.0.0.1:1234", "token_file":"/run/urma/archive.token"},
     });
     std::fs::write(
         dir.path().join("config.json"),

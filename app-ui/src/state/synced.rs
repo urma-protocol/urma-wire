@@ -1,5 +1,5 @@
 use crate::state::said::Said;
-use wire_app_core::feed::{SyncPhase, SyncStatus};
+use wire_app_core::feed::{FeedSource, SyncPhase, SyncStatus};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Synced {
@@ -19,6 +19,7 @@ pub enum Synced {
     Building,
     Indexed {
         complete: bool,
+        source: FeedSource,
     },
     Failed(String),
 }
@@ -45,6 +46,7 @@ impl Synced {
             },
             SyncPhase::Complete => Synced::Indexed {
                 complete: status.complete_to_tip,
+                source: status.source.clone(),
             },
             SyncPhase::Failed(reason) => Synced::Failed(reason.clone()),
         }
@@ -57,8 +59,16 @@ impl Synced {
             Synced::Verifying { .. } => String::new(),
             Synced::Retrying { seconds, .. } => format!("Retrying in {seconds} s"),
             Synced::Building => "Building feed…".to_owned(),
-            Synced::Indexed { complete: true } => "Up to date".to_owned(),
-            Synced::Indexed { complete: false } => "History incomplete".to_owned(),
+            Synced::Indexed { complete, source } => {
+                let coverage = match complete {
+                    true => "Up to date",
+                    false => "History incomplete",
+                };
+                match source {
+                    FeedSource::AutonomousLocal => coverage.to_owned(),
+                    FeedSource::LocalNodeOperator { .. } => format!("{coverage} · local node"),
+                }
+            }
             Synced::Failed(_reason) => "Sync failed".to_owned(),
         }
     }

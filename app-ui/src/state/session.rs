@@ -574,6 +574,7 @@ async fn build_feed(state: AppState, chain: Chain) {
                 state.feed.set(result.posts);
                 state.synced.set(Synced::Indexed {
                     complete: result.complete_to_tip,
+                    source: result.source,
                 });
             }
         }

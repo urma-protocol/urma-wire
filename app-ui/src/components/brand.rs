@@ -15,6 +15,7 @@ use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
 use leptos::prelude::{component, view};
 use wire_app_core::connection::{LocalStatus, SourceKind, SourceStanding, TransportStatus};
+use wire_app_core::feed::FeedSource;
 
 pub struct Trace;
 
@@ -204,14 +205,14 @@ pub fn BrandMark() -> impl IntoView {
 pub fn SyncStatus() -> impl IntoView {
     let state = expect_context::<AppState>();
     let tone = move || match state.synced.get() {
-        Synced::Indexed { complete: true } => "brand-sync healed",
+        Synced::Indexed { complete: true, .. } => "brand-sync healed",
         Synced::Retrying { .. } => "brand-sync retrying",
         Synced::Failed(_reason) => "brand-sync failed",
         Synced::Unchecked
         | Synced::Connecting
         | Synced::Verifying { .. }
         | Synced::Building
-        | Synced::Indexed { complete: false } => "brand-sync",
+        | Synced::Indexed { complete: false, .. } => "brand-sync",
     };
     let count = move || match state.synced.get() {
         Synced::Verifying { done, total } | Synced::Retrying { done, total, .. } => {
@@ -226,11 +227,14 @@ pub fn SyncStatus() -> impl IntoView {
     let hint = move || match state.synced.get() {
         Synced::Retrying { attempt, reason, .. } => format!("Retry {attempt}: {reason}"),
         Synced::Failed(reason) => reason,
+        Synced::Indexed { source: FeedSource::LocalNodeOperator { generation, trust, .. }, .. } => {
+            format!("Local node operator view, archive generation {generation}: {trust}")
+        }
         Synced::Unchecked
         | Synced::Connecting
         | Synced::Verifying { .. }
         | Synced::Building
-        | Synced::Indexed { .. } => String::new(),
+        | Synced::Indexed { source: FeedSource::AutonomousLocal, .. } => String::new(),
     };
     view! {
         <div class=tone role="status" title=hint>

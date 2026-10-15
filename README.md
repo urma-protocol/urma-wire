@@ -182,22 +182,34 @@ private bearer-token file:
 This is independent of `rpc_url`, `node_auth_file` and the wallet/publication
 source choice. It is disabled by default; mobile defaults and the standalone
 browser retain their existing sources. Wire never generates a token or starts
-the service. Configure a Litecoin Testnet archive with an explicit application
-start; this option does not select a historical start or checkpoint for Node.
+the service. A non-loopback endpoint or a relative `token_file` is refused when
+the configuration loads. The token must be one regular, unlinked file readable
+only by its owner. Configure a Litecoin Testnet archive with an explicit
+application start; this option does not select a historical start or checkpoint
+for Node.
 
-The configured local operator is trusted for this feed. Parsing an index page is
-not independent verification of signatures, inclusion or complete chain history.
-The application collects one stable snapshot before publishing it in memory;
-it does not write a second archive index or use sparse record placements as scan
-coverage. Selected records can appear with incomplete scanned coverage. Feed
-completion describes only the archive's contiguous scanned interval from its
-explicit start through its selected tip, not all historical URMA records.
+The configured local operator is trusted for this feed, as with the core CLI.
+Parsing an index page is not independent verification of signatures, inclusion
+or complete chain history. Everything served from it carries the
+`local-node-operator` source with the operator's `indexed_through`,
+`peer_synced_through` and archive generation, and the trust note "local operator
+projection; not portable chain or ownership evidence". The sync status shows
+"· local node" and the note. Autonomous results carry `autonomous-local`.
 
-A missing service, changed snapshot, invalid response or exceeded traversal bound
-discards that attempted snapshot and uses the existing autonomous scanner. No
-partial page becomes the feed. Each refresh retries the optional archive first;
-there is no automatic daemon startup. The last autonomous disk index remains
-available. Wallet and publication operations continue using their own sources.
+The view is held in memory only. It never creates, alters or replaces the local
+autonomous index. It is used only when one consistent snapshot of the expected
+network was fully traversed less than 600 seconds ago and its projection is at
+most two blocks behind the **operator-reported** selected tip. That tip is not
+compared with any other chain source. Within that lag, `complete_to_tip` can be
+false. An empty archive, one that has indexed nothing yet, or a view beyond
+those bounds is never reported as up to date.
+
+A missing service, changed snapshot, invalid response, empty or lagging
+projection, or exceeded traversal bound discards that attempted snapshot and
+uses the existing autonomous scanner. An expired view is dropped and the local
+index is served until the next refresh. No partial page becomes the feed. Each
+refresh retries the optional archive first; there is no automatic daemon
+startup. Wallet and publication operations continue using their own sources.
 
 Traversal is capped at 50,000 records, 64 MiB of record hex, and a cooperative
 30-second budget with a five-second bound per HTTP operation. Existing I/O or

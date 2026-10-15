@@ -1,19 +1,118 @@
 use crate::config::{
-    retry_delay_secs, HISTORY_BLOCKS, NETWORK, START_FILE_BYTES, SYNC_BLOCKS, SYNC_RETRY_ATTEMPTS,
+    retry_delay_secs, ArchiveSettings, FeedRoute, Settings, HISTORY_BLOCKS, NETWORK,
+    START_FILE_BYTES, SYNC_BLOCKS, SYNC_RETRY_ATTEMPTS,
 };
 use crate::errors::NativeError;
-use crate::native::archive;
+use crate::native::archive::{self, OperatorState, OperatorView};
 use crate::native::reader::NodeReader;
 use crate::native::service::{locked_link, locked_sync, opened, Link, Service};
 use crate::projection::{lookup, project, replies};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use urma_runtime::node::Node;
+use urma_runtime::transport::Provider;
 use urma_wire::index::{self, Index};
 use wire_app_core::connection::SourceChoice;
-use wire_app_core::feed::{Feed, Lookup, SyncPhase, SyncStatus};
+use wire_app_core::feed::{Feed, FeedSource, Lookup, SyncPhase, SyncStatus};
 use wire_app_core::model::{Placement, Post, Txid};
+
+enum Held {
+    Operator(Feed),
+    Autonomous,
+}
+
+fn locked_view(view: &Mutex<OperatorState>) -> MutexGuard<'_, OperatorState> {
+    match view.lock() {
+        Ok(view) => view,
+        Err(poisoned) => {
+            tracing::error!("operator view lock poisoned; reusing the held view");
+            poisoned.into_inner()
+        }
+    }
+}
+
+struct ArchiveWorker {
+    configured: ArchiveSettings,
+    settings: Settings,
+    status: Arc<Mutex<SyncStatus>>,
+    view: Arc<Mutex<OperatorState>>,
+    link: Arc<Mutex<Link>>,
+    directory: PathBuf,
+    providers: Vec<Box<dyn Provider>>,
+}
+
+impl ArchiveWorker {
+    fn run(self) {
+        match archive::read(&self.configured) {
+            Ok(view) => self.publish(view),
+            Err(error) => {
+                tracing::warn!(error = %error, "operator archive view refused; using autonomous history sync");
+                let status = self.status.clone();
+                {
+                    let mut refused = locked_sync(&status);
+                    refused.complete_to_tip = false;
+                    refused.source = FeedSource::AutonomousLocal;
+                    *locked_view(&self.view) = OperatorState::Absent;
+                }
+                match self.fallback() {
+                    Ok(worker) => worker.run(),
+                    Err(error) => {
+                        tracing::warn!(error = %error, "autonomous history sync could not start");
+                        locked_sync(&status).phase = SyncPhase::Failed(error.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    fn publish(&self, view: OperatorView) {
+        let mut status = locked_sync(&self.status);
+        status.start = view.feed.start;
+        status.from = view.feed.start;
+        status.tip = view.feed.tip;
+        status.indexed_to = view.archive.indexed_through.map(|point| point.height);
+        status.complete_to_tip = view.feed.complete_to_tip;
+        status.done = view.archive.scanned_blocks;
+        status.total = view.feed.tip - view.feed.start + 1;
+        status.source = view.feed.source.clone();
+        *locked_view(&self.view) = OperatorState::Held(view);
+        status.phase = SyncPhase::Complete;
+    }
+
+    fn fallback(self) -> Result<SyncWorker, NativeError> {
+        let node = {
+            let mut link = locked_link(&self.link);
+            match &*link {
+                Link::Open(node) => node.clone(),
+                Link::Closed => {
+                    let node = Arc::new(if self.settings.source == SourceChoice::Public {
+                        Node::public_in_with_providers(
+                            NETWORK,
+                            &self.settings.cache_dir,
+                            self.providers,
+                        )?
+                    } else {
+                        self.settings.connect()?
+                    });
+                    opened(&node);
+                    *link = Link::Open(node.clone());
+                    node
+                }
+            }
+        };
+        let start = start_at(&self.directory.join(Service::START_FILE), &node)?;
+        let mut status = locked_sync(&self.status);
+        status.start = start;
+        status.from = start;
+        Ok(SyncWorker {
+            node,
+            path: self.directory.join(Service::INDEX_FILE),
+            start,
+            status: self.status.clone(),
+        })
+    }
+}
 
 impl Service {
     pub(super) fn start(&self, node: &Node) -> Result<u64, NativeError> {
@@ -21,86 +120,57 @@ impl Service {
     }
 
     pub fn start_sync(&self) -> Result<SyncStatus, NativeError> {
-        let mut status = self.sync_status();
+        let status = self.sync_status();
         if !status.settled() {
             return Ok(status.clone());
         }
         let settings = self.settings().clone();
-        if let Some(configured) = settings.archive.clone() {
-            status.run += 1;
-            status.phase = SyncPhase::Connecting;
-            status.complete_to_tip = false;
-            status.done = 0;
-            status.total = 0;
-            let snapshot = status.clone();
-            drop(status);
-            let shared_status = self.sync.clone();
-            let feed = self.archive_feed.clone();
-            let link = self.link.clone();
-            let directory = self.directory.clone();
-            let providers = self.local_node.providers();
-            let spawned = std::thread::Builder::new().name("wire-archive".into()).spawn(move || {
-                match archive::read(&configured) {
-                    Ok(snapshot) => {
-                        let mut status = locked_sync(&shared_status);
-                        status.start = snapshot.feed.start;
-                        status.from = snapshot.feed.start;
-                        status.tip = snapshot.feed.tip;
-                        status.indexed_to = snapshot.archive.indexed_through.map(|point| point.height);
-                        status.complete_to_tip = snapshot.feed.complete_to_tip;
-                        // These are coverage counts, not the number of sparse
-                        // placement checkpoints or selectively returned records.
-                        status.done = snapshot.archive.scanned_blocks;
-                        status.total = snapshot.archive.selected_tip.map_or(0, |tip|
-                            tip.height.saturating_sub(snapshot.feed.start).saturating_add(1));
-                        *feed.lock().unwrap_or_else(|error| error.into_inner()) = Some(snapshot.feed);
-                        status.phase = SyncPhase::Complete;
-                    }
-                    Err(error) => {
-                        tracing::info!(error = %error, "optional archive unavailable; using autonomous history sync");
-                        *feed.lock().unwrap_or_else(|error| error.into_inner()) = None;
-                        let fallback = (|| -> Result<SyncWorker, NativeError> {
-                            let node = {
-                                let mut link = locked_link(&link);
-                                match &*link {
-                                    Link::Open(node) => node.clone(),
-                                    Link::Closed => {
-                                        let node = if settings.source == SourceChoice::Public {
-                                            Node::public_in_with_providers(NETWORK, &settings.cache_dir, providers)?
-                                        } else { settings.connect()? };
-                                        let node = Arc::new(node);
-                                        opened(&node);
-                                        *link = Link::Open(node.clone());
-                                        node
-                                    }
-                                }
-                            };
-                            let start = start_at(&directory.join(Service::START_FILE), &node)?;
-                            {
-                                let mut status = locked_sync(&shared_status);
-                                status.start = start;
-                                status.from = start;
-                            }
-                            Ok(SyncWorker { node, path: directory.join(Service::INDEX_FILE),
-                                start, status: shared_status.clone() })
-                        })();
-                        match fallback {
-                            Ok(worker) => worker.run(),
-                            Err(error) => locked_sync(&shared_status).phase = SyncPhase::Failed(error.to_string()),
-                        }
-                    }
-                }
-            });
-            if let Err(error) = spawned {
-                self.sync_status().phase = SyncPhase::Failed(error.to_string());
-                return Err(error.into());
-            }
-            return Ok(snapshot);
+        match settings.route() {
+            FeedRoute::Operator(configured) => self.start_archive(status, configured, settings),
+            FeedRoute::Autonomous => self.start_autonomous(status),
         }
-        *self
-            .archive_feed
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = None;
+    }
+
+    fn start_archive(
+        &self,
+        mut status: MutexGuard<'_, SyncStatus>,
+        configured: ArchiveSettings,
+        settings: Settings,
+    ) -> Result<SyncStatus, NativeError> {
+        status.run += 1;
+        status.phase = SyncPhase::Connecting;
+        status.complete_to_tip = false;
+        status.done = 0;
+        status.total = 0;
+        let snapshot = status.clone();
+        drop(status);
+        let worker = ArchiveWorker {
+            configured,
+            settings,
+            status: self.sync.clone(),
+            view: self.archive_feed.clone(),
+            link: self.link.clone(),
+            directory: self.directory.clone(),
+            providers: self.local_node.providers(),
+        };
+        let spawned = std::thread::Builder::new()
+            .name("wire-archive".into())
+            .spawn(move || worker.run());
+        match spawned {
+            Ok(_handle) => Ok(snapshot),
+            Err(error) => {
+                tracing::warn!(error = %error, "operator archive worker did not start");
+                self.sync_status().phase = SyncPhase::Failed(error.to_string());
+                Err(error.into())
+            }
+        }
+    }
+
+    fn start_autonomous(
+        &self,
+        mut status: MutexGuard<'_, SyncStatus>,
+    ) -> Result<SyncStatus, NativeError> {
+        *locked_view(&self.archive_feed) = OperatorState::Absent;
         let node = self.node()?;
         let start = self.start(&node)?;
         *status = SyncStatus {
@@ -113,6 +183,7 @@ impl Service {
             done: 0,
             total: 0,
             complete_to_tip: false,
+            source: FeedSource::AutonomousLocal,
         };
         let snapshot = status.clone();
         drop(status);
@@ -128,25 +199,47 @@ impl Service {
         Ok(snapshot)
     }
 
+    fn expire_operator(&self, status: &mut SyncStatus) {
+        let mut held = locked_view(&self.archive_feed);
+        let stale = match &*held {
+            OperatorState::Held(view) => !view.fresh(),
+            OperatorState::Absent => return,
+        };
+        if stale {
+            tracing::warn!("operator archive view expired; serving the autonomous index");
+            *held = OperatorState::Absent;
+            status.complete_to_tip = false;
+            status.source = FeedSource::AutonomousLocal;
+            if status.phase == SyncPhase::Complete {
+                status.phase = SyncPhase::Idle;
+            }
+        }
+    }
+
+    fn operator_feed(&self, status: &mut SyncStatus) -> Held {
+        self.expire_operator(status);
+        match &*locked_view(&self.archive_feed) {
+            OperatorState::Held(view) => Held::Operator(view.feed.clone()),
+            OperatorState::Absent => Held::Autonomous,
+        }
+    }
+
     pub fn sync_snapshot(&self) -> SyncStatus {
-        self.sync_status().clone()
+        let mut status = self.sync_status();
+        self.expire_operator(&mut status);
+        status.clone()
     }
 
     pub fn feed(&self) -> Result<Feed, NativeError> {
-        // Match the worker's publication lock order. The coverage flag and
-        // cached feed must belong to the same publication, even during refresh.
         let status = {
-            let status = self.sync_status();
-            let cached = self
-                .archive_feed
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .clone();
-            if let Some(mut feed) = cached {
-                feed.complete_to_tip &= status.complete_to_tip;
-                return Ok(feed);
+            let mut status = self.sync_status();
+            match self.operator_feed(&mut status) {
+                Held::Operator(mut feed) => {
+                    feed.complete_to_tip &= status.complete_to_tip;
+                    return Ok(feed);
+                }
+                Held::Autonomous => status.clone(),
             }
-            status.clone()
         };
         let index = match self.index_path().exists() {
             true => Index::load(&self.index_path())?,
@@ -161,20 +254,23 @@ impl Service {
         Ok(project(&index, status.complete_to_tip)?)
     }
 
+    fn held_feed(&self) -> Held {
+        let mut status = self.sync_status();
+        self.operator_feed(&mut status)
+    }
+
     pub fn post(&self, txid: Txid) -> Result<Lookup, NativeError> {
-        if let Some(feed) = self
-            .archive_feed
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_ref()
-        {
-            return Ok(feed
-                .posts
-                .iter()
-                .find(|post| post.txid == txid)
-                .cloned()
-                .map_or(Lookup::Absent, Lookup::Found));
-        }
+        let feed = match self.held_feed() {
+            Held::Operator(feed) => feed,
+            Held::Autonomous => return self.indexed_post(txid),
+        };
+        let Some(post) = feed.posts.into_iter().find(|post| post.txid == txid) else {
+            return Ok(Lookup::Absent);
+        };
+        Ok(Lookup::Found(post))
+    }
+
+    fn indexed_post(&self, txid: Txid) -> Result<Lookup, NativeError> {
         if !self.index_path().exists() {
             return Ok(Lookup::Absent);
         }
@@ -182,19 +278,18 @@ impl Service {
     }
 
     pub fn replies(&self, txid: Txid) -> Result<Vec<Post>, NativeError> {
-        if let Some(feed) = self
-            .archive_feed
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_ref()
-        {
-            return Ok(feed
-                .posts
-                .iter()
-                .filter(|post| post.placement == Placement::Reply(txid))
-                .cloned()
-                .collect());
-        }
+        let feed = match self.held_feed() {
+            Held::Operator(feed) => feed,
+            Held::Autonomous => return self.indexed_replies(txid),
+        };
+        Ok(feed
+            .posts
+            .into_iter()
+            .filter(|post| post.placement == Placement::Reply(txid))
+            .collect())
+    }
+
+    fn indexed_replies(&self, txid: Txid) -> Result<Vec<Post>, NativeError> {
         if !self.index_path().exists() {
             return Ok(Vec::new());
         }

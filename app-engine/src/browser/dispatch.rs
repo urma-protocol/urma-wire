@@ -15,7 +15,7 @@ use wire_app_core::connection::{
     safe_endpoint, SourceChoice, SourceKind, SourceStanding, SourceState, TransportStatus,
 };
 use wire_app_core::contract::{Request, Response};
-use wire_app_core::feed::{Feed, Lookup, SyncStatus};
+use wire_app_core::feed::{Feed, FeedSource, Lookup, SyncStatus};
 use wire_app_core::model::{Chain, Post, Txid};
 use wire_app_core::publication::Pending;
 
@@ -190,6 +190,7 @@ async fn feed() -> Result<Feed, BrowserError> {
             start: status.start,
             tip: status.tip,
             complete_to_tip: false,
+            source: FeedSource::AutonomousLocal,
         }),
     }
 }

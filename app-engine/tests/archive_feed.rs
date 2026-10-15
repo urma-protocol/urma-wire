@@ -48,7 +48,7 @@ use urma_node_client::{
 use urma_wire::index::{Checkpoint, Entry, Index};
 use wire_app_core::{
     connection::SourceChoice,
-    feed::{Lookup, SyncPhase, SyncStatus},
+    feed::{FeedSource, Lookup, SyncPhase, SyncStatus},
     model::{Placement, Txid},
 };
 use wire_app_engine::{
@@ -533,14 +533,27 @@ fn complete(service: &Service, indexed: Option<u64>, done: u64, full: bool) {
         ),
         (START, START + 1, indexed, done, 2, full)
     );
+    let FeedSource::LocalNodeOperator {
+        indexed_through,
+        trust,
+        ..
+    } = &status.source
+    else {
+        panic!("operator view without provenance: {status:?}")
+    };
+    assert_eq!(*indexed_through, indexed);
+    assert_eq!(trust, FeedSource::OPERATOR_TRUST);
+    assert_eq!(service.feed().unwrap().source, status.source);
 }
 fn fallback_refused(service: &Service) {
     let status = settled(service);
-    let SyncPhase::Failed(reason) = status.phase else {
+    let SyncPhase::Failed(ref reason) = status.phase else {
         panic!("expected existing fallback refusal: {status:?}")
     };
     assert!(reason.contains("rpc_url and node_auth_file"));
     assert!(!status.complete_to_tip);
+    assert_eq!(status.source, FeedSource::AutonomousLocal);
+    assert_eq!(service.feed().unwrap().source, FeedSource::AutonomousLocal);
     assert!(service.source_status().endpoints.is_empty());
 }
 fn serve_full(relay: &Relay, server: &Server) {
@@ -566,6 +579,8 @@ fn serve_paged(relay: &Relay, server: &Server) {
 
 fn healthy(root: &Path) {
     let fixture = Fixture::new(root);
+    fixture.engine.scan_next().unwrap();
+    fixture.engine.scan_next().unwrap();
     let mut server = Server::new(fixture.engine.clone());
     let service = open_app(root, Some(server.address));
     assert_eq!(service.sync_snapshot(), SyncStatus::idle());
@@ -574,8 +589,8 @@ fn healthy(root: &Path) {
     let calls = fixture.source.calls();
     let node_status = serde_json::to_value(fixture.engine.status().unwrap()).unwrap();
     begin(&service);
-    complete(&service, None, 0, false);
-    fixture.check(&service, true, false);
+    complete(&service, Some(START + 1), 2, true);
+    fixture.check(&service, true, true);
     no_autonomous_files(root);
     assert_eq!(fixture.source.calls(), calls);
     assert_eq!(
@@ -589,8 +604,8 @@ fn healthy(root: &Path) {
     let service = open_app(root, Some(server.address));
     assert!(service.feed().unwrap().posts.is_empty());
     begin(&service);
-    complete(&service, None, 0, false);
-    fixture.check(&service, true, false);
+    complete(&service, Some(START + 1), 2, true);
+    fixture.check(&service, true, true);
     assert_eq!(fixture.source.calls(), calls);
     no_autonomous_files(root);
     drop(service);
@@ -652,7 +667,10 @@ fn refresh(root: &Path) {
     complete(&service, Some(START + 1), 2, true);
     fixture.check(&service, false, true);
     let mut completed = json_feed(&service);
+    assert_eq!(completed["source"]["indexed_through"], START + 1);
+    assert_eq!(incomplete["source"]["indexed_through"], START);
     completed["complete_to_tip"] = false.into();
+    completed["source"] = incomplete["source"].clone();
     assert_eq!(
         completed, incomplete,
         "records and coverage were mixed across refresh publications"
@@ -729,6 +747,7 @@ fn cache_unchanged(root: &Path, index: &[u8], start: &[u8]) {
 }
 fn traversal(root: &Path) {
     let fixture = Fixture::new(root);
+    fixture.engine.scan_next().unwrap();
     let mut server = Server::new(fixture.engine.clone());
     let relay = Relay::new();
     let (old, index, start) = old_cache(root);
@@ -741,13 +760,9 @@ fn traversal(root: &Path) {
         if failure != 0 {
             begin(&service);
             serve_paged(&relay, &server);
-            complete(
-                &service,
-                if failure > 1 { Some(START) } else { None },
-                if failure > 1 { 1 } else { 0 },
-                false,
-            );
-            fixture.check(&service, true, false);
+            let scanned = if failure > 1 { 2 } else { 1 };
+            complete(&service, Some(START + scanned - 1), scanned, failure > 1);
+            fixture.check(&service, true, failure > 1);
         }
         let previous = json_feed(&service);
         let calls = fixture.source.calls();
@@ -858,6 +873,61 @@ fn disabled(root: &Path) {
     assert_eq!(relay.calls(), 0);
     drop(relay);
 }
+fn refused_view(root: &Path, scans: usize, extension: u32) {
+    let fixture = Fixture::new(root);
+    for _scan in 0..scans {
+        fixture.engine.scan_next().unwrap();
+    }
+    {
+        let mut branch = fixture.source.branch.lock().unwrap();
+        for nonce in 0..extension {
+            let previous = branch.last().cloned();
+            branch.push(block(&[], previous.as_ref(), 8200 + nonce));
+        }
+    }
+    fixture.engine.synchronize_headers().unwrap();
+    let archive = fixture.engine.status().unwrap();
+    assert_eq!(
+        archive.selected_tip.unwrap().height,
+        START + 1 + u64::from(extension)
+    );
+    let (old, index, start) = old_cache(root);
+    let mut server = Server::new(fixture.engine.clone());
+    let service = open_app(root, Some(server.address));
+    begin(&service);
+    fallback_refused(&service);
+    assert_eq!(json_feed(&service), old, "refused operator view was served");
+    cache_unchanged(root, &index, &start);
+    drop(service);
+    server.close();
+    assert_eq!(Arc::strong_count(&fixture.engine), 1);
+}
+fn empty(root: &Path) {
+    refused_view(root, 0, 0);
+}
+fn stale(root: &Path) {
+    refused_view(root, 2, 3);
+}
+fn preserved(root: &Path) {
+    let fixture = Fixture::new(root);
+    fixture.engine.scan_next().unwrap();
+    fixture.engine.scan_next().unwrap();
+    let (old, index, start) = old_cache(root);
+    let mut server = Server::new(fixture.engine.clone());
+    let service = open_app(root, Some(server.address));
+    assert_eq!(json_feed(&service), old);
+    begin(&service);
+    complete(&service, Some(START + 1), 2, true);
+    fixture.check(&service, true, true);
+    cache_unchanged(root, &index, &start);
+    drop(service);
+    let service = open_app(root, None);
+    assert_eq!(json_feed(&service), old);
+    cache_unchanged(root, &index, &start);
+    drop(service);
+    server.close();
+    assert_eq!(Arc::strong_count(&fixture.engine), 1);
+}
 
 #[test]
 #[ignore = "owned subprocess host for bounded archive-feed integration cases"]
@@ -871,6 +941,9 @@ fn archive_feed_host() {
         "refresh" => refresh(&root),
         "traversal" => traversal(&root),
         "disabled" => disabled(&root),
+        "empty" => empty(&root),
+        "stale" => stale(&root),
+        "preserved" => preserved(&root),
         _ => panic!("unknown owned case"),
     }
     fs::write(
@@ -982,4 +1055,16 @@ fn failed_page_traversal_discards_partial_view_and_uses_existing_refused_fallbac
 #[test]
 fn disabled_archive_keeps_old_and_legacy_cache_bytes_across_restart() {
     run("disabled");
+}
+#[test]
+fn empty_operator_archive_falls_back_to_autonomous_sync() {
+    run("empty");
+}
+#[test]
+fn operator_projection_behind_its_tip_falls_back_to_autonomous_sync() {
+    run("stale");
+}
+#[test]
+fn operator_read_leaves_local_index_bytes_unchanged() {
+    run("preserved");
 }

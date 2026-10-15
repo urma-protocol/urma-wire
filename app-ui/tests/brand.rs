@@ -1,4 +1,4 @@
-use wire_app_core::feed::{SyncPhase, SyncStatus};
+use wire_app_core::feed::{FeedSource, SyncPhase, SyncStatus};
 use wire_app_ui::components::brand::{distance, pulse_at, Mark, Trace};
 use wire_app_ui::state::Synced;
 
@@ -74,7 +74,10 @@ fn cuts_seal_as_the_pulse_passes_and_stay_open_on_failure() {
 
 #[test]
 fn completion_heals_the_mark_and_hides_the_pulse() {
-    let healed = Mark::of(&Synced::Indexed { complete: true });
+    let healed = Mark::of(&Synced::Indexed {
+        complete: true,
+        source: FeedSource::AutonomousLocal,
+    });
     assert!(healed.healed);
     assert!(!healed.pulse_shown);
     assert_eq!(healed.fraction, 1.0);
@@ -99,8 +102,26 @@ fn engine_status_maps_to_the_shown_state() {
     );
     status.phase = SyncPhase::Complete;
     status.complete_to_tip = true;
-    assert_eq!(Synced::shown(&status), Synced::Indexed { complete: true });
+    assert_eq!(
+        Synced::shown(&status),
+        Synced::Indexed {
+            complete: true,
+            source: FeedSource::AutonomousLocal
+        }
+    );
     assert_eq!(Synced::shown(&status).label(), "Up to date");
+    status.source = FeedSource::LocalNodeOperator {
+        indexed_through: Some(7),
+        peer_synced_through: None,
+        generation: 3,
+        trust: FeedSource::OPERATOR_TRUST.into(),
+    };
+    assert_eq!(Synced::shown(&status).label(), "Up to date · local node");
+    status.complete_to_tip = false;
+    assert_eq!(
+        Synced::shown(&status).label(),
+        "History incomplete · local node"
+    );
     status.phase = SyncPhase::Failed("x".into());
     assert_eq!(Synced::shown(&status).label(), "Sync failed");
     assert_eq!(Synced::Verifying { done: 1, total: 2 }.label(), "");
