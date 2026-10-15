@@ -261,7 +261,7 @@ fn rejected_by_public_service(directory: &Path, token_file: &Path, endpoint: Soc
     assert!(feed.posts.is_empty() && feed.identities.is_empty() && !feed.complete_to_tip);
     assert!(!cache_dir.exists());
     assert!(!app_dir.join("ltc-testnet-start.json").exists());
-    assert!(!app_dir.join("ltc-testnet-index.json").exists());
+    assert!(!app_dir.join("ltc-testnet-index-v3.json").exists());
     reason
 }
 

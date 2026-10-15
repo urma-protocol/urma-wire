@@ -40,9 +40,12 @@ fn profile_boundaries_and_multibyte_spellings_preserve_exact_octets() {
     }
 }
 
+fn vectors() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/vectors")
+}
+
 fn fixture(value: &Value) -> Vec<u8> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../urma/tests/vectors");
-    let bytes = fs::read(root.join(value["file"].as_str().unwrap())).unwrap();
+    let bytes = fs::read(vectors().join(value["file"].as_str().unwrap())).unwrap();
     assert_eq!(
         u64::try_from(bytes.len()).unwrap(),
         value["bytes"].as_u64().unwrap()
@@ -56,9 +59,8 @@ fn fixture(value: &Value) -> Vec<u8> {
 
 #[test]
 fn independent_utf8_reference_is_consumed_by_the_shared_native_browser_codec() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../urma/tests/vectors");
     let manifest: Value =
-        serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(vectors().join("manifest.json")).unwrap()).unwrap();
     let reference: Value =
         serde_json::from_slice(&fixture(&manifest["profile_reference"])).unwrap();
     assert_eq!(reference["maximum_body_bytes"], 128);

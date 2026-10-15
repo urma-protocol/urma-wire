@@ -342,7 +342,7 @@ fn fallback(directory: &Path) {
     fs::create_dir(&app).unwrap();
     // Fixture interval explicitly selected; never consult/change history defaults.
     fs::write(app.join("ltc-testnet-start.json"), b"0").unwrap();
-    let index_path = app.join("ltc-testnet-index.json");
+    let index_path = app.join("ltc-testnet-index-v3.json");
     assert!(!index_path.exists());
     let token = directory.join("archive.token");
     let cookie = directory.join("rpc.cookie");
@@ -399,7 +399,7 @@ fn fallback(directory: &Path) {
     assert!(feed.complete_to_tip);
     assert!(feed.posts.is_empty() && feed.identities.is_empty());
     let index = Index::load(&index_path).unwrap();
-    assert_eq!(index.format, "URMA-WIRE-INDEX-2");
+    assert_eq!(index.format, Index::FORMAT);
     assert_eq!(index.genesis, GENESIS);
     assert_eq!(index.start, 0);
     assert_eq!(index.blocks.len(), 1);

@@ -144,5 +144,5 @@ fn mobile_settings_ignore_a_desktop_config_in_the_owned_directory() {
     assert!(mobile.rpc_url.is_none());
     assert!(mobile.node_auth_file.is_none());
     assert_eq!(mobile.source, SourceChoice::Public);
-    assert_eq!(mobile.vault, Some(dir.path().join("identity.urma")));
+    assert_eq!(mobile.vault, Some(dir.path().join("identity-v2.urma")));
 }

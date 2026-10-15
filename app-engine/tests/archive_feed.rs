@@ -62,7 +62,7 @@ const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
 const BOUND: Duration = Duration::from_secs(4);
 const HOST_BOUND: Duration = Duration::from_secs(45);
 const START: u64 = 100;
-const INDEX_FILE: &str = "ltc-testnet-index.json";
+const INDEX_FILE: &str = "ltc-testnet-index-v3.json";
 const START_FILE: &str = "ltc-testnet-start.json";
 
 fn stage(root: &Path, message: &str) {
@@ -82,8 +82,7 @@ struct Pair {
 }
 impl Pair {
     fn load(name: &str) -> Self {
-        // Portable sibling public vectors: no private or machine-specific path.
-        let vectors = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../urma/tests/vectors");
+        let vectors = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/vectors");
         let raw_commit = fs::read(vectors.join(format!("{name}.commit"))).unwrap();
         let raw_reveal = fs::read(vectors.join(format!("{name}.reveal"))).unwrap();
         let commit: Transaction = deserialize(&raw_commit).unwrap();
@@ -677,13 +676,14 @@ fn old_cache(root: &Path) -> (Value, Vec<u8>, Vec<u8>) {
         txid: format!("{txid:064x}"),
         author: author.clone(),
         record: hex::encode(raw),
+        return_script: None,
     };
     let mut legacy_profile = RecordKind::Profile.prefix().to_vec();
     legacy_profile.extend_from_slice(&[b'l'; 129]);
     let mut legacy_avatar = RecordKind::Avatar.prefix().to_vec();
     legacy_avatar.extend_from_slice(&[0x12; 512]);
     let index = Index {
-        format: "URMA-WIRE-INDEX-2".into(),
+        format: Index::FORMAT.into(),
         genesis: NETWORK.genesis().unwrap().0.to_string(),
         start: 90,
         blocks: vec![Checkpoint {

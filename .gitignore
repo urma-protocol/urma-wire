@@ -19,6 +19,8 @@
 !/app-*/src/**/*.rs
 !/app-*/tests/**/*.rs
 !/app-engine/tests/fixtures/valid.vault
+!/app-engine/tests/vectors/
+!/app-engine/tests/vectors/*
 !/law.toml
 !/scripts/*.sh
 !/src-tauri/Cargo.toml
@@ -32,8 +34,6 @@
 !/src-tauri/icons/**/*.xml
 **/.*
 !/.gitignore
-!/.cargo/
-!/.cargo/local-urma.toml
 /target/
 /dist/
 /src-tauri/gen/

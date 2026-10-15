@@ -26,6 +26,7 @@ fn raw(height: u64, position: u32, identifier: u8, bytes: &[u8]) -> Entry {
         txid: id(identifier),
         author: id(3),
         record: hex::encode(bytes),
+        return_script: None,
     }
 }
 
@@ -44,7 +45,7 @@ fn mixed() -> Index {
     let legacy_profile = [RecordKind::Profile.prefix().as_slice(), &[b'l'; 129]].concat();
     let legacy_avatar = [RecordKind::Avatar.prefix().as_slice(), &[0; 512]].concat();
     Index {
-        format: "URMA-WIRE-INDEX-2".into(),
+        format: Index::FORMAT.into(),
         genesis: id(0),
         start: 100,
         blocks: (100..=105).map(checkpoint).collect(),
@@ -218,7 +219,7 @@ fn sparse_placements_use_explicit_tip_without_adding_checkpoints_or_coverage() {
 #[test]
 fn missing_checkpoint_and_above_tip_keep_the_existing_error_precedence() {
     let mut index = Index {
-        format: "URMA-WIRE-INDEX-2".into(),
+        format: Index::FORMAT.into(),
         genesis: id(0),
         start: 99,
         blocks: vec![],
@@ -253,7 +254,7 @@ fn missing_checkpoint_and_above_tip_keep_the_existing_error_precedence() {
 #[test]
 fn empty_wrapper_keeps_start_as_tip_and_view_preserves_explicit_false_coverage() {
     let index = Index {
-        format: "URMA-WIRE-INDEX-2".into(),
+        format: Index::FORMAT.into(),
         genesis: id(0),
         start: 42,
         blocks: vec![],
