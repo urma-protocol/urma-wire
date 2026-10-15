@@ -285,18 +285,28 @@ fn token_file_refusals_happen_before_http() {
             assert!(mock.finish().is_empty(), "{case} triggered HTTP");
         }
         #[cfg(unix)]
-        for case in ["symlink", "permissions"] {
+        for case in ["symlink", "permissions", "fifo"] {
             use std::os::unix::fs::{symlink, PermissionsExt};
             let directory = tempfile::tempdir().unwrap();
             let token_file = directory.path().join("token");
-            if case == "symlink" {
-                let target = directory.path().join("target");
-                private_file(&target, TOKEN.as_bytes());
-                symlink(target, &token_file).unwrap();
-            } else {
-                private_file(&token_file, TOKEN.as_bytes());
-                std::fs::set_permissions(&token_file, std::fs::Permissions::from_mode(0o644))
-                    .unwrap();
+            match case {
+                "symlink" => {
+                    let target = directory.path().join("target");
+                    private_file(&target, TOKEN.as_bytes());
+                    symlink(target, &token_file).unwrap();
+                }
+                "permissions" => {
+                    private_file(&token_file, TOKEN.as_bytes());
+                    std::fs::set_permissions(&token_file, std::fs::Permissions::from_mode(0o644))
+                        .unwrap();
+                }
+                _ => assert!(std::process::Command::new("mkfifo")
+                    .arg("-m")
+                    .arg("600")
+                    .arg(&token_file)
+                    .status()
+                    .unwrap()
+                    .success()),
             }
             let mock = Mock::new(false);
             rejected_by_public_service(directory.path(), &token_file, mock.address);

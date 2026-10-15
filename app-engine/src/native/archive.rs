@@ -29,6 +29,7 @@ impl OperatorView {
     const TRAVERSAL_TIME: Duration = Duration::from_secs(30);
     const PAGE: u32 = 128;
     const TOKEN_BYTES: usize = 256;
+    const TOKEN_READ: u64 = 257;
     const MAX_LAG: u64 = 2;
     const MAX_AGE: Duration = Duration::from_secs(600);
 
@@ -216,19 +217,18 @@ fn bearer(path: &Path) -> Result<Zeroizing<String>, NativeError> {
     use std::io::Read;
     use std::os::unix::fs::MetadataExt;
     let linked = std::fs::symlink_metadata(path)?;
+    if !linked.is_file() {
+        return Err(refused("token must be one private regular file"));
+    }
     let file = std::fs::File::open(path)?;
     let opened = file.metadata()?;
-    let same = linked.is_file()
-        && opened.is_file()
-        && linked.dev() == opened.dev()
-        && linked.ino() == opened.ino();
+    let same = opened.is_file() && linked.dev() == opened.dev() && linked.ino() == opened.ino();
     if !same || opened.nlink() != 1 || opened.mode() & 0o077 != 0 {
         return Err(refused("token must be one private regular file"));
     }
     let mut bytes = Zeroizing::new(Vec::new());
-    for byte in file.bytes().take(OperatorView::TOKEN_BYTES + 1) {
-        bytes.push(byte?);
-    }
+    file.take(OperatorView::TOKEN_READ)
+        .read_to_end(&mut bytes)?;
     if bytes.len() > OperatorView::TOKEN_BYTES {
         return Err(refused("token exceeds its size bound"));
     }
