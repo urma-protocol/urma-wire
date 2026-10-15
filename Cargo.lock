@@ -7636,9 +7636,9 @@ dependencies = [
 
 [[package]]
 name = "urma-node"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14111fe1d12cd347fd7c77496f8a8016e810705a5999d074204b4f27c0a738e4"
+checksum = "5cee2b7b51b7aed24a9bb0d1dddc1641792f07c24a345d9115d5659b4565e5ed"
 dependencies = [
  "async-trait",
  "bitcoin",

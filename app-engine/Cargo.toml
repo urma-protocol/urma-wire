@@ -56,4 +56,4 @@ rand = "0.8"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 # Integration fixtures exercise an actual local service; never a product dependency.
-urma-node = "0.7.2"
+urma-node = "0.7.3"
