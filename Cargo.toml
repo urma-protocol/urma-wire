@@ -6,3 +6,9 @@ members = [
     "app-ui",
     "src-tauri",
 ]
+
+# Vault unlock is unusably slow at opt-level 0.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
