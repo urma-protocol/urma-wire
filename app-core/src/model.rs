@@ -23,6 +23,22 @@ impl Chain {
             Self::Litecoin => "Litecoin Testnet",
         }
     }
+
+    pub fn ticker(&self) -> &'static str {
+        match self {
+            Self::Bitcoin => "BTC",
+            Self::Litecoin => "LTC",
+        }
+    }
+
+    pub fn amount(&self, base_units: u64) -> String {
+        format!(
+            "{}.{:08} {}",
+            base_units / 100_000_000,
+            base_units % 100_000_000,
+            self.ticker()
+        )
+    }
 }
 
 impl fmt::Display for Chain {

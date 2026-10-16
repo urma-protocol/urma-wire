@@ -96,7 +96,7 @@ fn unfunded(state: AppState) -> &'static str {
 
 #[component]
 fn Funding(summary: WalletSummary, copied: RwSignal<Said>, on_copy: Callback<()>) -> impl IntoView {
-    let balance = whole_coins(summary.confirmed_balance_sats, summary.chain.code());
+    let balance = summary.chain.amount(summary.confirmed_balance_sats);
     view! {
         <Facts>
             <Fact label="Fingerprint">
@@ -122,10 +122,4 @@ fn Funding(summary: WalletSummary, copied: RwSignal<Said>, on_copy: Callback<()>
             <Stat label="Spendable outputs" value=summary.utxo_count.to_string() />
         </div>
     }
-}
-
-fn whole_coins(sats: u64, code: &str) -> String {
-    let coins = sats / 100_000_000;
-    let fraction = sats % 100_000_000;
-    format!("{coins}.{fraction:08} {}", code.to_ascii_uppercase())
 }

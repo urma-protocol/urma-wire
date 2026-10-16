@@ -73,7 +73,12 @@ impl Source {
         Ok(source)
     }
 
-    async fn request(&self, path: &str, post: &str, binary: bool) -> Result<Answered, BrowserError> {
+    async fn request(
+        &self,
+        path: &str,
+        post: &str,
+        binary: bool,
+    ) -> Result<Answered, BrowserError> {
         let answer = chain_fetch(&self.url, path, post, binary).await?;
         let Some(body) = answer.as_string() else {
             return Ok(Answered::NotFound);
@@ -134,13 +139,11 @@ impl Source {
     }
 
     pub async fn presence(&self, txid: Txid) -> Result<Presence, BrowserError> {
-        let Answered::Body(raw) = self
-            .request(&format!("/tx/{txid}/status"), "", false)
-            .await?
-        else {
+        let Answered::Body(raw) = self.request(&format!("/tx/{txid}"), "", false).await? else {
             return Ok(Presence::Missing);
         };
-        let status: Value = serde_json::from_str(&raw)?;
+        let transaction: Value = serde_json::from_str(&raw)?;
+        let status = &transaction["status"];
         match status["confirmed"].as_bool() {
             Some(true) => (),
             Some(false) => return Ok(Presence::Mempool),

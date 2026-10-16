@@ -160,22 +160,22 @@ those sizes with `cargo tauri icon assets/urma-wire-icon.png`.
    active URMA identity with its vault password. Desktop also offers **Use
    configured unlock file** when present. No identity is created. Wallet shows
    network funding separately from the identity session.
-2. Write a post/reply → **Review & publish** prepares and saves signed bytes,
-   without broadcast. Optional wire and hashtag inputs are structured protocol
-   fields. The review displays the exact frozen text, wire, hashtags, reply target,
-   total fee, selected funding and value returned. See the
+2. Write a post/reply → **Publish** (or **Reply**) prepares and saves signed
+   bytes, without broadcast, and shows one line: the total fee in LTC and a
+   **Confirm** button. Optional wire and hashtag inputs are structured protocol
+   fields. Editing the draft discards the quote. See the
    [configuration sources](#configuration-and-state) for the fee policy; there is
    no automatic fee increase. Funding comes from the vault's BIP84 Litecoin
    Testnet account (`m/84'/1'/0'`, Identity/Vault v2): confirmed coins found on
    its external and internal chains (gap limit 20) are spent largest first, up
    to 50 inputs, and the change and return output go to the designated address
    `0/0`. The identity slot only signs as author and never funds.
-3. **Approve fee & publish** approves that exact plan and begins submission.
-   The commit is submitted first; once observed in the mempool or confirmed,
-   its reveal is submitted in the same pass. The frontend periodically reconciles
-   and reports both transactions; success requires both confirmed.
-   A source error or rejection stops following with its reason. Resolve it and
-   choose **Resume publication**; no generic infinite retry or fee bump occurs.
+3. **Confirm** approves that exact plan and begins submission. The commit is
+   submitted first; once observed in the mempool or confirmed, its reveal is
+   submitted in the same pass. The line disappears once both transactions are
+   sent; Wire keeps reconciling in the background until both confirm. A source
+   error or rejection stops with its reason and a **Retry** button (and
+   **Abandon** if nothing reached the network); no fee bump occurs.
 4. Completion refreshes the confirmed feed. **Refresh confirmed feed** also
    advances the index explicitly. The confirmed index never stores mempool
    records; see [unconfirmed records](#unconfirmed-records).

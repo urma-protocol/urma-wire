@@ -38,8 +38,8 @@ impl Speaking {
 
     pub fn publish_label(&self) -> &'static str {
         match self {
-            Speaking::InReplyTo(_) => "Review & reply",
-            Speaking::Freely => "Review & publish",
+            Speaking::InReplyTo(_) => "Reply",
+            Speaking::Freely => "Publish",
         }
     }
 

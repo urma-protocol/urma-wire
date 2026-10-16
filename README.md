@@ -124,8 +124,8 @@ Leave the optional `fixture-harness` feature disabled in ordinary builds.
    Wire does not create a new identity in this flow. The shared
    [URMA CLI](https://github.com/urma-protocol/urma/tree/master/urma-cli) provides
    identity tooling.
-3. Check **Wallet** for confirmed testnet funding. Compose a post in **Feed** or
-   **Publish**, review the quoted plan, then explicitly approve it.
+3. Check **Wallet** for confirmed testnet funding. Write in **Feed**, press
+   **Publish**, then **Confirm** the quoted cost in LTC.
 
 Unlocking permits new signing; locking does not revoke an already approved plan.
 Interrupted publication can be resumed using its saved bytes. See
