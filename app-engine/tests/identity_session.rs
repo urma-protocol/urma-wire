@@ -75,3 +75,47 @@ fn session_and_import_preserve_identity_without_a_working_source() {
         urma_identity::vault::EncryptedVault::MAX_BYTES
     );
 }
+
+#[test]
+fn a_created_identity_is_recoverable_from_its_twelve_words() {
+    let dir = tempfile::tempdir().unwrap();
+    let settings = || Settings {
+        rpc_url: Some("http://127.0.0.1:1".into()),
+        source: SourceChoice::LocalNode,
+        ..Default::default()
+    };
+    let first = Service::open(&dir.path().join("first"), settings()).unwrap();
+    assert!(first
+        .create_identity("not twelve words".into(), "fixture-password".into())
+        .is_err());
+    assert!(first
+        .create_identity(String::new(), "short".into())
+        .is_err());
+    assert!(!dir.path().join("first/identity-v2.urma").exists());
+    let (status, words) = first
+        .create_identity(String::new(), "fixture-password".into())
+        .unwrap();
+    assert_eq!(words.split_whitespace().count(), 12);
+    let Session::Unlocked(author) = status.session else {
+        panic!("a created identity is unlocked");
+    };
+    assert_eq!(status.source, VaultSource::Imported);
+    assert!(first
+        .create_identity(String::new(), "fixture-password".into())
+        .is_err());
+    first.lock();
+    first.unlock(password("fixture-password")).unwrap();
+    assert_eq!(first.identity_status().unwrap().session, Session::Unlocked(author));
+    let second = Service::open(&dir.path().join("second"), settings()).unwrap();
+    let (recovered, same_words) = second
+        .create_identity(format!("  {words} \n"), "another-password".into())
+        .unwrap();
+    assert_eq!(recovered.session, Session::Unlocked(author));
+    assert_eq!(same_words, words);
+    let expected = IdentityPhrase::parse(&words).unwrap();
+    let keys = Keyring::recover(&expected).unwrap();
+    assert_eq!(
+        keys.active().unwrap().author().0.serialize(),
+        author.0
+    );
+}

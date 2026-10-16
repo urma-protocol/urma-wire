@@ -120,12 +120,27 @@ Leave the optional `fixture-harness` feature disabled in ordinary builds.
 
 1. Open **Settings** to inspect the chain source. Public sources are the default;
    an existing local node can also be configured. Wire does not start a daemon.
-2. Use **Identity** to import your encrypted URMA vault and unlock the session.
-   Wire does not create a new identity in this flow. The shared
-   [URMA CLI](https://github.com/urma-protocol/urma/tree/master/urma-cli) provides
-   identity tooling.
+2. Reading needs no identity. To publish, open **Identity** and either type
+   your 12 words (**Recover from 12 words**), press **Generate a new identity**
+   and write the shown words down, or import an encrypted URMA vault. The vault
+   password you enter protects the copy Wire keeps; the words are the only way
+   to recover the identity elsewhere, and the shared
+   [URMA CLI](https://github.com/urma-protocol/urma/tree/master/urma-cli)
+   accepts the same words.
 3. Check **Wallet** for confirmed testnet funding. Write in **Feed**, press
    **Publish**, then **Confirm** the quoted cost in LTC.
+
+## Web
+
+The same frontend runs as a static site at <https://wire.rosint.org>: no
+backend, the browser reads Litecoin Testnet straight from the Esplora source
+chosen in Settings (litecoinspace by default, which allows cross-origin reads
+and broadcasts), verifies blocks in WebAssembly and keeps the index, the vault
+and saved plans in IndexedDB. Reading works without an identity; publishing
+works after creating or importing one. The deployment is a Fly static app
+behind Caddy (`private/operations/deploy/urma-wire-web`): `deploy.sh` builds
+`trunk build --release` into a staging directory and deploys it, `cf-dns.py`
+keeps the DNS-only CNAME and ACME records on Cloudflare.
 
 Unlocking permits new signing; locking does not revoke an already approved plan.
 Interrupted publication can be resumed using its saved bytes. See

@@ -36,6 +36,10 @@ pub async fn handle(request: Request) -> Result<Response, BrowserError> {
         Request::ImportIdentity { vault, password } => {
             Ok(Response::Identity(session::import(vault, password).await?))
         }
+        Request::CreateIdentity { phrase, password } => {
+            let (status, phrase) = session::create(phrase, password).await?;
+            Ok(Response::Created { status, phrase })
+        }
         Request::Unlock(credential) => {
             session::unlock(credential).await?;
             Ok(Response::Unlocked)

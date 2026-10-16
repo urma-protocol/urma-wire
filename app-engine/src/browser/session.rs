@@ -1,8 +1,11 @@
 use crate::config::{NETWORK, VAULT_KEY};
 use crate::errors::BrowserError;
+use rand::rngs::OsRng;
 use std::cell::{Cell, RefCell};
 use std::num::Wrapping;
 use urma_identity::identity::IdentityKey;
+use urma_identity::keyring::Keyring;
+use urma_identity::phrase::IdentityPhrase;
 use urma_identity::vault::{EncryptedVault, UnlockCredential, UnlockedVault};
 use urma_wallet::account::Account;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -173,6 +176,32 @@ pub async fn import(vault: Vec<u8>, password: String) -> Result<IdentityStatus, 
         .map_err(vault_storage)?;
     adopt(epoch, opened)?;
     identity(true)
+}
+
+pub async fn create(
+    phrase: String,
+    password: String,
+) -> Result<(IdentityStatus, String), BrowserError> {
+    bump_epoch();
+    let epoch = session_epoch();
+    let password = Zeroizing::new(password);
+    let phrase = Zeroizing::new(phrase);
+    let recovered = match phrase.trim().is_empty() {
+        true => IdentityPhrase::generate(&mut OsRng)?,
+        false => IdentityPhrase::parse(phrase.trim())?,
+    };
+    let words = recovered.export_words()?;
+    let vault = UnlockedVault::create(
+        Keyring::create(&recovered, "wire")?,
+        &password,
+        &mut OsRng,
+    )?;
+    let sealed = vault.seal(&mut OsRng)?;
+    vault_insert(VAULT_KEY, &serde_json::to_string(sealed.as_bytes())?)
+        .await
+        .map_err(vault_storage)?;
+    adopt(epoch, vault)?;
+    Ok((identity(true)?, words.to_string()))
 }
 
 pub async fn unlock(credential: Credential) -> Result<(), BrowserError> {

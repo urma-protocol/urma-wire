@@ -79,6 +79,11 @@ replace the previous complete version. Updates activate when older tabs close;
 previous complete caches are retained. Deep-link reload uses the cached shell
 even if the hosting server is unavailable. There are no remote startup fonts.
 
+Reading the feed needs no identity. Identity offers three ways in: **Recover
+from 12 words** rebuilds the keyring from a BIP39 phrase, **Generate a new
+identity** draws fresh entropy in the browser and shows the 12 words once, and
+vault import takes an encrypted URMA vault file. All three seal the keyring
+with the vault password typed on the page and store only that encrypted copy.
 The imported URMA vault bytes persist in IndexedDB, separate from public asset
 caches. Import verifies the password and refuses to overwrite an existing vault,
 including concurrent imports from different tabs. Keys are held only in WASM

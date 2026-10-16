@@ -11,6 +11,10 @@ impl Service {
             Request::ImportIdentity { vault, password } => {
                 Ok(Response::Identity(self.import_identity(vault, password)?))
             }
+            Request::CreateIdentity { phrase, password } => {
+                let (status, phrase) = self.create_identity(phrase, password)?;
+                Ok(Response::Created { status, phrase })
+            }
             Request::Unlock(credential) => {
                 self.unlock(credential)?;
                 Ok(Response::Unlocked)

@@ -19,6 +19,18 @@ pub async fn import(vault: Vec<u8>, password: String) -> Result<IdentityStatus, 
     }
 }
 
+pub struct Created {
+    pub status: IdentityStatus,
+    pub phrase: String,
+}
+
+pub async fn create(phrase: String, password: String) -> Result<Created, Fault> {
+    match ask(Request::CreateIdentity { phrase, password }).await? {
+        Response::Created { status, phrase } => Ok(Created { status, phrase }),
+        other => Err(other.unexpected("identity creation")),
+    }
+}
+
 pub async fn unlock(credential: Credential) -> Result<(), Fault> {
     match ask(Request::Unlock(credential)).await? {
         Response::Unlocked => Ok(()),

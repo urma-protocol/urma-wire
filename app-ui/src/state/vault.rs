@@ -11,6 +11,8 @@ use wire_app_core::session::Credential;
 #[derive(Clone, Copy)]
 pub struct Vault {
     pub password: RwSignal<String>,
+    pub phrase: RwSignal<String>,
+    pub revealed: RwSignal<Said>,
     pub busy: RwSignal<bool>,
     pub message: RwSignal<Said>,
     state: AppState,
@@ -21,6 +23,8 @@ pub enum Intent {
     Unlock,
     UseConfiguredFile,
     Import,
+    Create,
+    Generate,
     Lock,
 }
 
@@ -28,6 +32,8 @@ impl Vault {
     pub fn opened() -> Self {
         Self {
             password: RwSignal::new(String::new()),
+            phrase: RwSignal::new(String::new()),
+            revealed: RwSignal::new(Said::Nothing),
             busy: RwSignal::new(false),
             message: RwSignal::new(Said::Nothing),
             state: expect_context::<AppState>(),
@@ -44,12 +50,29 @@ impl Vault {
         vault.message.set(Said::Nothing);
         let credential = vault.password.get_untracked();
         vault.password.set(String::new());
+        let words = match intent {
+            Intent::Create => vault.phrase.get_untracked(),
+            Intent::Generate
+            | Intent::Unlock
+            | Intent::UseConfiguredFile
+            | Intent::Import
+            | Intent::Lock => String::new(),
+        };
         leptos::task::spawn_local(async move {
-            match perform(state, intent, credential).await {
+            match perform(state, intent, credential, words).await {
                 Outcome::Changed(spoken) => {
+                    vault.phrase.set(String::new());
                     state.wallet_summary.set(None);
                     state.load_identity();
                     vault.message.set(Said::Something(spoken));
+                }
+                Outcome::Revealed(phrase) => {
+                    state.wallet_summary.set(None);
+                    state.load_identity();
+                    vault.revealed.set(Said::Something(phrase));
+                    vault.message.set(Said::Something(
+                        "New identity created and unlocked. Write the 12 words down now; they are the only way to recover it.".to_owned(),
+                    ));
                 }
                 Outcome::Refused(reason) => vault.message.set(Said::Something(reason)),
             }
@@ -60,15 +83,43 @@ impl Vault {
 
 pub enum Outcome {
     Changed(String),
+    Revealed(String),
     Refused(String),
 }
 
-async fn perform(state: AppState, intent: Intent, credential: String) -> Outcome {
+async fn perform(state: AppState, intent: Intent, credential: String, words: String) -> Outcome {
     match intent {
         Intent::Import => import_vault(state, credential).await,
+        Intent::Create => create_identity(state, words, credential).await,
+        Intent::Generate => create_identity(state, String::new(), credential).await,
         Intent::Lock => lock_vault(state).await,
         Intent::Unlock => open(Credential::Password(credential)).await,
         Intent::UseConfiguredFile => open(Credential::ConfiguredFile).await,
+    }
+}
+
+async fn create_identity(state: AppState, words: String, password: String) -> Outcome {
+    if words.trim().is_empty() {
+        return match identity::create(String::new(), password).await {
+            Ok(created) => {
+                state.identity.set(Some(created.status));
+                Outcome::Revealed(created.phrase)
+            }
+            Err(fault) => {
+                warn!(fault = %fault, "identity generation refused");
+                Outcome::Refused(fault.message)
+            }
+        };
+    }
+    match identity::create(words, password).await {
+        Ok(created) => {
+            state.identity.set(Some(created.status));
+            Outcome::Changed("Identity recovered from its 12 words and unlocked for this session.".to_owned())
+        }
+        Err(fault) => {
+            warn!(fault = %fault, "identity recovery refused");
+            Outcome::Refused(fault.message)
+        }
     }
 }
 

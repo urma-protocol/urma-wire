@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub enum Request {
     IdentityStatus,
     ImportIdentity { vault: Vec<u8>, password: String },
+    CreateIdentity { phrase: String, password: String },
     Unlock(Credential),
     Lock,
     Wallet { chain: Chain },
@@ -36,6 +37,7 @@ impl Request {
         match self {
             Request::IdentityStatus => "identity status",
             Request::ImportIdentity { .. } => "identity import",
+            Request::CreateIdentity { .. } => "identity creation",
             Request::Unlock(_credential) => "unlock",
             Request::Lock => "lock",
             Request::Wallet { .. } => "wallet",
@@ -61,6 +63,7 @@ impl Request {
 #[derive(Serialize, Deserialize)]
 pub enum Response {
     Identity(IdentityStatus),
+    Created { status: IdentityStatus, phrase: String },
     Unlocked,
     Locked,
     Wallet(WalletSummary),
@@ -83,6 +86,7 @@ impl Response {
     pub fn name(&self) -> &'static str {
         match self {
             Response::Identity(_status) => "identity status",
+            Response::Created { .. } => "created identity",
             Response::Unlocked => "unlocked",
             Response::Locked => "locked",
             Response::Wallet(_summary) => "wallet",

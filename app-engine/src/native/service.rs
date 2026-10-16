@@ -5,13 +5,16 @@ use crate::native::local_node::{LocalNode, LocalSource};
 use crate::native::mempool::Pool;
 use crate::native::wallet::{Balance, Known, WireWallet};
 use fs2::FileExt;
+use rand::rngs::OsRng;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use urma_identity::identity::IdentityKey;
-use urma_identity::vault::{EncryptedVault, UnlockCredential};
+use urma_identity::keyring::Keyring;
+use urma_identity::phrase::IdentityPhrase;
+use urma_identity::vault::{EncryptedVault, UnlockCredential, UnlockedVault};
 use urma_runtime::error::Error as RuntimeError;
 use urma_runtime::light::LightSync;
 use urma_runtime::node::Node;
@@ -326,6 +329,35 @@ impl Service {
         urma_io::write_new(&path, &bytes)?;
         *self.identity() = Identity::Unlocked(wallet);
         self.identity_status()
+    }
+
+    pub fn create_identity(
+        &self,
+        phrase: String,
+        password: String,
+    ) -> Result<(IdentityStatus, String), NativeError> {
+        let password = Zeroizing::new(password);
+        let phrase = Zeroizing::new(phrase);
+        let path = self.directory.join(Self::IDENTITY_FILE);
+        if path.try_exists()? {
+            return Err(NativeError::AlreadyImported);
+        }
+        let recovered = match phrase.trim().is_empty() {
+            true => IdentityPhrase::generate(&mut OsRng)?,
+            false => IdentityPhrase::parse(phrase.trim())?,
+        };
+        let words = recovered.export_words()?;
+        let vault = UnlockedVault::create(
+            Keyring::create(&recovered, "wire")?,
+            &password,
+            &mut OsRng,
+        )?;
+        let sealed = vault.seal(&mut OsRng)?;
+        urma_io::write_new(&path, sealed.as_bytes())?;
+        let wallet = WireWallet::from_vault(vault);
+        wallet.author_id()?;
+        *self.identity() = Identity::Unlocked(wallet);
+        Ok((self.identity_status()?, words.to_string()))
     }
 
     pub fn lock(&self) {

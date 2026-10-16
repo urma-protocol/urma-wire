@@ -12,6 +12,7 @@ use crate::config::{PASSWORD_RULE, VAULT_INPUT_ID};
 use crate::state::vault::Intent;
 use crate::state::vault::Vault;
 use crate::state::AppState;
+use crate::state::Said;
 use leptos::prelude::expect_context;
 use leptos::prelude::ClassAttribute;
 use leptos::prelude::ElementChild;
@@ -75,8 +76,8 @@ fn UnlockGroup(vault: Vault) -> impl IntoView {
     };
     view! {
         <DescribedGroup
-            title="Unlock or import"
-            description="Your password decrypts the vault for this session only; Wire never stores it."
+            title="Unlock, create or import"
+            description="Your password decrypts the vault for this session only; Wire never stores it. Reading the feed needs no identity."
         >
             {move || match configured_unlock(state) {
                 Unlocking::ConfiguredFile(path) => view! {
@@ -109,18 +110,60 @@ fn UnlockGroup(vault: Vault) -> impl IntoView {
                 <button class="btn btn-secondary" disabled=move || busy() || !unlocked(state)
                     on:click=act(Intent::Lock)>"Lock identity"</button>
             </Actions>
-            <p class="group-desc">
-                "Or import a copy of an existing encrypted URMA vault with its password. Import validates the password and unlocks its active identity. Your original vault stays intact, and an existing imported vault is never overwritten."
-            </p>
-            <label class="field">"Encrypted URMA vault"
-                <input id=VAULT_INPUT_ID type="file" accept=".urma,.vault" />
-            </label>
-            <Actions>
-                <button class="btn btn-primary"
-                    disabled=move || busy() || already_imported(state)
-                    on:click=act(Intent::Import)>"Import & unlock vault"</button>
-            </Actions>
+            <PhraseActions vault=vault />
+            <ImportActions vault=vault />
         </DescribedGroup>
+    }
+}
+
+#[component]
+fn PhraseActions(vault: Vault) -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let blocked = move || vault.busy.get() || already_imported(state);
+    let act = move |intent: Intent| move |_clicked| vault.act(intent);
+    view! {
+        <p class="group-desc">
+            "Or start with 12 words: type the words you already have to recover that identity, or generate new ones. The vault password above protects the copy this app keeps; the words are the only way to recover the identity elsewhere."
+        </p>
+        <label class="field">"12 words"
+            <textarea rows="2" autocomplete="off" spellcheck="false"
+                prop:value=move || vault.phrase.get()
+                on:input=move |event| vault.phrase.set(event_target_value(&event)) />
+        </label>
+        <Actions>
+            <button class="btn btn-primary"
+                disabled=move || blocked() || vault.phrase.get().trim().is_empty()
+                on:click=act(Intent::Create)>"Recover from 12 words"</button>
+            <button class="btn btn-secondary" disabled=blocked
+                on:click=act(Intent::Generate)>"Generate a new identity"</button>
+        </Actions>
+        {move || match vault.revealed.get() {
+            Said::Something(words) => view! {
+                <div class="phrase-reveal" role="status">
+                    <p class="group-desc">"Your 12 words. Write them down now; they are shown only once."</p>
+                    <code class="code-val">{words}</code>
+                </div>
+            }.into_any(),
+            Said::Nothing => ().into_any(),
+        }}
+    }
+}
+
+#[component]
+fn ImportActions(vault: Vault) -> impl IntoView {
+    let state = expect_context::<AppState>();
+    view! {
+        <p class="group-desc">
+            "Or import a copy of an existing encrypted URMA vault with its password. Import validates the password and unlocks its active identity. Your original vault stays intact, and an existing imported vault is never overwritten."
+        </p>
+        <label class="field">"Encrypted URMA vault"
+            <input id=VAULT_INPUT_ID type="file" accept=".urma,.vault" />
+        </label>
+        <Actions>
+            <button class="btn btn-primary"
+                disabled=move || vault.busy.get() || already_imported(state)
+                on:click=move |_clicked| vault.act(Intent::Import)>"Import & unlock vault"</button>
+        </Actions>
     }
 }
 
