@@ -5,7 +5,7 @@ use urma_core::format::PublicRecord;
 use urma_wire::cached::{decode_cached, CachedRecord};
 use urma_wire::index::{Checkpoint, Entry, Index};
 use wire_app_core::feed::{Feed, FeedSource, Lookup};
-use wire_app_core::model::{AuthorId, Chain, ConfirmedStatus, Placement, Post, Txid};
+use wire_app_core::model::{AuthorId, Chain, ConfirmedStatus, Inclusion, Placement, Post, Txid};
 
 struct Said {
     text: String,
@@ -150,6 +150,16 @@ fn confirmed(view: &View<'_>, entry: &Entry, said: Said) -> Result<Post, Project
     let Some(behind) = view.tip.checked_sub(entry.height) else {
         return Err(ProjectionError::HeightAboveTip);
     };
+    let inclusion = Inclusion::Confirmed(ConfirmedStatus {
+        block_height: entry.height,
+        block_hash: block.hash.clone(),
+        confirmations: behind + 1,
+        tx_index: entry.position,
+    });
+    written(entry, said, inclusion)
+}
+
+fn written(entry: &Entry, said: Said, inclusion: Inclusion) -> Result<Post, ProjectionError> {
     Ok(Post {
         txid: Txid::from_display_hex(&entry.txid)?,
         author: AuthorId::from_hex(&entry.author)?,
@@ -158,14 +168,25 @@ fn confirmed(view: &View<'_>, entry: &Entry, said: Said) -> Result<Post, Project
         wire: said.wire,
         hashtags: said.hashtags,
         placement: said.placement,
-        status: ConfirmedStatus {
-            block_height: entry.height,
-            block_hash: block.hash.clone(),
-            confirmations: behind + 1,
-            tx_index: entry.position,
-        },
+        inclusion,
         reply_count: 0,
     })
+}
+
+pub enum Unconfirmed {
+    Post(Post),
+    Other,
+}
+
+pub fn unconfirmed(entry: &Entry) -> Result<Unconfirmed, ProjectionError> {
+    let record = match decode_cached(&hex::decode(&entry.record)?)? {
+        CachedRecord::Current(record) => record,
+        CachedRecord::LegacyProfile | CachedRecord::LegacyAvatar => return Ok(Unconfirmed::Other),
+    };
+    match decoded(record) {
+        Decoded::Said(said) => Ok(Unconfirmed::Post(written(entry, said, Inclusion::Mempool)?)),
+        Decoded::Named(_) | Decoded::Foreign(_) => Ok(Unconfirmed::Other),
+    }
 }
 
 fn count_replies(posts: &mut [Post]) {

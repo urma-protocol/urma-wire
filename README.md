@@ -23,8 +23,9 @@ is also implemented; this repository does not provide a hosted service.
 ## What you can do
 
 - **Read and write:** a confirmed feed, text posts and replies, wires, hashtags
-  and local follows. External image links include descriptions; Wire does not
-  upload or preserve the images themselves.
+  and local follows, plus optional pending records from the mempool. External
+  image links include descriptions; Wire does not upload or preserve the images
+  themselves.
 - **Control your identity:** import an encrypted URMA vault, unlock it for the
   session, edit a public pseudonym and create a canonical 16×16 pixel avatar.
 - **Review before publishing:** inspect the frozen content, funding and fee;

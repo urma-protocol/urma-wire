@@ -43,6 +43,7 @@ pub fn SettingsPage() -> impl IntoView {
                 <FollowedTopics />
             </DescribedGroup>
             <ReplyPreview />
+            <MempoolChoice />
             <MediaPrivacy />
             <ChainSourceSettings />
             <RuntimeFacts />
@@ -116,6 +117,27 @@ fn ReplyPreview() -> impl IntoView {
                     prop:value=move || state.replies_shown.get().to_string()
                     on:change=change />
             </label>
+        </DescribedGroup>
+    }
+}
+
+#[component]
+fn MempoolChoice() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let toggle = move |_changed: leptos::ev::Event| {
+        state.set_show_mempool(!state.show_mempool.get_untracked());
+    };
+    view! {
+        <DescribedGroup
+            title="Unconfirmed records"
+            description="Show Wire records still waiting in the mempool, marked as pending. A pending record becomes a normal one when it confirms and disappears if it leaves the mempool unconfirmed."
+        >
+            <label class="toggle-control">
+                <input type="checkbox" prop:checked=move || state.show_mempool.get() on:change=toggle />
+                <span class="toggle-text">"Show records from the mempool"</span>
+            </label>
+            <p class="action-desc">"Read from Litecoin Core or the public HTTP sources; Electrum servers, the light client and URMA Node cannot list the mempool. Pending records carry a valid author signature but no chain evidence yet."</p>
+            <Notice message=state.mempool_said.into() />
         </DescribedGroup>
     }
 }

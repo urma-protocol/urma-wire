@@ -93,6 +93,14 @@ fn post(text: String, topics: Topics, addressed: Addressed) -> Content {
     }
 }
 
+pub fn carries_urma(tx: &bitcoin::Transaction) -> bool {
+    tx.input.len() == 1
+        && tx.input[0]
+            .witness
+            .iter()
+            .any(|item| item.windows(4).any(|bytes| bytes == b"URMA"))
+}
+
 pub fn bitcoin_txid(txid: Txid) -> bitcoin::Txid {
     bitcoin::Txid::from_byte_array(txid.0)
 }

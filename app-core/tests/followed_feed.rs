@@ -2,6 +2,7 @@ use wire_app_core::feed::following;
 use wire_app_core::model::AuthorId;
 use wire_app_core::model::Chain;
 use wire_app_core::model::ConfirmedStatus;
+use wire_app_core::model::Inclusion;
 use wire_app_core::model::Placement;
 use wire_app_core::model::Post;
 use wire_app_core::model::Txid;
@@ -15,12 +16,12 @@ fn post(wire: &str, hashtags: &[&str]) -> Post {
         hashtags: hashtags.iter().map(|tag| (*tag).to_owned()).collect(),
         chain: Chain::Litecoin,
         placement: Placement::Root,
-        status: ConfirmedStatus {
+        inclusion: Inclusion::Confirmed(ConfirmedStatus {
             block_height: 1,
             block_hash: "00".repeat(32),
             confirmations: 1,
             tx_index: 0,
-        },
+        }),
         reply_count: 0,
     }
 }

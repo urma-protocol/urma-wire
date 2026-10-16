@@ -155,6 +155,13 @@ impl LocalNode {
     }
 }
 
+fn served(method: &str) -> bool {
+    matches!(
+        method,
+        "getblock" | "getblockhash" | "getblockheader" | "getrawmempool"
+    )
+}
+
 pub struct LocalProvider(pub Arc<LocalNode>);
 
 impl Provider for LocalProvider {
@@ -168,7 +175,7 @@ impl Provider for LocalProvider {
         BlockEncoding::Core
     }
     fn supports(&self, method: &str) -> bool {
-        matches!(method, "getblock" | "getblockhash" | "getblockheader") && self.0.ready()
+        served(method) && self.0.ready()
     }
     fn call(
         &self,
@@ -176,11 +183,9 @@ impl Provider for LocalProvider {
         method: &str,
         args: &[Value],
     ) -> Result<Value, Error> {
-        if chain.genesis()? != self.0.config.chain.genesis()?
-            || !matches!(method, "getblock" | "getblockhash" | "getblockheader")
-        {
+        if chain.genesis()? != self.0.config.chain.genesis()? || !served(method) {
             return Err(Error::Unsupported(
-                "automatic local source serves configured-chain block reads only".into(),
+                "automatic local source serves configured-chain block reads and the mempool list only".into(),
             ));
         }
         let Availability::Ready(node) = self.0.current() else {

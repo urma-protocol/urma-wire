@@ -2,13 +2,14 @@ use crate::config::MAX_NICKNAME_BYTES;
 use crate::config::{EVIDENCE_UNAVAILABLE, PUBLICATION_POLL_MS, SYNC_POLL_MS, TRANSPORT_POLL_MS};
 use crate::data::chain;
 use crate::data::identity;
-use crate::data::preferences::{stored_autoload, stored_replies_shown};
+use crate::data::preferences::{stored_autoload, stored_replies_shown, stored_show_mempool};
 use crate::data::publication;
 use crate::data::records;
 use crate::data::storage::Complaint;
 use crate::data::topics;
 use crate::data::topics::Remembered;
 use crate::state::addressing::Speaking;
+use crate::state::mempool::watch_mempool;
 use crate::state::said::Said;
 use crate::state::synced::Synced;
 use leptos::prelude::Get;
@@ -25,7 +26,7 @@ use wire_app_core::composer::Photo;
 use wire_app_core::connection::{ConnectionHealth, NodeHealth, TransportStatus, Trouble};
 use wire_app_core::errors::Fault;
 use wire_app_core::feed::{
-    conversations, following, Conversation, FeedSource, PublicIdentity, SyncPhase,
+    conversations, following, with_pending, Conversation, FeedSource, PublicIdentity, SyncPhase,
 };
 use wire_app_core::model::{AuthorId, Chain, Post, WalletSummary};
 use wire_app_core::publication::{Addressed, Content, Pending, Publication};
@@ -66,6 +67,9 @@ pub struct AppState {
     pub speaking: RwSignal<Speaking>,
     pub topics: RwSignal<Remembered>,
     pub only_followed: RwSignal<bool>,
+    pub show_mempool: RwSignal<bool>,
+    pub pending: RwSignal<Vec<Post>>,
+    pub mempool_said: RwSignal<Said>,
 }
 
 pub(crate) fn voiced(fault: Fault) -> Said {
@@ -87,8 +91,15 @@ impl AppState {
         let autoload = stored_autoload();
         let replies = stored_replies_shown();
         let recalled = topics::load();
+        let mempool = stored_show_mempool();
         let state = Self::empty(autoload.value, replies.value, recalled.value);
-        for complaint in [autoload.complaint, replies.complaint, recalled.complaint] {
+        state.show_mempool.set(mempool.value);
+        for complaint in [
+            autoload.complaint,
+            replies.complaint,
+            recalled.complaint,
+            mempool.complaint,
+        ] {
             match complaint {
                 Complaint::Unreadable(reason) => state.status_message.set(Said::Something(reason)),
                 Complaint::Nothing => (),
@@ -102,6 +113,7 @@ impl AppState {
             load_pending(state).await;
         });
         leptos::task::spawn_local(watch_transport(state));
+        leptos::task::spawn_local(watch_mempool(state));
         state
     }
 
@@ -143,6 +155,9 @@ impl AppState {
             speaking: RwSignal::new(Speaking::Freely),
             topics: RwSignal::new(remembered),
             only_followed: RwSignal::new(false),
+            show_mempool: RwSignal::new(false),
+            pending: RwSignal::new(Vec::new()),
+            mempool_said: RwSignal::new(Said::Nothing),
         }
     }
 
@@ -476,8 +491,16 @@ impl AppState {
 
     pub fn conversations(&self) -> Vec<Conversation> {
         let preview = self.replies_shown.get();
-        self.feed
-            .with(|everything| conversations(self.shown(everything), everything, preview))
+        let everything = self.everything();
+        conversations(self.shown(&everything), &everything, preview)
+    }
+
+    fn everything(&self) -> Vec<Post> {
+        let confirmed = self.feed.get();
+        match self.show_mempool.get() {
+            true => with_pending(&confirmed, &self.pending.get()),
+            false => confirmed,
+        }
     }
 
     fn shown(&self, everything: &[Post]) -> Vec<Post> {

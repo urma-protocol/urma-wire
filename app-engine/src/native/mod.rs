@@ -2,6 +2,7 @@ pub mod archive;
 pub mod dispatch;
 pub mod local_node;
 pub mod media;
+pub mod mempool;
 pub mod publishing;
 pub mod reader;
 pub mod records;

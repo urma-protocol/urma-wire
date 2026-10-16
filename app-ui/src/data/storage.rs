@@ -1,6 +1,8 @@
 #[cfg(target_arch = "wasm32")]
 use crate::config::IMAGE_PREFERENCE_KEY;
 #[cfg(target_arch = "wasm32")]
+use crate::config::MEMPOOL_PREFERENCE_KEY;
+#[cfg(target_arch = "wasm32")]
 use crate::config::REPLIES_SHOWN_KEY;
 #[cfg(target_arch = "wasm32")]
 use crate::config::TOPICS_STORAGE_KEY;
@@ -15,6 +17,7 @@ pub enum Slot {
     Images,
     Replies,
     Topics,
+    Mempool,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -24,6 +27,7 @@ impl Slot {
             Slot::Images => IMAGE_PREFERENCE_KEY,
             Slot::Replies => REPLIES_SHOWN_KEY,
             Slot::Topics => TOPICS_STORAGE_KEY,
+            Slot::Mempool => MEMPOOL_PREFERENCE_KEY,
         }
     }
 
@@ -32,6 +36,7 @@ impl Slot {
             Slot::Images => "image preference",
             Slot::Replies => "reply preview size",
             Slot::Topics => "followed topics",
+            Slot::Mempool => "mempool preference",
         }
     }
 }

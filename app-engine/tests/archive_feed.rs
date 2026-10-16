@@ -49,7 +49,7 @@ use urma_wire::index::{Checkpoint, Entry, Index};
 use wire_app_core::{
     connection::{NodeHealth, SourceChoice},
     feed::{FeedSource, Lookup, SyncPhase, SyncStatus},
-    model::{Placement, Txid},
+    model::{Inclusion, Placement, Txid},
 };
 use wire_app_engine::{
     config::{ArchiveSettings, Settings, TokenAccess, NETWORK},
@@ -287,15 +287,18 @@ impl Fixture {
             assert_eq!(found.author.to_string(), pair.verified.author().to_string());
             assert_eq!(found.text, text);
             assert_eq!(found.placement, placement);
-            assert_eq!(found.status.block_height, height);
-            assert_eq!(found.status.tx_index, position);
+            let Inclusion::Confirmed(status) = &found.inclusion else {
+                panic!("archive post is not confirmed")
+            };
+            assert_eq!(status.block_height, height);
+            assert_eq!(status.tx_index, position);
             assert_eq!(
-                found.status.block_hash,
+                status.block_hash,
                 self.blocks[(height - START) as usize]
                     .block_hash()
                     .to_string()
             );
-            assert_eq!(found.status.confirmations, START + 2 - height);
+            assert_eq!(status.confirmations, START + 2 - height);
             assert_eq!(
                 feed.posts.iter().find(|post| post.txid == found.txid),
                 Some(&found)

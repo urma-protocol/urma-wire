@@ -1,6 +1,7 @@
 use crate::browser::chain::{self, Cached};
 use crate::browser::funding;
 use crate::browser::health;
+use crate::browser::mempool;
 use crate::browser::publish::{self, Planned};
 use crate::browser::session;
 use crate::browser::source::Source;
@@ -54,6 +55,7 @@ fn served(request: &Request) -> Result<(), BrowserError> {
         | Request::Feed { chain }
         | Request::StartSync { chain }
         | Request::SyncStatus { chain }
+        | Request::Mempool { chain }
         | Request::Post { chain, .. }
         | Request::Replies { chain, .. }
         | Request::Health { chain }
@@ -75,6 +77,11 @@ async fn chain_request(request: Request) -> Result<Response, BrowserError> {
         Request::SyncStatus { .. } => return Ok(Response::Sync(chain::status())),
         Request::StartSync { .. } => return Ok(Response::Sync(start_sync())),
         Request::Transport { .. } => return Ok(Response::Transport(transport().await?)),
+        Request::Mempool { .. } => {
+            return Ok(Response::Mempool(
+                mempool::mempool(&connected().await?).await?,
+            ))
+        }
         _locked => (),
     }
     let _lock: OperationLock = OperationLock::acquire().await?;
@@ -89,7 +96,9 @@ async fn chain_request(request: Request) -> Result<Response, BrowserError> {
         Request::Post { txid, .. } => Ok(Response::Post(cached_post(txid).await?)),
         Request::Replies { txid, .. } => Ok(Response::Replies(cached_replies(txid).await?)),
         Request::Feed { .. } => Ok(Response::Feed(feed().await?)),
-        Request::Wallet { .. } => Ok(Response::Wallet(funding::wallet(&connected().await?).await?)),
+        Request::Wallet { .. } => Ok(Response::Wallet(
+            funding::wallet(&connected().await?).await?,
+        )),
         Request::Quote { content, .. } => Ok(Response::Publication(
             publish::quote(&connected().await?, &content).await?,
         )),

@@ -4,7 +4,8 @@ use crate::config::{
     HISTORY_BLOCKS, INDEX_FORMAT, INDEX_KEY, MAX_CHECKPOINTS, MAX_ENTRIES, NETWORK, SYNC_BLOCKS,
 };
 use crate::errors::BrowserError;
-use bitcoin::{Block, Transaction};
+use crate::record::carries_urma;
+use bitcoin::Block;
 use std::cell::RefCell;
 use urma_core::envelope;
 use urma_core::format::RecordKind;
@@ -207,14 +208,6 @@ fn reached(index: &Index, tip: u64) -> bool {
         return false;
     };
     last.height == tip
-}
-
-fn carries_urma(tx: &Transaction) -> bool {
-    tx.input.len() == 1
-        && tx.input[0]
-            .witness
-            .iter()
-            .any(|item| item.windows(4).any(|bytes| bytes == b"URMA"))
 }
 
 fn wire_kind(kind: RecordKind) -> bool {

@@ -2,6 +2,7 @@ use crate::config::{Settings, EVIDENCE_UNAVAILABLE, LIGHT_CLIENT_COLD, NETWORK};
 use crate::errors::NativeError;
 use crate::native::archive::OperatorState;
 use crate::native::local_node::{LocalNode, LocalSource};
+use crate::native::mempool::Pool;
 use crate::native::wallet::{Balance, WireWallet};
 use fs2::FileExt;
 use std::fs::File;
@@ -48,6 +49,7 @@ pub struct Service {
     pub(super) reading: Arc<AtomicBool>,
     pub(super) scanning: Arc<AtomicBool>,
     pub(super) node_seen: Mutex<NodeHealth>,
+    pub(super) mempool: Pool,
     _lock: File,
 }
 
@@ -83,6 +85,7 @@ impl Service {
             reading: Arc::new(AtomicBool::new(false)),
             scanning: Arc::new(AtomicBool::new(false)),
             node_seen: Mutex::new(NodeHealth::Unconfigured),
+            mempool: Pool::empty(),
             _lock: lock,
         })
     }

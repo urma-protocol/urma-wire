@@ -130,6 +130,16 @@ pub fn matches_topic(post: &Post, label: &str) -> bool {
     }
 }
 
+pub fn with_pending(confirmed: &[Post], pending: &[Post]) -> Vec<Post> {
+    let known: BTreeSet<Txid> = confirmed.iter().map(|post| post.txid).collect();
+    pending
+        .iter()
+        .filter(|post| !known.contains(&post.txid))
+        .chain(confirmed)
+        .cloned()
+        .collect()
+}
+
 pub fn following(posts: &[Post], labels: &[String]) -> Vec<Post> {
     posts
         .iter()

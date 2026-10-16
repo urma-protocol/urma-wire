@@ -10,7 +10,7 @@ use leptos::prelude::GlobalAttributes;
 use leptos::prelude::IntoAny;
 use leptos::prelude::IntoView;
 use leptos::prelude::{component, view};
-use wire_app_core::model::{Placement, Post};
+use wire_app_core::model::{Inclusion, Placement, Post};
 
 #[component]
 pub fn PostCard(post: Post) -> impl IntoView {
@@ -21,8 +21,21 @@ pub fn PostCard(post: Post) -> impl IntoView {
     let txid_disp = txid.to_display_hex();
     let txid_short = txid.short_display();
     let reply_count = post.reply_count;
-    let block_height = post.status.block_height;
-    let confirmations = post.status.confirmations;
+    let stamp = match &post.inclusion {
+        Inclusion::Confirmed(status) => {
+            let block_height = status.block_height;
+            let confirmations = status.confirmations;
+            view! {
+                <span class="badge" title="Block height">"#" {block_height}</span>
+                <span class="badge badge-conf" title="Confirmations">{confirmations} " conf"</span>
+            }
+            .into_any()
+        }
+        Inclusion::Mempool => view! {
+            <span class="badge badge-pending" title="In the mempool: signed by its author, not confirmed yet">"pending"</span>
+        }
+        .into_any(),
+    };
 
     view! {
         <article class="post-card">
@@ -36,10 +49,7 @@ pub fn PostCard(post: Post) -> impl IntoView {
                         </span>
                     </div>
                 </a>
-                <div class="post-status-meta">
-                    <span class="badge" title="Block height">"#" {block_height}</span>
-                    <span class="badge badge-conf" title="Confirmations">{confirmations} " conf"</span>
-                </div>
+                <div class="post-status-meta">{stamp}</div>
             </div>
 
             <div class="post-content">

@@ -137,6 +137,12 @@ pub struct ConfirmedStatus {
     pub tx_index: u32,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Inclusion {
+    Confirmed(ConfirmedStatus),
+    Mempool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Placement {
     Root,
@@ -152,6 +158,6 @@ pub struct Post {
     pub wire: String,
     pub hashtags: Vec<String>,
     pub placement: Placement,
-    pub status: ConfirmedStatus,
+    pub inclusion: Inclusion,
     pub reply_count: usize,
 }

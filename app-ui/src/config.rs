@@ -16,6 +16,14 @@ pub const SYNC_POLL_MS: u32 = 200;
 
 pub const TRANSPORT_POLL_MS: u32 = 3000;
 
+pub const MEMPOOL_POLL_MS: u32 = 5000;
+
+pub const MEMPOOL_PREFERENCE_KEY: &str = "wire-show-mempool-v1";
+
+pub fn show_mempool_when_unset() -> bool {
+    false
+}
+
 pub const PULSE_FRAME_MS: u32 = 16;
 
 pub const PULSE_SWEEP_MS: u32 = 700;

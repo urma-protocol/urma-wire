@@ -35,6 +35,10 @@ impl Service {
                 served(chain)?;
                 Ok(Response::Sync(self.sync_snapshot()))
             }
+            Request::Mempool { chain } => {
+                served(chain)?;
+                Ok(Response::Mempool(self.mempool()?))
+            }
             Request::Post { chain, txid } => {
                 served(chain)?;
                 Ok(Response::Post(self.post(txid)?))

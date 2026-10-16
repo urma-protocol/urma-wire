@@ -4,6 +4,7 @@ pub mod dispatch;
 pub mod fixture;
 pub mod funding;
 pub mod health;
+pub mod mempool;
 pub mod publish;
 pub mod session;
 pub mod source;

@@ -24,6 +24,10 @@ pub fn retry_delay_secs(attempt: u32) -> u64 {
 
 pub const HISTORY_BLOCKS: u64 = 100;
 
+pub const MEMPOOL_LISTED: usize = 50_000;
+
+pub const MEMPOOL_SCANNED: usize = 200;
+
 pub const FEE_RATE: NonZeroU64 = NonZeroU64::MIN;
 
 pub const FUNDING_INPUT_VBYTES: u64 = 68;

@@ -114,6 +114,8 @@ pub enum NodeProbeError {
 pub enum NativeError {
     #[error("Optional URMA archive: {0}")]
     Archive(String),
+    #[error("Mempool listing: {0}")]
+    Mempool(&'static str),
     #[error("HOME is not set")]
     NoHome,
     #[error("ProgramData is not set")]
@@ -233,6 +235,7 @@ impl NativeError {
             | Self::Hex(_)
             | Self::Consensus(_) => FaultKind::Publication,
             Self::Archive(_)
+            | Self::Mempool(_)
             | Self::ChainChanged
             | Self::Runtime(_)
             | Self::Sync(_)

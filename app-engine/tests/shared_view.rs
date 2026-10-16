@@ -8,7 +8,7 @@ use urma_core::{
 use urma_wire::index::{Checkpoint, Entry, Index};
 use wire_app_core::{
     feed::Lookup,
-    model::{Placement, Txid},
+    model::{ConfirmedStatus, Inclusion, Placement, Post, Txid},
 };
 use wire_app_engine::{
     errors::ProjectionError,
@@ -17,6 +17,13 @@ use wire_app_engine::{
 
 fn id(byte: u8) -> String {
     format!("{byte:02x}").repeat(32)
+}
+
+fn status(post: &Post) -> &ConfirmedStatus {
+    let Inclusion::Confirmed(status) = &post.inclusion else {
+        panic!("projected post is not confirmed")
+    };
+    status
 }
 
 fn raw(height: u64, position: u32, identifier: u8, bytes: &[u8]) -> Entry {
@@ -151,9 +158,9 @@ fn index_wrapper_and_view_preserve_mixed_records_identities_topics_and_lookups()
             Placement::Reply(structured.txid)
         );
         assert_eq!(borrowed.posts[1].placement, Placement::Reply(plain.txid));
-        assert_eq!(plain.status.confirmations, 6);
-        assert_eq!(structured.status.confirmations, 2);
-        assert_eq!(borrowed.posts[0].status.confirmations, 1);
+        assert_eq!(status(plain).confirmations, 6);
+        assert_eq!(status(structured).confirmations, 2);
+        assert_eq!(status(&borrowed.posts[0]).confirmations, 1);
     }
     let parent = Txid::from_display_hex(&id(1)).unwrap();
     let child = Txid::from_display_hex(&id(3)).unwrap();
@@ -191,22 +198,25 @@ fn sparse_placements_use_explicit_tip_without_adding_checkpoints_or_coverage() {
     assert_eq!(
         feed.posts
             .iter()
-            .map(|post| post.status.confirmations)
+            .map(|post| status(post).confirmations)
             .collect::<Vec<_>>(),
         vec![16, 16, 17, 21]
     );
     for post in &feed.posts {
         let supplied = blocks
             .iter()
-            .find(|block| block.height == post.status.block_height)
+            .find(|block| block.height == status(post).block_height)
             .unwrap();
-        assert_eq!(post.status.block_hash, supplied.hash);
+        assert_eq!(status(post).block_hash, supplied.hash);
     }
     let dense = projection::project(&index, false).unwrap();
     assert_eq!(feed.identities, dense.identities);
     for (actual, old) in feed.posts.iter().zip(&dense.posts) {
         let mut expected = old.clone();
-        expected.status.confirmations += 15;
+        let Inclusion::Confirmed(shifted) = &mut expected.inclusion else {
+            panic!("projected post is not confirmed")
+        };
+        shifted.confirmations += 15;
         assert_eq!(
             serde_json::to_value(actual).unwrap(),
             serde_json::to_value(&expected).unwrap()

@@ -177,7 +177,27 @@ those sizes with `cargo tauri icon assets/urma-wire-icon.png`.
    A source error or rejection stops following with its reason. Resolve it and
    choose **Resume publication**; no generic infinite retry or fee bump occurs.
 4. Completion refreshes the confirmed feed. **Refresh confirmed feed** also
-   advances the index explicitly. No mempool record is inserted into the feed.
+   advances the index explicitly. The confirmed index never stores mempool
+   records; see [unconfirmed records](#unconfirmed-records).
+
+## Unconfirmed records
+
+Settings → **Show records from the mempool** (off by default, kept in WebView
+localStorage) adds Wire records still waiting in the mempool to the feed, marked
+**pending**. Every five seconds Wire lists the mempool, fetches each new
+transaction once, and keeps only URMA reveals whose author proof verifies
+against their commit. A pending record turns into a normal one when it confirms
+and the feed refreshes; one that leaves the mempool unconfirmed disappears. A
+pending reply nests under its parent like any reply. Pending records live only
+in memory: they never enter the confirmed index, and opening one shows nothing
+until it confirms.
+
+The mempool list comes from the chain sources, whatever serves the feed:
+Litecoin Core (`getrawmempool`, local or the explicit Local node choice) and the
+public HTTP sources (Esplora `mempool/txids`, the JSON-RPC gateway). Electrum
+servers, the P2P light client and URMA Node cannot list the mempool; when only
+those are reachable the setting shows the source error. At most 200 new
+transactions are inspected per poll.
 
 Pause stops after the in-flight request. Closing Wire stops following; reopen
 and resume the saved signed plan without unlocking again. Locking the identity

@@ -12,7 +12,7 @@ use leptos::prelude::GlobalAttributes;
 use leptos::prelude::IntoAny;
 use leptos::prelude::IntoView;
 use leptos::prelude::{component, view};
-use wire_app_core::model::{AuthorId, Post, Txid};
+use wire_app_core::model::{AuthorId, Inclusion, Post, Txid};
 
 #[component]
 pub fn CompactReply(post: Post) -> impl IntoView {
@@ -22,8 +22,12 @@ pub fn CompactReply(post: Post) -> impl IntoView {
     let txid = post.txid;
     let txid_disp = txid.to_display_hex();
     let count = post.reply_count;
-    let block_height = post.status.block_height;
-    let confirmations = post.status.confirmations;
+    let stamp = match &post.inclusion {
+        Inclusion::Confirmed(status) => {
+            format!("#{} · {} conf", status.block_height, status.confirmations)
+        }
+        Inclusion::Mempool => "pending · mempool".to_owned(),
+    };
     view! {
         <article class="reply-compact">
             <a href=profile.clone() class="reply-compact-avatar" tabindex="-1" aria-hidden="true">
@@ -34,7 +38,7 @@ pub fn CompactReply(post: Post) -> impl IntoView {
                     <Signer author=author />
                 </a>
                 <a href=format!("/post/{txid_disp}") class="reply-compact-stamp" title=format!("Reveal TxID: {txid_disp}")>
-                    "#"{block_height}" · "{confirmations}" conf"
+                    {stamp}
                 </a>
             </div>
             <div class="reply-compact-body">

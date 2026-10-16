@@ -1,8 +1,10 @@
 use wire_app_core::feed::conversations;
+use wire_app_core::feed::with_pending;
 use wire_app_core::feed::Conversation;
 use wire_app_core::model::AuthorId;
 use wire_app_core::model::Chain;
 use wire_app_core::model::ConfirmedStatus;
+use wire_app_core::model::Inclusion;
 use wire_app_core::model::Placement;
 use wire_app_core::model::Post;
 use wire_app_core::model::Txid;
@@ -20,18 +22,36 @@ fn said(seed: u8, placement: Placement) -> Post {
         hashtags: Vec::new(),
         chain: Chain::Litecoin,
         placement,
-        status: ConfirmedStatus {
+        inclusion: Inclusion::Confirmed(ConfirmedStatus {
             block_height: u64::from(seed),
             block_hash: "00".repeat(32),
             confirmations: 1,
             tx_index: 0,
-        },
+        }),
         reply_count: 0,
     }
 }
 
 fn root(seed: u8) -> Post {
     said(seed, Placement::Root)
+}
+
+#[test]
+fn pending_records_join_the_feed_and_confirmed_copies_win() {
+    let confirmed = vec![root(1), root(2)];
+    let mut reply = said(3, Placement::Reply(id(1)));
+    reply.inclusion = Inclusion::Mempool;
+    let mut twin = root(2);
+    twin.inclusion = Inclusion::Mempool;
+    let merged = with_pending(&confirmed, &[reply.clone(), twin]);
+    let order: Vec<Txid> = merged.iter().map(|post| post.txid).collect();
+    assert_eq!(order, vec![id(3), id(1), id(2)]);
+    assert_eq!(merged[2], confirmed[1]);
+    let threaded = conversations(merged.clone(), &merged, 5);
+    assert_eq!(threaded.len(), 2);
+    assert_eq!(threaded[0].post.txid, id(1));
+    assert_eq!(threaded[0].replies, vec![reply]);
+    assert_eq!(with_pending(&confirmed, &[]), confirmed);
 }
 
 fn reply(seed: u8, parent: u8) -> Post {

@@ -25,6 +25,13 @@ pub async fn sync_status(chain: Chain) -> Result<SyncStatus, Fault> {
     }
 }
 
+pub async fn mempool(chain: Chain) -> Result<Vec<Post>, Fault> {
+    match ask(Request::Mempool { chain }).await? {
+        Response::Mempool(posts) => Ok(posts),
+        other => Err(other.unexpected("mempool")),
+    }
+}
+
 pub async fn post(chain: Chain, txid: Txid) -> Result<Lookup, Fault> {
     match ask(Request::Post { chain, txid }).await? {
         Response::Post(lookup) => Ok(lookup),
