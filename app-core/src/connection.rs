@@ -92,9 +92,30 @@ pub struct SourceState {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NodeHealth {
+    Unconfigured,
+    Serving {
+        endpoint: String,
+        indexed_through: u64,
+        tip: u64,
+        generation: u64,
+        chain_peers: u64,
+    },
+    Behind {
+        endpoint: String,
+        reason: String,
+    },
+    Unavailable {
+        endpoint: String,
+        reason: String,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TransportStatus {
     pub peers: u64,
     pub sources: Vec<SourceState>,
+    pub node: NodeHealth,
 }
 
 impl TransportStatus {

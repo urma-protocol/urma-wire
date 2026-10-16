@@ -29,7 +29,7 @@ use urma_chain::{decode, observation::Chain, pow::check_header_pow};
 use urma_wire::index::Index;
 use wire_app_core::{connection::SourceChoice, feed::SyncPhase};
 use wire_app_engine::{
-    config::{ArchiveSettings, Settings},
+    config::{ArchiveSettings, Settings, TokenAccess},
     native::service::Service,
 };
 
@@ -362,6 +362,7 @@ fn fallback(directory: &Path) {
         archive: Some(ArchiveSettings {
             endpoint: archive.address,
             token_file: token,
+            access: TokenAccess::Owner,
         }),
         source: SourceChoice::LocalNode,
         cache_dir: app.join("runtime"),

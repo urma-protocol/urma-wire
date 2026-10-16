@@ -132,11 +132,28 @@ pub const MAX_UTXOS: usize = 1000;
 pub const COINBASE_MATURITY: u64 = 100;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use settings::{ArchiveSettings, FeedRoute, Settings};
+pub const NODE_SERVICE_ENDPOINT: std::net::SocketAddr = std::net::SocketAddr::V4(
+    std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 28331),
+);
+
+#[cfg(not(target_arch = "wasm32"))]
+pub const NODE_TOKEN_BYTES: usize = 256;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:19332";
+
+#[cfg(not(target_arch = "wasm32"))]
+pub const DEFAULT_COOKIE: &str = ".litecoin/testnet4/.cookie";
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use settings::{ArchiveSettings, FeedRoute, Settings, TokenAccess};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod settings {
-    use super::{CONFIG_FILE_BYTES, NETWORK, RUNTIME_DIR, SOURCE_FILE, SOURCE_FILE_BYTES};
+    use super::{
+        CONFIG_FILE_BYTES, DEFAULT_COOKIE, DEFAULT_RPC_URL, NETWORK, NODE_SERVICE_ENDPOINT,
+        RUNTIME_DIR, SOURCE_FILE, SOURCE_FILE_BYTES,
+    };
     use crate::errors::NativeError;
     use serde::Deserialize;
     use std::{
@@ -153,11 +170,40 @@ mod settings {
         token_file: PathBuf,
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum TokenAccess {
+        Owner,
+        Service,
+    }
+
     #[derive(Clone, Deserialize)]
     #[serde(try_from = "ArchiveFields")]
     pub struct ArchiveSettings {
         pub endpoint: SocketAddr,
         pub token_file: PathBuf,
+        pub access: TokenAccess,
+    }
+
+    impl ArchiveSettings {
+        pub fn service() -> Result<Self, NativeError> {
+            let token_file = service_token().ok_or(NativeError::NoProgramData)?;
+            Ok(Self {
+                endpoint: NODE_SERVICE_ENDPOINT,
+                token_file,
+                access: TokenAccess::Service,
+            })
+        }
+    }
+
+    #[cfg(windows)]
+    fn service_token() -> Option<PathBuf> {
+        let data = std::env::var_os("ProgramData")?;
+        Some(PathBuf::from(data).join("URMA Node").join("service.token"))
+    }
+
+    #[cfg(not(windows))]
+    fn service_token() -> Option<PathBuf> {
+        Some(PathBuf::from("/var/lib/urma-node/service.token"))
     }
 
     impl TryFrom<ArchiveFields> for ArchiveSettings {
@@ -179,6 +225,7 @@ mod settings {
             Ok(Self {
                 endpoint: fields.endpoint,
                 token_file: fields.token_file,
+                access: TokenAccess::Owner,
             })
         }
     }
@@ -256,23 +303,33 @@ mod settings {
                 Some(file) => settings.node_auth_file = Some(file.into()),
                 None => (),
             }
-            settings.vault = Some(match settings.vault {
-                Some(vault) => vault,
-                None => home.join(".local/share/urma/vault.urma"),
-            });
-            settings.unlock_file = Some(match settings.unlock_file {
-                Some(file) => file,
-                None => home.join(".config/urma/unlock"),
-            });
+            settings.discovered(&home);
             settings.cache_dir = data_dir.join(RUNTIME_DIR);
             settings.source = match stored_source(&data_dir.join(SOURCE_FILE))? {
                 Some(choice) => choice,
-                None => match settings.local_node_configured() {
-                    true => SourceChoice::LocalNode,
-                    false => SourceChoice::Public,
-                },
+                None => SourceChoice::Public,
             };
             Ok(settings)
+        }
+
+        pub fn discovered(&mut self, home: &Path) {
+            self.vault
+                .get_or_insert_with(|| home.join(".local/share/urma/vault.urma"));
+            self.unlock_file
+                .get_or_insert_with(|| home.join(".config/urma/unlock"));
+            self.rpc_url
+                .get_or_insert_with(|| DEFAULT_RPC_URL.to_owned());
+            self.node_auth_file
+                .get_or_insert_with(|| home.join(DEFAULT_COOKIE));
+            let Some(_configured) = &self.archive else {
+                match ArchiveSettings::service() {
+                    Ok(service) => self.archive = Some(service),
+                    Err(error) => {
+                        tracing::warn!(error = %error, "URMA Node service location unknown; feed scans the chain")
+                    }
+                }
+                return;
+            };
         }
 
         pub fn with_source(&self, source: SourceChoice) -> Self {

@@ -47,12 +47,12 @@ use urma_node_client::{
 };
 use urma_wire::index::{Checkpoint, Entry, Index};
 use wire_app_core::{
-    connection::SourceChoice,
+    connection::{NodeHealth, SourceChoice},
     feed::{FeedSource, Lookup, SyncPhase, SyncStatus},
     model::{Placement, Txid},
 };
 use wire_app_engine::{
-    config::{ArchiveSettings, Settings, NETWORK},
+    config::{ArchiveSettings, Settings, TokenAccess, NETWORK},
     errors::NativeError,
     native::service::Service,
     projection,
@@ -482,6 +482,7 @@ fn settings(root: &Path, endpoint: Option<SocketAddr>) -> Settings {
         archive: endpoint.map(|endpoint| ArchiveSettings {
             endpoint,
             token_file: token,
+            access: TokenAccess::Owner,
         }),
         ..Settings::default()
     }
@@ -929,6 +930,115 @@ fn preserved(root: &Path) {
     assert_eq!(Arc::strong_count(&fixture.engine), 1);
 }
 
+fn adopted(service: &Service) {
+    let deadline = Instant::now() + BOUND;
+    while !service.sync_snapshot().source.operator_held() {
+        assert!(Instant::now() < deadline, "node view was not adopted");
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+fn serving(health: &NodeHealth, generation: u64) {
+    assert_eq!(
+        health,
+        &NodeHealth::Serving {
+            endpoint: health_endpoint(health),
+            indexed_through: START + 1,
+            tip: START + 1,
+            generation,
+            chain_peers: 0,
+        }
+    );
+}
+fn health_endpoint(health: &NodeHealth) -> String {
+    match health {
+        NodeHealth::Serving { endpoint, .. }
+        | NodeHealth::Behind { endpoint, .. }
+        | NodeHealth::Unavailable { endpoint, .. } => endpoint.clone(),
+        NodeHealth::Unconfigured => panic!("node target missing"),
+    }
+}
+fn unavailable(health: NodeHealth) -> String {
+    let NodeHealth::Unavailable { reason, .. } = health else {
+        panic!("node still counted: {health:?}")
+    };
+    reason
+}
+fn watch(root: &Path) {
+    let fixture = Fixture::new(root);
+    fixture.engine.scan_next().unwrap();
+    fixture.engine.scan_next().unwrap();
+    let generation = fixture.engine.status().unwrap().generation;
+    let mut server = Server::new(fixture.engine.clone());
+    let service = open_app(root, Some(server.address));
+    serving(&service.watch_node(), generation);
+    adopted(&service);
+    complete(&service, Some(START + 1), 2, true);
+    fixture.check(&service, true, true);
+    serving(&service.watch_node(), generation);
+    assert!(service.sync_snapshot().source.operator_held());
+    no_autonomous_files(root);
+    server.close();
+    assert_eq!(unavailable(service.watch_node()), "not running");
+    let status = service.sync_snapshot();
+    assert_eq!(
+        (status.phase, status.complete_to_tip, status.source),
+        (SyncPhase::Idle, false, FeedSource::AutonomousLocal)
+    );
+    assert_eq!(service.feed().unwrap().source, FeedSource::AutonomousLocal);
+    assert!(service.feed().unwrap().posts.is_empty());
+    no_autonomous_files(root);
+    drop(service);
+    assert_eq!(Arc::strong_count(&fixture.engine), 1);
+}
+fn shared_settings(root: &Path, endpoint: SocketAddr, access: TokenAccess) -> Settings {
+    let token = root.join("service.token");
+    fs::write(&token, TOKEN).unwrap();
+    fs::set_permissions(&token, fs::Permissions::from_mode(0o640)).unwrap();
+    Settings {
+        cache_dir: root.join("runtime"),
+        archive: Some(ArchiveSettings {
+            endpoint,
+            token_file: token,
+            access,
+        }),
+        ..Settings::default()
+    }
+}
+fn shared(root: &Path) {
+    let fixture = Fixture::new(root);
+    fixture.engine.scan_next().unwrap();
+    fixture.engine.scan_next().unwrap();
+    let generation = fixture.engine.status().unwrap().generation;
+    let mut server = Server::new(fixture.engine.clone());
+    let owner = Service::open(
+        &root.join("owner"),
+        shared_settings(root, server.address, TokenAccess::Owner),
+    )
+    .unwrap();
+    let refused = unavailable(owner.watch_node());
+    assert!(refused.contains("private regular file"), "{refused}");
+    assert!(!owner.sync_snapshot().source.operator_held());
+    drop(owner);
+    let service = Service::open(
+        &root.join("app"),
+        shared_settings(root, server.address, TokenAccess::Service),
+    )
+    .unwrap();
+    serving(&service.watch_node(), generation);
+    adopted(&service);
+    fixture.check(&service, true, true);
+    fs::remove_file(root.join("service.token")).unwrap();
+    let missing = unavailable(service.watch_node());
+    assert!(missing.starts_with("not installed"), "{missing}");
+    assert!(!service.sync_snapshot().source.operator_held());
+    drop(service);
+    let plain = Service::open(&root.join("plain"), Settings::default()).unwrap();
+    assert_eq!(plain.watch_node(), NodeHealth::Unconfigured);
+    drop(plain);
+    server.close();
+    assert_eq!(Arc::strong_count(&fixture.engine), 1);
+}
+
 #[test]
 #[ignore = "owned subprocess host for bounded archive-feed integration cases"]
 fn archive_feed_host() {
@@ -944,6 +1054,8 @@ fn archive_feed_host() {
         "empty" => empty(&root),
         "stale" => stale(&root),
         "preserved" => preserved(&root),
+        "watch" => watch(&root),
+        "shared" => shared(&root),
         _ => panic!("unknown owned case"),
     }
     fs::write(
@@ -1067,4 +1179,12 @@ fn operator_projection_behind_its_tip_falls_back_to_autonomous_sync() {
 #[test]
 fn operator_read_leaves_local_index_bytes_unchanged() {
     run("preserved");
+}
+#[test]
+fn node_watch_adopts_a_serving_node_and_drops_it_when_it_stops() {
+    run("watch");
+}
+#[test]
+fn service_token_is_group_readable_while_an_owner_token_must_be_private() {
+    run("shared");
 }

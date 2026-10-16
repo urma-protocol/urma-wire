@@ -12,7 +12,8 @@ use std::collections::BTreeMap;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use wire_app_core::connection::{
-    safe_endpoint, SourceChoice, SourceKind, SourceStanding, SourceState, TransportStatus,
+    safe_endpoint, NodeHealth, SourceChoice, SourceKind, SourceStanding, SourceState,
+    TransportStatus,
 };
 use wire_app_core::contract::{Request, Response};
 use wire_app_core::feed::{Feed, FeedSource, Lookup, SyncStatus};
@@ -177,6 +178,7 @@ async fn transport() -> Result<TransportStatus, BrowserError> {
             kind: SourceKind::Http,
             standing: SourceStanding::Ready,
         }],
+        node: NodeHealth::Unconfigured,
     })
 }
 

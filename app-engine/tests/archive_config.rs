@@ -3,7 +3,7 @@
 use serde_json::json;
 use std::{net::SocketAddr, path::PathBuf};
 use wire_app_core::connection::SourceChoice;
-use wire_app_engine::config::{ArchiveSettings, Settings};
+use wire_app_engine::config::{ArchiveSettings, Settings, TokenAccess, NODE_SERVICE_ENDPOINT};
 
 #[test]
 fn archive_is_absent_by_default_and_for_existing_or_null_json() {
@@ -142,6 +142,62 @@ fn changing_chain_source_preserves_archive_rpc_and_wallet_settings() {
         assert_eq!(changed.cache_dir, settings.cache_dir);
         assert!(changed.local_node_configured());
     }
+}
+
+#[test]
+fn discovery_targets_the_installed_node_service_and_local_core_when_nothing_is_configured() {
+    let home = PathBuf::from("/home/fixture");
+    let mut settings: Settings = serde_json::from_value(json!({})).unwrap();
+    settings.discovered(&home);
+    let node = settings.archive.as_ref().unwrap();
+    assert_eq!(node.endpoint, NODE_SERVICE_ENDPOINT);
+    assert_eq!(
+        node.endpoint,
+        "127.0.0.1:28331".parse::<SocketAddr>().unwrap()
+    );
+    assert_eq!(node.access, TokenAccess::Service);
+    #[cfg(unix)]
+    assert_eq!(
+        node.token_file,
+        PathBuf::from("/var/lib/urma-node/service.token")
+    );
+    assert_eq!(settings.rpc_url.as_deref(), Some("http://127.0.0.1:19332"));
+    assert_eq!(
+        settings.node_auth_file,
+        Some(home.join(".litecoin/testnet4/.cookie"))
+    );
+    assert_eq!(
+        settings.vault,
+        Some(home.join(".local/share/urma/vault.urma"))
+    );
+    assert!(settings.local_node_configured());
+    assert_eq!(settings.source, SourceChoice::Public);
+}
+
+#[test]
+fn discovery_keeps_configured_node_core_and_vault() {
+    let home = PathBuf::from("/home/fixture");
+    let mut settings: Settings = serde_json::from_value(json!({
+        "rpc_url":"http://127.0.0.1:2345",
+        "node_auth_file":"/data/litecoin/.cookie",
+        "vault":"/data/vault.urma",
+        "archive":{"endpoint":"127.0.0.1:1234", "token_file":"/run/urma/archive.token"},
+    }))
+    .unwrap();
+    settings.discovered(&home);
+    let node = settings.archive.as_ref().unwrap();
+    assert_eq!(
+        node.endpoint,
+        "127.0.0.1:1234".parse::<SocketAddr>().unwrap()
+    );
+    assert_eq!(node.token_file, PathBuf::from("/run/urma/archive.token"));
+    assert_eq!(node.access, TokenAccess::Owner);
+    assert_eq!(settings.rpc_url.as_deref(), Some("http://127.0.0.1:2345"));
+    assert_eq!(
+        settings.node_auth_file,
+        Some(PathBuf::from("/data/litecoin/.cookie"))
+    );
+    assert_eq!(settings.vault, Some(PathBuf::from("/data/vault.urma")));
 }
 
 #[test]

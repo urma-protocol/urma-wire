@@ -6,6 +6,7 @@ use crate::native::wallet::{Balance, WireWallet};
 use fs2::FileExt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use urma_identity::identity::IdentityKey;
@@ -15,7 +16,7 @@ use urma_runtime::light::LightSync;
 use urma_runtime::node::Node;
 use urma_wallet::account::Account;
 use urma_wire::index::Index;
-use wire_app_core::connection::{ConnectionHealth, SourceChoice, Trouble};
+use wire_app_core::connection::{ConnectionHealth, NodeHealth, SourceChoice, Trouble};
 use wire_app_core::feed::SyncStatus;
 use wire_app_core::model::{AuthorId, Chain, WalletSummary};
 use wire_app_core::session::{Credential, IdentityStatus, Session, VaultSource};
@@ -44,6 +45,9 @@ pub struct Service {
     pub(super) link: Arc<Mutex<Link>>,
     pub(super) archive_feed: Arc<Mutex<OperatorState>>,
     pub(super) sync: Arc<Mutex<SyncStatus>>,
+    pub(super) reading: Arc<AtomicBool>,
+    pub(super) scanning: Arc<AtomicBool>,
+    pub(super) node_seen: Mutex<NodeHealth>,
     _lock: File,
 }
 
@@ -76,6 +80,9 @@ impl Service {
             link: Arc::new(Mutex::new(Link::Closed)),
             archive_feed: Arc::new(Mutex::new(OperatorState::Absent)),
             sync: Arc::new(Mutex::new(SyncStatus::idle())),
+            reading: Arc::new(AtomicBool::new(false)),
+            scanning: Arc::new(AtomicBool::new(false)),
+            node_seen: Mutex::new(NodeHealth::Unconfigured),
             _lock: lock,
         })
     }

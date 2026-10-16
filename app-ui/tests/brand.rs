@@ -1,3 +1,4 @@
+use wire_app_core::connection::NodeHealth;
 use wire_app_core::feed::{FeedSource, SyncPhase, SyncStatus};
 use wire_app_ui::components::brand::{distance, pulse_at, Mark, Trace};
 use wire_app_ui::state::Synced;
@@ -164,6 +165,7 @@ fn transport_hints_describe_peers_and_sources() {
                 standing: SourceStanding::Blocked { seconds: 23 },
             },
         ],
+        node: NodeHealth::Unconfigured,
     };
     assert_eq!(status.remote_sources().len(), 2);
     assert_eq!(status.ready_sources(), 1);
@@ -178,6 +180,7 @@ fn transport_hints_describe_peers_and_sources() {
             kind: SourceKind::Peers,
             standing: SourceStanding::Cold,
         }],
+        node: NodeHealth::Unconfigured,
     };
     assert!(peers_hint(&cold).contains("warming up"));
 }
@@ -200,6 +203,7 @@ fn local_daemon_has_its_own_status_and_is_not_counted_as_public_rpc() {
                 standing: SourceStanding::Ready,
             },
         ],
+        node: NodeHealth::Unconfigured,
     };
     assert!(local_hint(&status).contains("checked automatically"));
     assert_eq!(status.remote_sources().len(), 1);

@@ -7,10 +7,12 @@ experimental desktop and browser implementations, saved state and focused tests.
 
 ## Automatic local block source
 
-In native **Public sources** mode, Wire checks the configured loopback RPC daemon
-in the background about every three seconds. Configure `rpc_url` and
-`node_auth_file` in the URMA config before launching Wire. The daemon may start
-later: no app restart or source-selection change is needed. Each check reads the
+An installed URMA Node takes precedence over everything below: see
+[automatic sources](../README.md#automatic-sources). Without one, in native
+**Public sources** mode, Wire checks the loopback RPC daemon in the background
+about every three seconds: `rpc_url` and `node_auth_file` from the URMA config,
+or `http://127.0.0.1:19332` with `~/.litecoin/testnet4/.cookie`. The daemon may
+start later: no app restart or source-selection change is needed. Each check reads the
 current cookie, verifies the Litecoin Testnet genesis and requires initial block
 download to be finished with blocks caught up to the node's headers.
 

@@ -11,6 +11,7 @@ use wire_app_core::connection::{
 
 impl Service {
     pub fn transport(&self) -> Result<TransportStatus, NativeError> {
+        let urma_node = self.watch_node();
         let node = self.node()?;
         let light = node.light_client_progress();
         let peers = match light {
@@ -40,7 +41,11 @@ impl Service {
                 }
             }
         }
-        Ok(TransportStatus { peers, sources })
+        Ok(TransportStatus {
+            peers,
+            sources,
+            node: urma_node,
+        })
     }
 
     pub fn source_status(&self) -> SourceStatus {

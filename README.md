@@ -55,8 +55,8 @@ complete protocol conformance or a production wallet release. Application versio
 - Verification checks records and the available chain evidence. Public-provider
   observations are not equivalent to running a validating node; transparent
   Litecoin reads do not establish full MWEB consensus validation.
-- Autonomous sync runs while Wire is open. Native builds can optionally consume
-  an explicitly configured URMA Node index; Wire does not start that daemon.
+- Autonomous sync runs while Wire is open. Native builds use an installed URMA
+  Node's index automatically when it is up to date; Wire does not start that daemon.
 - Use test identities and testnet coins. The committed fixture identity is public;
   never use it for valuable funds. Keep your original encrypted vault backup.
 
@@ -164,11 +164,26 @@ URMA core. Bundled artwork, coin icons and dependency notices are documented in
 [NOTICES.md](NOTICES.md). Publication of the bundled Wire/ROSINT branding was
 approved for this repository; no trademark license or endorsement is implied.
 
-## Optional local archive feed
+## Automatic sources
 
-Native Wire can reuse an already running URMA Node's selected Wire index. In the
-existing desktop `URMA_CONFIG` JSON, add an explicit loopback endpoint and a
-private bearer-token file:
+Native Wire picks the best source the machine offers and keeps checking every
+three seconds:
+
+1. **URMA Node** — the installed service (`127.0.0.1:28331`, token
+   `/var/lib/urma-node/service.token`, or `%ProgramData%\URMA Node\service.token`
+   on Windows) serves the feed from its index; Wire scans nothing.
+2. **Litecoin Core** — a local testnet node (`rpc_url`, `node_auth_file`,
+   default `http://127.0.0.1:19332` and `~/.litecoin/testnet4/.cookie`) serves
+   block reads while Wire scans.
+3. **Light client and public servers** otherwise.
+
+Wire switches when a better source appears or the current one stops, and the
+sidebar indicator names it: **Node**, **Core** or **Local** (none), with its
+health in the tooltip. The service token is group-readable (`urma-node`); add
+your user to that group and log in again if the tooltip reports no access.
+
+A developer override in the desktop `URMA_CONFIG` JSON replaces the service
+target:
 
 ```json
 {
@@ -180,13 +195,10 @@ private bearer-token file:
 ```
 
 This is independent of `rpc_url`, `node_auth_file` and the wallet/publication
-source choice. It is disabled by default; mobile defaults and the standalone
-browser retain their existing sources. Wire never generates a token or starts
-the service. A non-loopback endpoint or a relative `token_file` is refused when
-the configuration loads. The token must be one regular, unlinked file readable
-only by its owner. Configure a Litecoin Testnet archive with an explicit
-application start; this option does not select a historical start or checkpoint
-for Node.
+source choice. Mobile defaults and the standalone browser retain their existing
+sources. Wire never generates a token or starts the service. A non-loopback
+endpoint or a relative `token_file` is refused when the configuration loads. An
+override token must be one regular, unlinked file readable only by its owner.
 
 The configured local operator is trusted for this feed, as with the core CLI.
 Parsing an index page is not independent verification of signatures, inclusion

@@ -80,11 +80,44 @@ pub enum MediaError {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Error)]
+pub enum NodeProbeError {
+    #[error("not installed (no {})", .0.display())]
+    NotInstalled(std::path::PathBuf),
+    #[error("no access to {}: add your user to group urma-node and log in again", .0.display())]
+    NoAccess(std::path::PathBuf),
+    #[error("token {} refused: {cause}", .path.display())]
+    Token {
+        path: std::path::PathBuf,
+        #[source]
+        cause: Box<NativeError>,
+    },
+    #[error("not running")]
+    NotRunning,
+    #[error("not answering")]
+    NotAnswering,
+    #[error("unreachable: {0}")]
+    Unreachable(std::io::ErrorKind),
+    #[error("invalid status: {0:?}")]
+    InvalidStatus(serde_json::error::Category),
+    #[error("refused the request; {0} byte diagnostic withheld")]
+    Refused(usize),
+    #[error("busy; {0} byte diagnostic withheld")]
+    Busy(usize),
+    #[error("serves another network or scan rules")]
+    ForeignArchive,
+    #[error(transparent)]
+    Genesis(#[from] bitcoin::hex::HexToArrayError),
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Error)]
 pub enum NativeError {
     #[error("Optional URMA archive: {0}")]
     Archive(String),
     #[error("HOME is not set")]
     NoHome,
+    #[error("ProgramData is not set")]
+    NoProgramData,
     #[error("RPC URL must be UTF-8")]
     RpcUrlEncoding(std::ffi::OsString),
     #[error("Local node is selected but rpc_url and node_auth_file are not configured. Choose Public sources in Settings or configure the node.")]
@@ -207,6 +240,7 @@ impl NativeError {
             | Self::Sync(_)
             | Self::Genesis(_) => FaultKind::Source,
             Self::NoHome
+            | Self::NoProgramData
             | Self::RpcUrlEncoding(_)
             | Self::LocalNodeUnconfigured
             | Self::CookieMissing(_) => FaultKind::Source,

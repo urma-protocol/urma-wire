@@ -15,7 +15,7 @@ use std::{
 use tracing::{field::Visit, span, Event, Metadata, Subscriber};
 use wire_app_core::{connection::SourceChoice, feed::SyncPhase};
 use wire_app_engine::{
-    config::{ArchiveSettings, Settings},
+    config::{ArchiveSettings, Settings, TokenAccess},
     native::service::Service,
 };
 
@@ -234,6 +234,7 @@ fn rejected_by_public_service(directory: &Path, token_file: &Path, endpoint: Soc
             archive: Some(ArchiveSettings {
                 endpoint,
                 token_file: token_file.into(),
+                access: TokenAccess::Owner,
             }),
             source: SourceChoice::LocalNode,
             cache_dir: cache_dir.clone(),

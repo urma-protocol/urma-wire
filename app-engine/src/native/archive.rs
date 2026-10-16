@@ -1,14 +1,16 @@
-use crate::config::{ArchiveSettings, NETWORK};
-use crate::errors::NativeError;
+use crate::config::{ArchiveSettings, TokenAccess, NETWORK, NODE_TOKEN_BYTES};
+use crate::errors::{NativeError, NodeProbeError};
 use crate::projection::{project_view, View};
 use bitcoin::BlockHash;
 use std::collections::BTreeMap;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::time::{Duration, Instant};
-use urma_node_client::model::{ArchiveStatus, ChainPoint, SCAN_RULES_VERSION};
+use urma_node_client::model::{ArchiveStatus, ChainPoint, ServiceStatus, SCAN_RULES_VERSION};
 use urma_node_client::projection::{IndexSnapshot, WireCursor, WirePage};
 use urma_node_client::{Client, Error as ClientError};
 use urma_wire::index::{Checkpoint, Entry};
+use wire_app_core::connection::NodeHealth;
 use wire_app_core::feed::{Feed, FeedSource};
 use zeroize::Zeroizing;
 
@@ -32,10 +34,25 @@ impl OperatorView {
     const TOKEN_READ: u64 = 257;
     const MAX_LAG: u64 = 2;
     const MAX_AGE: Duration = Duration::from_secs(600);
+    const REFRESH_AGE: Duration = Duration::from_secs(300);
 
     pub(super) fn fresh(&self) -> bool {
         self.acquired.elapsed() < Self::MAX_AGE
     }
+
+    pub(super) fn current(&self, generation: u64, indexed: u64) -> bool {
+        let Some(through) = self.archive.indexed_through else {
+            return false;
+        };
+        self.archive.generation == generation
+            && through.height == indexed
+            && self.acquired.elapsed() < Self::REFRESH_AGE
+    }
+}
+
+enum Coverage {
+    Serving(ChainPoint, ChainPoint),
+    Behind(String),
 }
 
 struct First {
@@ -79,7 +96,7 @@ fn before(deadline: Instant) -> Result<(), NativeError> {
 
 pub(super) fn read(settings: &ArchiveSettings) -> Result<OperatorView, NativeError> {
     let deadline = Instant::now() + OperatorView::TRAVERSAL_TIME;
-    let token = bearer(&settings.token_file)?;
+    let token = token(settings)?;
     let client = Client::new(settings.endpoint, token.as_str().to_owned()).map_err(unavailable)?;
     let page = fetch(&client, None, deadline)?;
     let mut traversal = Traversal::begin(&page)?;
@@ -188,12 +205,12 @@ impl Traversal {
     }
 }
 
-fn covered(archive: &ArchiveStatus) -> Result<(ChainPoint, ChainPoint), NativeError> {
+fn coverage(archive: &ArchiveStatus) -> Coverage {
     let Some(indexed) = archive.indexed_through else {
-        return Err(refused("operator archive has nothing indexed"));
+        return Coverage::Behind("operator archive has nothing indexed".into());
     };
     let Some(tip) = archive.selected_tip else {
-        return Err(refused("coverage without selected headers"));
+        return Coverage::Behind("coverage without selected headers".into());
     };
     let start = archive.application_start;
     if indexed.height < start.height
@@ -201,15 +218,92 @@ fn covered(archive: &ArchiveStatus) -> Result<(ChainPoint, ChainPoint), NativeEr
         || (indexed.height == tip.height && indexed.hash != tip.hash)
         || (indexed.height == start.height && indexed.hash != start.hash)
     {
-        return Err(refused("inconsistent archive coverage"));
+        return Coverage::Behind("inconsistent archive coverage".into());
     }
     let behind = tip.height - indexed.height;
     if behind > OperatorView::MAX_LAG {
-        return Err(refused(format!(
+        return Coverage::Behind(format!(
             "operator projection {behind} blocks behind its selected tip"
-        )));
+        ));
     }
-    Ok((indexed, tip))
+    Coverage::Serving(indexed, tip)
+}
+
+fn covered(archive: &ArchiveStatus) -> Result<(ChainPoint, ChainPoint), NativeError> {
+    match coverage(archive) {
+        Coverage::Serving(indexed, tip) => Ok((indexed, tip)),
+        Coverage::Behind(reason) => Err(refused(reason)),
+    }
+}
+
+pub(super) fn probe(settings: &ArchiveSettings) -> Result<NodeHealth, NodeProbeError> {
+    let token = token(settings).map_err(|error| token_reason(settings, error))?;
+    let client =
+        Client::new(settings.endpoint, token.as_str().to_owned()).map_err(client_reason)?;
+    let status = client.status().map_err(client_reason)?;
+    judged(settings, &status)
+}
+
+fn judged(
+    settings: &ArchiveSettings,
+    status: &ServiceStatus,
+) -> Result<NodeHealth, NodeProbeError> {
+    let archive = &status.archive;
+    if archive.chain_genesis != NETWORK.genesis()?.0
+        || archive.scan_rules_version != SCAN_RULES_VERSION
+    {
+        return Err(NodeProbeError::ForeignArchive);
+    }
+    let endpoint = settings.endpoint.to_string();
+    Ok(match coverage(archive) {
+        Coverage::Serving(indexed, tip) => NodeHealth::Serving {
+            endpoint,
+            indexed_through: indexed.height,
+            tip: tip.height,
+            generation: archive.generation,
+            chain_peers: status.chain_peers,
+        },
+        Coverage::Behind(reason) => NodeHealth::Behind { endpoint, reason },
+    })
+}
+
+fn token_reason(settings: &ArchiveSettings, error: NativeError) -> NodeProbeError {
+    let path = settings.token_file.clone();
+    let kind = match &error {
+        NativeError::Io(io) | NativeError::Files(urma_io::Error::Io(io)) => io.kind(),
+        _other => ErrorKind::Other,
+    };
+    match kind {
+        ErrorKind::NotFound => NodeProbeError::NotInstalled(path),
+        ErrorKind::PermissionDenied => NodeProbeError::NoAccess(path),
+        _other => NodeProbeError::Token {
+            path,
+            cause: Box::new(error),
+        },
+    }
+}
+
+fn client_reason(error: ClientError) -> NodeProbeError {
+    match error {
+        ClientError::Io(io) => match io.kind() {
+            ErrorKind::ConnectionRefused => NodeProbeError::NotRunning,
+            ErrorKind::TimedOut | ErrorKind::WouldBlock => NodeProbeError::NotAnswering,
+            other => NodeProbeError::Unreachable(other),
+        },
+        ClientError::Json(json) => NodeProbeError::InvalidStatus(json.classify()),
+        ClientError::Invalid(message) => NodeProbeError::Refused(message.len()),
+        ClientError::Busy(message) => NodeProbeError::Busy(message.len()),
+    }
+}
+
+fn token(settings: &ArchiveSettings) -> Result<Zeroizing<String>, NativeError> {
+    match settings.access {
+        TokenAccess::Owner => bearer(&settings.token_file),
+        TokenAccess::Service => utf8(&urma_io::read_shared(
+            &settings.token_file,
+            NODE_TOKEN_BYTES,
+        )?),
+    }
 }
 
 #[cfg(unix)]

@@ -22,9 +22,11 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use tracing::warn;
 use wire_app_core::composer::Photo;
-use wire_app_core::connection::{ConnectionHealth, TransportStatus, Trouble};
+use wire_app_core::connection::{ConnectionHealth, NodeHealth, TransportStatus, Trouble};
 use wire_app_core::errors::Fault;
-use wire_app_core::feed::{conversations, following, Conversation, PublicIdentity, SyncPhase};
+use wire_app_core::feed::{
+    conversations, following, Conversation, FeedSource, PublicIdentity, SyncPhase,
+};
 use wire_app_core::model::{AuthorId, Chain, Post, WalletSummary};
 use wire_app_core::publication::{Addressed, Content, Pending, Publication};
 use wire_app_core::session::{IdentityStatus, Session};
@@ -546,13 +548,56 @@ async fn watch_transport(state: AppState) {
     loop {
         let chain = state.active_chain.get_untracked();
         match chain::transport(chain).await {
-            Ok(status) => state.transport.set(Some(status)),
+            Ok(status) => {
+                state.follow_source(&status.node);
+                state.transport.set(Some(status));
+            }
             Err(fault) => {
                 warn!(fault = %fault, "transport status unavailable");
                 state.transport.set(None);
             }
         }
         gloo_timers::future::TimeoutFuture::new(TRANSPORT_POLL_MS).await;
+    }
+}
+
+impl AppState {
+    pub fn follow_source(&self, node: &NodeHealth) {
+        if self.is_loading_feed.get_untracked() {
+            return;
+        }
+        let shown = match self.synced.get_untracked() {
+            Synced::Indexed { source, .. } => source,
+            Synced::Failed(_reason) => FeedSource::AutonomousLocal,
+            Synced::Unchecked
+            | Synced::Connecting
+            | Synced::Verifying { .. }
+            | Synced::Retrying { .. }
+            | Synced::Building => return,
+        };
+        if !shows(&shown, node) {
+            self.refresh_feed();
+        }
+    }
+}
+
+pub fn shows(shown: &FeedSource, node: &NodeHealth) -> bool {
+    match (shown, node) {
+        (
+            FeedSource::LocalNodeOperator {
+                indexed_through: Some(shown_through),
+                generation: shown_generation,
+                ..
+            },
+            NodeHealth::Serving {
+                indexed_through,
+                generation,
+                ..
+            },
+        ) => shown_through == indexed_through && shown_generation == generation,
+        (FeedSource::LocalNodeOperator { .. }, _elsewhere) => false,
+        (FeedSource::AutonomousLocal, NodeHealth::Serving { .. }) => false,
+        (FeedSource::AutonomousLocal, _scanning) => true,
     }
 }
 

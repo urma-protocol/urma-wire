@@ -14,7 +14,9 @@ use leptos::prelude::Memo;
 use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
 use leptos::prelude::{component, view};
-use wire_app_core::connection::{LocalStatus, SourceKind, SourceStanding, TransportStatus};
+use wire_app_core::connection::{
+    LocalStatus, NodeHealth, SourceKind, SourceStanding, TransportStatus,
+};
 use wire_app_core::feed::FeedSource;
 
 pub struct Trace;
@@ -295,6 +297,40 @@ fn local_ready(status: &TransportStatus) -> bool {
     }
 }
 
+pub struct Local {
+    pub label: &'static str,
+    pub tone: &'static str,
+    pub hint: String,
+}
+
+pub fn local_view(status: &TransportStatus) -> Local {
+    match &status.node {
+        NodeHealth::Serving { endpoint, indexed_through, tip, generation, chain_peers } => Local {
+            label: "Node",
+            tone: net_tone(true, false),
+            hint: format!("URMA Node at {endpoint} serves the feed: indexed #{indexed_through} of #{tip}, archive generation {generation}, {chain_peers} Litecoin peers. The node follows and checks Litecoin itself; Wire does not scan blocks."),
+        },
+        NodeHealth::Behind { endpoint, reason } => Local {
+            label: "Node",
+            tone: net_tone(true, true),
+            hint: format!("URMA Node at {endpoint} is still syncing ({reason}); Wire scans meanwhile. {}", local_hint(status)),
+        },
+        NodeHealth::Unavailable { reason, .. } => core_view(status, format!("URMA Node: {reason}.")),
+        NodeHealth::Unconfigured => core_view(status, "URMA Node: not reachable from this build.".to_owned()),
+    }
+}
+
+fn core_view(status: &TransportStatus, node: String) -> Local {
+    match local_ready(status) {
+        true => Local { label: "Core", tone: net_tone(true, false), hint: format!("{} {node}", local_hint(status)) },
+        false => Local {
+            label: "Local",
+            tone: net_tone(false, false),
+            hint: format!("No local source. {node} {} Blocks come from light-client peers and public servers.", local_hint(status)),
+        },
+    }
+}
+
 fn net_tone(live: bool, partial: bool) -> &'static str {
     match (live, partial) {
         (false, _partial) => "brand-net-item down",
@@ -310,12 +346,13 @@ pub fn Transport() -> impl IntoView {
         {move || state.transport.get().map(|status| {
             let ready = status.ready_sources();
             let total = status.remote_sources().len();
+            let local = local_view(&status);
             view! {
                 <div class="brand-net">
-                    <span role="img" class=net_tone(local_ready(&status), false)
-                        title=local_hint(&status) attr:aria-label=local_hint(&status)>
+                    <span role="img" class=local.tone
+                        title=local.hint.clone() attr:aria-label=local.hint>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8M12 16v5M7 7h2M7 11h2"/></svg>
-                        <span>"Local"</span>
+                        <span>{local.label}</span>
                     </span>
                     <span class=net_tone(status.peers > 0, false) title=peers_hint(&status)>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>
