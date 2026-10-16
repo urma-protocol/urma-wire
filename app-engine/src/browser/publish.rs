@@ -61,14 +61,29 @@ pub enum Planned {
 }
 
 pub async fn active() -> Result<Planned, BrowserError> {
-    let Stored::Found(active) = store::read::<Active>(ACTIVE_KEY).await? else {
+    let stored = match store::read::<Active>(ACTIVE_KEY).await {
+        Ok(stored) => stored,
+        Err(BrowserError::Json(error)) => {
+            tracing::warn!(error = %error, "saved publication cannot be read; it is dropped");
+            return forget().await;
+        }
+        Err(other) => return Err(other),
+    };
+    let Stored::Found(active) = stored else {
         return Ok(Planned::Idle);
     };
-    active.validate().map_err(|error| match error {
-        BrowserError::Runtime(cause) => BrowserError::SavedPlan(cause),
-        other => other,
-    })?;
-    Ok(Planned::Active(active))
+    match active.validate() {
+        Ok(()) => Ok(Planned::Active(active)),
+        Err(error) => {
+            tracing::warn!(error = %error, "saved publication fails validation; it is dropped");
+            forget().await
+        }
+    }
+}
+
+async fn forget() -> Result<Planned, BrowserError> {
+    store::delete(ACTIVE_KEY).await?;
+    Ok(Planned::Idle)
 }
 
 pub async fn discard(id: &str) -> Result<(), BrowserError> {

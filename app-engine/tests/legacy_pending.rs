@@ -6,11 +6,11 @@ mod node;
 use bitcoin::hashes::{sha256, Hash};
 use urma_core::{envelope, multipart::VerifiedRecord};
 use urma_identity::keyring::Keyring;
-use wire_app_core::connection::SourceChoice;
+use wire_app_core::{connection::SourceChoice, publication::Pending};
 use wire_app_engine::{config::Settings, native::service::Service, record::review};
 
 #[test]
-fn approved_signed_legacy_plan_refuses_restart_status_and_resume_before_network() {
+fn approved_signed_legacy_plan_is_dropped_before_network() {
     let plan = legacy_avatar::signed_plan();
     let commit =
         bitcoin::consensus::deserialize(&hex::decode(&plan.records[0].commit).unwrap()).unwrap();
@@ -28,13 +28,6 @@ fn approved_signed_legacy_plan_refuses_restart_status_and_resume_before_network(
         .contains("exactly 128"));
     let saved = serde_json::to_vec(&plan).unwrap();
     let id = sha256::Hash::hash(&saved).to_string();
-    if let Some(path) = std::env::var_os("WIRE_LEGACY_FIXTURE_OUTPUT") {
-        std::fs::write(
-            path,
-            serde_json::to_vec(&serde_json::json!({"id": id, "plan": plan})).unwrap(),
-        )
-        .unwrap();
-    }
     let dir = tempfile::tempdir().unwrap();
     let keys = Keyring::create(&node::phrase(), "public fixture").unwrap();
     let mock = node::Mock::new(dir.path(), &keys);
@@ -57,52 +50,47 @@ fn approved_signed_legacy_plan_refuses_restart_status_and_resume_before_network(
         cache_dir: dir.path().join("runtime"),
     };
     let service = Service::open(dir.path(), settings.clone()).unwrap();
-    let error = service.status().unwrap_err();
-    assert!(error.to_string().contains("exactly 128"));
-    assert!(std::error::Error::source(&error).is_some());
-    let fault = wire_app_core::errors::Fault::from(error);
-    assert_eq!(fault.kind, wire_app_core::errors::FaultKind::Publication);
-    assert!(fault.message.contains("Keep a backup"));
-    assert!(fault
-        .message
-        .contains("Do not delete the saved publication"));
-    assert!(service
-        .advance(&id, false)
-        .unwrap_err()
-        .to_string()
-        .contains("exactly 128"));
+    assert!(matches!(service.status().unwrap(), Pending::Settled));
+    assert!(!dir.path().join("active.json").exists());
+    assert!(!directory.exists());
     assert!(service
         .advance(&id, true)
         .unwrap_err()
         .to_string()
-        .contains("exactly 128"));
-    assert!(service
-        .discard_quote(&id)
-        .unwrap_err()
-        .to_string()
-        .contains("exactly 128"));
+        .contains("No prepared publication"));
+    service.discard_quote(&id).unwrap();
     drop(service);
     let restarted = Service::open(dir.path(), settings).unwrap();
-    assert!(restarted
-        .status()
-        .unwrap_err()
-        .to_string()
-        .contains("exactly 128"));
-    assert!(restarted
-        .advance(&id, false)
-        .unwrap_err()
-        .to_string()
-        .contains("exactly 128"));
+    assert!(matches!(restarted.status().unwrap(), Pending::Settled));
     assert!(mock.state.lock().unwrap().methods.is_empty());
     assert!(mock.state.lock().unwrap().submissions.is_empty());
-    assert_eq!(std::fs::read(directory.join("plan.json")).unwrap(), saved);
-    assert_eq!(
-        std::fs::read(directory.join("approved")).unwrap(),
-        id.as_bytes()
-    );
-    assert_eq!(
-        std::fs::read(dir.path().join("active.json")).unwrap(),
-        serde_json::to_vec(&id).unwrap()
-    );
-    assert!(!directory.join("progress.json").exists());
+}
+
+#[test]
+fn unreadable_saved_plans_are_dropped_instead_of_blocking_publication() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = "4da09952943d5a9169a5624ca202cbd5ab4e69d6351e88abc9f92f55d47192d0";
+    let directory = dir.path().join("plans").join(id);
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(
+        directory.join("plan.json"),
+        br#"{"version":1,"records":[{"funding":{"vout":1}}]}"#,
+    )
+    .unwrap();
+    std::fs::write(directory.join("approved"), id.as_bytes()).unwrap();
+    let active = dir.path().join("active.json");
+    std::fs::write(&active, serde_json::to_vec(id).unwrap()).unwrap();
+    let elsewhere = dir.path().join("plans").join("kept");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let service = Service::open(dir.path(), Settings::default()).unwrap();
+    assert!(matches!(service.status().unwrap(), Pending::Settled));
+    assert!(!active.exists());
+    assert!(!directory.exists());
+    assert!(elsewhere.exists());
+    for pointer in [&b"\"../../outside\""[..], b"not json"] {
+        std::fs::write(&active, pointer).unwrap();
+        assert!(matches!(service.status().unwrap(), Pending::Settled));
+        assert!(!active.exists());
+        assert!(dir.path().join("plans").exists());
+    }
 }

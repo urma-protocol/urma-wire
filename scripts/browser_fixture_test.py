@@ -19,10 +19,6 @@ import urllib.request
 if "--public-probe" in sys.argv and "--chain" in sys.argv:
     raise SystemExit("Run --public-probe and --chain separately: each needs its own browser state.")
 
-LEGACY_PLAN = next((Path(arg.split("=", 1)[1]) for arg in sys.argv if arg.startswith("--legacy-plan=")), None)
-if LEGACY_PLAN is not None and ("--chain" in sys.argv or "--public-probe" in sys.argv):
-    raise SystemExit("Run --legacy-plan separately from --chain/--public-probe.")
-
 ROOT = Path(__file__).resolve().parents[1]
 PASSWORD = "URMA public test password 2026"
 VAULT = list((ROOT / "app-engine/tests/fixtures/valid.vault").read_bytes())
@@ -150,9 +146,6 @@ with tempfile.TemporaryDirectory(prefix="wire-fixture-", dir=ROOT / "target") as
         if "--chain" in sys.argv:
             from browser_chain_fixture import run_chain_fixture
             run_chain_fixture(command, js, request, base)
-        if LEGACY_PLAN is not None:
-            from browser_avatar_fixture import run_legacy_avatar_fixture
-            run_legacy_avatar_fixture(command, js, request, base, LEGACY_PLAN)
         # Stop the actual origin server; do not toggle the browser offline flag.
         server.shutdown()
         server.server_close()

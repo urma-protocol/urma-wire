@@ -27,9 +27,37 @@ impl Service {
         if !path.try_exists()? {
             return Ok(Standing::Idle);
         }
+        match self.saved(&path) {
+            Ok(standing) => Ok(standing),
+            Err(error) => {
+                tracing::warn!(error = %error, "saved publication cannot be loaded; it is dropped");
+                self.forget(&path)?;
+                Ok(Standing::Idle)
+            }
+        }
+    }
+
+    fn forget(&self, path: &Path) -> Result<(), NativeError> {
         let id: String =
-            serde_json::from_slice(&urma_io::read_bounded(&path, PLAN_ID_FILE_BYTES)?)?;
-        if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            match serde_json::from_slice(&urma_io::read_bounded(path, PLAN_ID_FILE_BYTES)?) {
+                Ok(id) => id,
+                Err(error) => {
+                    tracing::warn!(error = %error, "active publication pointer holds no plan id");
+                    std::fs::remove_file(path)?;
+                    return Ok(());
+                }
+            };
+        let directory = self.directory.join(Self::PLANS_DIR).join(&id);
+        if plan_id(&id) && directory.try_exists()? {
+            std::fs::remove_dir_all(&directory)?;
+        }
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
+
+    fn saved(&self, path: &Path) -> Result<Standing, NativeError> {
+        let id: String = serde_json::from_slice(&urma_io::read_bounded(path, PLAN_ID_FILE_BYTES)?)?;
+        if !plan_id(&id) {
             return Err(NativeError::InvalidPlanId);
         }
         let directory = self.directory.join(Self::PLANS_DIR).join(&id);
@@ -149,6 +177,10 @@ impl Service {
             observe(node, &plan, &directory)
         })
     }
+}
+
+fn plan_id(id: &str) -> bool {
+    id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn paused(reason: &str) -> bool {

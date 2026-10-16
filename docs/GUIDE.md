@@ -303,40 +303,19 @@ projection with a diagnostic. Valid posts, replies, nicknames and current avatar
 still load after restart in both engines. Other malformed records remain errors.
 A stored identity containing unsupported avatar bytes uses the identicon with an
 unsupported-avatar notice; loading it into the editor shows a blank canvas with a
-notice and leaves the stored bytes unchanged. Previously approved legacy avatar
-or oversized profile plans fail strict validation before approval changes or
-transaction submission.
-Native status/resume validates before RPC; browser resume may first read the
-source genesis hash, then refuses the plan before any transaction POST. Wire
-preserves these plans without conversion, re-signing, fee changes or automatic
-deletion. A saved legacy active
-plan also blocks status, discard and replacement quotes through strict validation;
-this upgrade supplies no in-app migration or removal path for that plan. Preserve
-the original files for recovery.
+notice and leaves the stored bytes unchanged. A saved legacy avatar or oversized
+profile plan fails strict validation and is dropped before any network call; see
+[saved publication recovery](#saved-publication-recovery).
 
 ## Saved publication recovery
 
-A saved plan that fails current validation remains blocked. The app reports the
-saved-plan failure separately from a transient chain-source error. It does not
-migrate signed bytes, re-sign, change fees, remove the active pointer or resume an
-invalid plan. Retrying a source cannot repair a structurally unsupported plan.
-
-For desktop recovery, stop Wire and preserve the **complete** `org.urma.wire`
-app-data directory: `active.json`, every `plans/` directory (plan, approval and
-progress), indexes, source settings and any imported `identity.urma`. Preserve the
-original encrypted vault and external configuration separately; they may be
-outside app-data. Keep the originals intact for expert recovery. Do not manually
-delete the active pointer to unblock publishing: deletion does not undo an
-already submitted transaction and can allow funding to be reused incorrectly.
-
-For the browser version, do not clear site data or IndexedDB to work around a
-saved-plan error. Retain the original encrypted vault backup; a vault backup
-alone does not back up the saved publication journal. This version does not supply
-an automated export or safe removal/migration flow for unsupported plans.
-
-For a fresh visual inspection, use an isolated empty app-data/profile and leave
-the affected state untouched. Do not import or sign with the same funded identity
-in the fresh profile while its old publication outcome is unresolved.
+A saved plan that Wire can no longer read or validate (for example one written
+by an older format) is dropped with a logged warning: the desktop removes
+`active.json` and that plan's directory, the browser removes its stored plan.
+Publishing continues with a fresh review. Wire never resumes, re-signs or
+migrates such a plan; transactions it already submitted stay on chain, and a new
+plan that selects the same funding is refused by the network if that funding was
+already spent.
 
 ## External images
 
@@ -524,22 +503,8 @@ visual UI validation.
 
 Avatar checks also cover all EGA palette indices, first/last pixels and row/nibble
 order, arbitrary 128-byte payloads including image signatures, the 16×16 editor
-grid, legacy cache restart and unchanged approved legacy-plan refusal. The
-existing disposable browser fixture gate accepts the same crypto-valid legacy
-plan exported by the native test:
-
-```sh
-WIRE_LEGACY_FIXTURE_OUTPUT="$PWD/target/legacy-avatar-plan.json" cargo test -p wire-app-engine --test legacy_pending --locked
-NO_COLOR=true trunk build --features fixture-harness --offline --dist target/avatar-fixture-dist
-WIRE_DIST="$PWD/target/avatar-fixture-dist" python3 scripts/browser_fixture_test.py --legacy-plan=target/legacy-avatar-plan.json
-```
-
-This gate runs real WASM/IndexedDB status, resume, approve and discard attempts,
-including a locked page restart, against an in-browser source mock. It checks
-that the error names the 128-byte format, no transaction POST occurs and the saved
-active-plan bytes stay unchanged. External chain fetches are blocked. The
-`fixture-harness` feature is disabled in ordinary builds.
-These fixture checks do not establish live acceptance of this desktop application.
+grid, legacy cache restart and dropping an approved legacy plan before any
+network call.
 
 Focused kind-05 checks use the shared codec and independent UTF-8 reference:
 
@@ -549,15 +514,6 @@ cargo test -p wire-app-ui --test profile --offline --locked
 cargo check -p wire-app-ui --target wasm32-unknown-unknown --offline --locked
 ```
 
-The existing optional browser gate also accepts a crypto-valid oversized profile
-plan (ordinary builds omit `fixture-harness`):
-
-```sh
-WIRE_PROFILE_FIXTURE_OUTPUT="$PWD/target/legacy-profile-plan.json" cargo test -p wire-app-engine --test legacy_profile_pending --offline --locked
-NO_COLOR=true trunk build --features fixture-harness --offline --dist target/profile-fixture-dist
-WIRE_DIST="$PWD/target/profile-fixture-dist" python3 scripts/browser_fixture_test.py --legacy-plan=target/legacy-profile-plan.json
-```
-
 UI state tests cover exact confirmed-name loading and the direct-cache display
 fallback. The ordinary UI remains CSR. The browser gate exercises the actual
 nickname textarea counter and Review enabled/disabled transition at ASCII
@@ -565,12 +521,9 @@ nickname textarea counter and Review enabled/disabled transition at ASCII
 NUL, CRLF and NFC/NFD exact-preservation assertions concern Rust editor state and
 record bytes; they do not assert browser textarea newline preservation.
 
-Native tests exercise exact write/read, mixed cache restart and approved signed
-oversized-plan refusal without changing saved bytes. The browser gate checks real
-IndexedDB plan preservation and refusal before transaction POST across a locked
-restart; a read-only mocked source genesis GET may precede validation. Serialized
-browser cache tests exercise the shared projection, rather than IndexedDB cache
-runtime. These commands use local fixtures and establish no live-chain acceptance.
+Native tests exercise exact write/read, mixed cache restart and dropping an
+approved signed oversized plan before any network call. Serialized browser cache
+tests exercise the shared projection, rather than IndexedDB cache runtime. These commands use local fixtures and establish no live-chain acceptance.
 
 ## Local-node detection verification (11 October 2026)
 
