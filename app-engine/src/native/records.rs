@@ -270,6 +270,7 @@ impl Service {
             start,
             from: start,
             indexed_to: status.indexed_to,
+            stored_to: status.stored_to,
             tip: status.tip,
             done: 0,
             total: 0,
@@ -573,6 +574,7 @@ impl SyncWorker {
         }
         status.tip = report.tip;
         status.indexed_to = index.blocks.last().map(|block| block.height);
+        status.stored_to = status.indexed_to;
         status.complete_to_tip = report.complete_to_tip;
         if report.complete_to_tip || report.scanned == 0 {
             status.done = status.total;

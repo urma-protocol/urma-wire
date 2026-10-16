@@ -81,6 +81,11 @@ async fn chain_request(request: Request) -> Result<Response, BrowserError> {
         Request::SyncStatus { .. } => return Ok(Response::Sync(chain::status())),
         Request::StartSync { .. } => return Ok(Response::Sync(start_sync())),
         Request::Transport { .. } => return Ok(Response::Transport(transport().await?)),
+        Request::Feed { .. } => return Ok(Response::Feed(feed().await?)),
+        Request::Post { txid, .. } => return Ok(Response::Post(cached_post(*txid).await?)),
+        Request::Replies { txid, .. } => {
+            return Ok(Response::Replies(cached_replies(*txid).await?))
+        }
         Request::Mempool { .. } => {
             return Ok(Response::Mempool(
                 mempool::mempool(&connected().await?).await?,
@@ -97,9 +102,6 @@ async fn chain_request(request: Request) -> Result<Response, BrowserError> {
         Request::AdoptSource(SourceChoice::Public | SourceChoice::LocalNode) => {
             Err(BrowserError::Unsupported("native chain sources"))
         }
-        Request::Post { txid, .. } => Ok(Response::Post(cached_post(txid).await?)),
-        Request::Replies { txid, .. } => Ok(Response::Replies(cached_replies(txid).await?)),
-        Request::Feed { .. } => Ok(Response::Feed(feed().await?)),
         Request::Wallet { .. } => Ok(Response::Wallet(
             funding::wallet(&connected().await?).await?,
         )),

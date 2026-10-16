@@ -102,7 +102,7 @@ pub async fn sync(source: &Source) -> Result<(), BrowserError> {
         Cached::Empty => fresh(tip)?,
     };
     roll_back(source, &mut index, tip).await?;
-    store::write(INDEX_KEY, &index).await?;
+    stored(&index).await?;
     let next = index
         .start
         .checked_add(u64::try_from(index.blocks.len())?)
@@ -119,7 +119,7 @@ pub async fn sync(source: &Source) -> Result<(), BrowserError> {
     });
     let outcome = catch_up(source, &mut index, next, tip).await;
     confirm_tail(source, &index).await?;
-    store::write(INDEX_KEY, &index).await?;
+    stored(&index).await?;
     outcome?;
     update(|status| {
         status.indexed_to = index.blocks.last().map(|block| block.height);
@@ -144,10 +144,16 @@ async fn catch_up(
         });
         unsaved += 1;
         if unsaved >= SYNC_BLOCKS {
-            store::write(INDEX_KEY, index).await?;
+            stored(index).await?;
             unsaved = 0;
         }
     }
+    Ok(())
+}
+
+async fn stored(index: &Index) -> Result<(), BrowserError> {
+    store::write(INDEX_KEY, index).await?;
+    update(|status| status.stored_to = index.blocks.last().map(|block| block.height));
     Ok(())
 }
 

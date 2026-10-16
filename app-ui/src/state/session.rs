@@ -27,7 +27,8 @@ use wire_app_core::composer::Photo;
 use wire_app_core::connection::{ConnectionHealth, NodeHealth, TransportStatus, Trouble};
 use wire_app_core::errors::Fault;
 use wire_app_core::feed::{
-    conversations, following, with_pending, Conversation, FeedSource, PublicIdentity, SyncPhase,
+    conversations, following, with_pending, Conversation, Feed, FeedSource, PublicIdentity,
+    SyncPhase,
 };
 use wire_app_core::model::{AuthorId, Chain, Post, WalletSummary};
 use wire_app_core::publication::{Content, Publication};
@@ -448,6 +449,7 @@ pub enum Named {
 
 async fn sync_feed(state: AppState, chain: Chain) {
     state.synced.set(Synced::Connecting);
+    show_stored(state, chain).await;
     match follow_sync(state, chain).await {
         Ok(SyncPhase::Failed(reason)) => {
             warn!(reason = %reason, "history sync failed; cached posts stand");
@@ -530,24 +532,39 @@ pub fn shows(shown: &FeedSource, node: &NodeHealth) -> bool {
 
 async fn follow_sync(state: AppState, chain: Chain) -> Result<SyncPhase, Fault> {
     let mut status = records::start_sync(chain).await?;
+    let mut shown = status.stored_to;
     while !status.settled() {
         state.synced.set(Synced::shown(&status));
+        if status.stored_to != shown {
+            shown = status.stored_to;
+            show_stored(state, chain).await;
+        }
         gloo_timers::future::TimeoutFuture::new(SYNC_POLL_MS).await;
         status = records::sync_status(chain).await?;
     }
     Ok(status.phase)
 }
 
+async fn show_stored(state: AppState, chain: Chain) {
+    match records::feed(chain).await {
+        Ok(stored) => {
+            if state.active_chain.get_untracked() == chain {
+                show(state, stored);
+            }
+        }
+        Err(fault) => warn!(fault = %fault, "stored records unavailable; sync continues"),
+    }
+}
+
 async fn build_feed(state: AppState, chain: Chain) {
     match records::feed(chain).await {
         Ok(result) => {
             if state.active_chain.get_untracked() == chain {
-                state.public_identities.set(result.identities);
-                state.feed.set(result.posts);
                 state.synced.set(Synced::Indexed {
                     complete: result.complete_to_tip,
-                    source: result.source,
+                    source: result.source.clone(),
                 });
+                show(state, result);
             }
         }
         Err(fault) => {
@@ -555,6 +572,11 @@ async fn build_feed(state: AppState, chain: Chain) {
             state.synced.set(Synced::Failed(fault.message));
         }
     }
+}
+
+fn show(state: AppState, feed: Feed) {
+    state.public_identities.set(feed.identities);
+    state.feed.set(feed.posts);
 }
 
 pub enum Signer {
