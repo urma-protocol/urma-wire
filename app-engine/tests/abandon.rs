@@ -87,4 +87,29 @@ fn a_plan_with_a_submitted_commit_must_resume() {
         panic!("submitted plan must still be pending");
     };
     assert!(!standing.abandonable);
+    assert!(service
+        .quote(&post("next"))
+        .unwrap_err()
+        .to_string()
+        .contains("Litecoin block"));
+    mock.confirm_all();
+    assert!(service.advance(&quote.id, false).unwrap().complete);
+    let scans = |mock: &node::Mock| {
+        mock.state
+            .lock()
+            .unwrap()
+            .methods
+            .iter()
+            .filter(|method| *method == "scantxoutset")
+            .count()
+    };
+    let scanned = scans(&mock);
+    assert_eq!(scanned, 1);
+    let next = service.quote(&post("next")).unwrap();
+    assert_eq!(scans(&mock), scanned);
+    let commit: bitcoin::Transaction = bitcoin::consensus::deserialize(
+        &hex::decode(&mock.state.lock().unwrap().submissions[0]).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(next.selected_funding, commit.output[1].value.to_sat());
 }

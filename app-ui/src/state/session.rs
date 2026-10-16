@@ -1,5 +1,5 @@
 use crate::config::MAX_NICKNAME_BYTES;
-use crate::config::{EVIDENCE_UNAVAILABLE, PUBLICATION_POLL_MS, SYNC_POLL_MS, TRANSPORT_POLL_MS};
+use crate::config::{EVIDENCE_UNAVAILABLE, SYNC_POLL_MS, TRANSPORT_POLL_MS};
 use crate::data::chain;
 use crate::data::identity;
 use crate::data::preferences::{stored_autoload, stored_replies_shown, stored_show_mempool};
@@ -10,6 +10,7 @@ use crate::data::topics;
 use crate::data::topics::Remembered;
 use crate::state::addressing::Speaking;
 use crate::state::mempool::watch_mempool;
+use crate::state::publishing::{draft_key, load_pending};
 use crate::state::said::Said;
 use crate::state::synced::Synced;
 use leptos::prelude::Get;
@@ -29,7 +30,7 @@ use wire_app_core::feed::{
     conversations, following, with_pending, Conversation, FeedSource, PublicIdentity, SyncPhase,
 };
 use wire_app_core::model::{AuthorId, Chain, Post, WalletSummary};
-use wire_app_core::publication::{Addressed, Content, Pending, Publication};
+use wire_app_core::publication::{Content, Publication};
 use wire_app_core::session::{IdentityStatus, Session};
 use wire_app_core::topics::seen_in;
 
@@ -58,7 +59,6 @@ pub struct AppState {
     pub synced: RwSignal<Synced>,
     pub publication: RwSignal<Option<Publication>>,
     pub following: RwSignal<bool>,
-    pub pause_requested: RwSignal<bool>,
     pub publication_error: RwSignal<Said>,
     pub connection_health: RwSignal<Option<ConnectionHealth>>,
     pub transport: RwSignal<Option<TransportStatus>>,
@@ -74,16 +74,6 @@ pub struct AppState {
 
 pub(crate) fn voiced(fault: Fault) -> Said {
     Said::Something(fault.message)
-}
-
-fn post_draft_key(content: &Content) -> Option<String> {
-    let Content::Post { addressed, .. } = content else {
-        return None;
-    };
-    Some(match addressed {
-        Addressed::Standalone => String::new(),
-        Addressed::Thread(txid) => txid.to_display_hex(),
-    })
 }
 
 impl AppState {
@@ -108,10 +98,8 @@ impl AppState {
         state.load_identity();
         let chain = state.active_chain.get_untracked();
         state.is_loading_feed.set(true);
-        leptos::task::spawn_local(async move {
-            sync_feed(state, chain).await;
-            load_pending(state).await;
-        });
+        leptos::task::spawn_local(sync_feed(state, chain));
+        leptos::task::spawn_local(load_pending(state));
         leptos::task::spawn_local(watch_transport(state));
         leptos::task::spawn_local(watch_mempool(state));
         state
@@ -146,7 +134,6 @@ impl AppState {
             synced: RwSignal::new(Synced::Unchecked),
             publication: RwSignal::new(None),
             following: RwSignal::new(false),
-            pause_requested: RwSignal::new(false),
             publication_error: RwSignal::new(Said::Nothing),
             connection_health: RwSignal::new(None),
             transport: RwSignal::new(None),
@@ -243,95 +230,6 @@ impl AppState {
             self.synced.set(Synced::Unchecked);
         }
         self.refresh_all();
-    }
-
-    pub fn follow(&self, id: String, approve: bool) {
-        if self.following.get_untracked() {
-            return;
-        }
-        if self.invalidated_reviews.get_untracked().contains(&id)
-            || self
-                .publication
-                .get_untracked()
-                .as_ref()
-                .map(|held| &held.id)
-                != Some(&id)
-        {
-            self.publication_error.set(Said::Something(
-                "This review changed. Review the current draft again before publishing.".into(),
-            ));
-            return;
-        }
-        let state = *self;
-        let reviewed_draft = if approve {
-            self.publication
-                .get_untracked()
-                .and_then(|review| post_draft_key(&review.content))
-                .map(|key| {
-                    let version = self.draft_version(&key);
-                    (key, version)
-                })
-        } else {
-            None
-        };
-        state.following.set(true);
-        state.pause_requested.set(false);
-        state.publication_error.set(Said::Nothing);
-        leptos::task::spawn_local(async move {
-            let mut approval = approve;
-            while !state.pause_requested.get_untracked() {
-                match publication::advance(id.clone(), approval).await {
-                    Ok(result) => {
-                        let complete = result.complete;
-                        if !state.apply_advance_result(result, approval, reviewed_draft.as_ref()) {
-                            break;
-                        }
-                        if complete {
-                            state.refresh_all();
-                            break;
-                        }
-                    }
-                    Err(fault) => {
-                        warn!(fault = %fault, "publication paused on a source failure");
-                        state.publication_error.set(voiced(fault));
-                        break;
-                    }
-                }
-                approval = false;
-                gloo_timers::future::TimeoutFuture::new(PUBLICATION_POLL_MS).await;
-            }
-            state.following.set(false);
-        });
-    }
-
-    fn apply_advance_result(
-        &self,
-        result: Publication,
-        approval: bool,
-        reviewed_draft: Option<&(String, u64)>,
-    ) -> bool {
-        if !result.approved
-            && self
-                .invalidated_reviews
-                .get_untracked()
-                .contains(&result.id)
-        {
-            return false;
-        }
-        if result.approved {
-            self.accept_review(&result.id);
-            if approval {
-                if let Some((key, version)) = reviewed_draft {
-                    if post_draft_key(&result.content).as_deref() == Some(key.as_str())
-                        && self.draft_version(key) == *version
-                    {
-                        self.clear_draft(key);
-                    }
-                }
-            }
-        }
-        self.publication.set(Some(result));
-        true
     }
 
     pub fn reply_to(&self, post: Post) {
@@ -435,7 +333,13 @@ impl AppState {
         let Some(review) = self.publication.get_untracked() else {
             return;
         };
-        if review.approved || post_draft_key(&review.content).as_deref() != Some(key) {
+        if review.approved {
+            return;
+        }
+        let Content::Post { addressed, .. } = &review.content else {
+            return;
+        };
+        if draft_key(addressed) != key {
             return;
         }
         self.invalidated_reviews.update(|old| {
@@ -653,25 +557,6 @@ async fn build_feed(state: AppState, chain: Chain) {
     }
 }
 
-async fn load_pending(state: AppState) {
-    match publication::pending().await {
-        Ok(Pending::Awaiting(found)) => {
-            if !state
-                .invalidated_reviews
-                .get_untracked()
-                .contains(&found.id)
-            {
-                state.publication.set(Some(found));
-            }
-        }
-        Ok(Pending::Settled) => state.publication.set(None),
-        Err(fault) => {
-            warn!(fault = %fault, "pending publication unavailable");
-            state.publication_error.set(voiced(fault));
-        }
-    }
-}
-
 pub enum Signer {
     Author(AuthorId),
     Locked,
@@ -719,75 +604,3 @@ fn unreachable(chain: Chain, fault: Fault) -> ConnectionHealth {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use leptos::prelude::Owner;
-
-    fn approved(id: &str) -> Publication {
-        Publication {
-            content: Content::Post {
-                text: "Reviewed text".into(),
-                wire: "original".into(),
-                hashtags: vec![],
-                addressed: Addressed::Standalone,
-            },
-            id: id.into(),
-            txid: String::new(),
-            fee: 0,
-            selected_funding: 0,
-            returned: 0,
-            approved: true,
-            confirmed: 0,
-            mempool: 0,
-            message: String::new(),
-            complete: false,
-            abandonable: false,
-        }
-    }
-
-    #[test]
-    fn delayed_approval_keeps_new_edits_and_clears_only_the_unchanged_draft() {
-        Owner::new().with(|| {
-            let state = AppState::empty(false, 0, Remembered::default());
-            state.set_draft("", "Reviewed text".into());
-            state.set_photos(
-                "",
-                vec![Photo::new("https://cdn.example/old.png", "Old").unwrap()],
-            );
-            state.set_draft_labels("", "original".into(), "first".into());
-            let reviewed = (String::new(), state.draft_version(""));
-
-            state.set_draft("", "New text while approval was pending".into());
-            let new_photo = Photo::new("https://cdn.example/new.png", "New").unwrap();
-            state.set_photos("", vec![new_photo.clone()]);
-            state.set_draft_labels("", "new-wire".into(), "second".into());
-            state.invalidated_reviews.update(|ids| {
-                ids.insert("old-plan".into());
-            });
-            assert!(state.apply_advance_result(approved("old-plan"), true, Some(&reviewed)));
-            assert_eq!(state.draft(""), "New text while approval was pending");
-            assert_eq!(state.photos(""), vec![new_photo]);
-            assert_eq!(state.draft_labels(""), ("new-wire".into(), "second".into()));
-            assert!(state.publication.get_untracked().unwrap().approved);
-            assert!(!state
-                .invalidated_reviews
-                .get_untracked()
-                .contains("old-plan"));
-
-            let clean = AppState::empty(false, 0, Remembered::default());
-            clean.set_draft("", "Reviewed text".into());
-            clean.set_photos(
-                "",
-                vec![Photo::new("https://cdn.example/old.png", "Old").unwrap()],
-            );
-            clean.set_draft_labels("", "original".into(), "first".into());
-            let reviewed = (String::new(), clean.draft_version(""));
-            assert!(clean.apply_advance_result(approved("clean-plan"), true, Some(&reviewed)));
-            assert_eq!(clean.draft(""), "");
-            assert!(clean.photos("").is_empty());
-            assert_eq!(clean.draft_labels(""), (String::new(), String::new()));
-            assert_eq!(clean.draft_clear_revision(""), 1);
-        });
-    }
-}

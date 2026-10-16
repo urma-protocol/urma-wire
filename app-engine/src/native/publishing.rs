@@ -3,22 +3,37 @@ use crate::config::{
 };
 use crate::errors::NativeError;
 use crate::native::service::Service;
+use crate::native::wallet::Known;
 use crate::record::{build, review};
 use bitcoin::consensus::deserialize;
-use bitcoin::Transaction;
+use bitcoin::{OutPoint, ScriptBuf, Transaction};
 use std::path::{Path, PathBuf};
 use urma_chain::observation::Chain as Network;
 use urma_core::envelope;
-use urma_identity::identity::IdentitySigner;
+use urma_core::format::PublicRecord;
+use urma_identity::identity::{IdentityKey, IdentitySigner};
 use urma_runtime::node::{Node, Presence};
 use urma_runtime::plan::{self, PlanLimits, PublicationPlan};
 use urma_runtime::publication::PublicPlan;
-use urma_runtime::publish::{self, PublishReport};
+use urma_runtime::publish::{self, PublishReport, TransactionStatus};
+use urma_runtime::wallet::Coin;
+use urma_wallet::account::{Account, KeyPath};
 use wire_app_core::publication::{Content, Pending, Publication};
 
 enum Standing {
     Planned(PublicationPlan, PathBuf),
     Idle,
+}
+
+enum Journal {
+    Written(PublishReport),
+    Absent,
+}
+
+enum Journaled {
+    Complete,
+    Submitted,
+    Unsent,
 }
 
 impl Service {
@@ -72,16 +87,28 @@ impl Service {
         Ok(Standing::Planned(plan, directory))
     }
 
-    fn refuse_while_unfinished(&self, node: &Node) -> Result<(), NativeError> {
+    fn refuse_while_unfinished(&self) -> Result<(), NativeError> {
         let Standing::Planned(plan, directory) = self.standing()? else {
             return Ok(());
         };
-        if directory.join(Self::APPROVAL_FILE).exists()
-            && !observe(node, &plan, &directory)?.complete
-        {
-            return Err(NativeError::Unfinished);
+        if !directory.join(Self::APPROVAL_FILE).exists() {
+            return Ok(());
         }
-        Ok(())
+        match journaled(&directory)? {
+            Journaled::Complete => return Ok(()),
+            Journaled::Submitted | Journaled::Unsent => (),
+        }
+        if self
+            .with_node(|node| observe(node, &plan, &directory))?
+            .complete
+        {
+            return Ok(());
+        }
+        match journaled(&directory)? {
+            Journaled::Complete => Ok(()),
+            Journaled::Submitted => Err(NativeError::Confirming),
+            Journaled::Unsent => Err(NativeError::Unfinished),
+        }
     }
 
     pub fn quote(&self, content: &Content) -> Result<Publication, NativeError> {
@@ -94,21 +121,16 @@ impl Service {
             &funder.receive_script()?,
             FEE_RATE.get(),
         )?;
+        self.refuse_while_unfinished()?;
+        let limits = PlanLimits {
+            fee_rate: FEE_RATE.get(),
+            max_fee: fee
+                .checked_add(FEE_HEADROOM)
+                .ok_or(NativeError::InvalidPlanFee)?,
+            max_records: 1,
+        };
         self.with_node(|node| {
-            self.refuse_while_unfinished(node)?;
-            let plan = plan::prepare_atomic(
-                node,
-                &signer,
-                &funder,
-                &record,
-                PlanLimits {
-                    fee_rate: FEE_RATE.get(),
-                    max_fee: fee
-                        .checked_add(FEE_HEADROOM)
-                        .ok_or(NativeError::InvalidPlanFee)?,
-                    max_records: 1,
-                },
-            )?;
+            let plan = self.funded(node, &signer, &funder, &record, limits)?;
             let id = plan.id()?;
             let directory = self.directory.join(Self::PLANS_DIR).join(&id);
             std::fs::create_dir_all(&directory)?;
@@ -121,8 +143,43 @@ impl Service {
                 &self.directory.join(Self::ACTIVE_FILE),
                 &serde_json::to_vec(&id)?,
             )?;
-            observe(node, &plan, &directory)
+            described(&plan, &directory, 0, 0)
         })
+    }
+
+    fn funded(
+        &self,
+        node: &Node,
+        signer: &IdentityKey,
+        funder: &Account,
+        record: &PublicRecord,
+        limits: PlanLimits,
+    ) -> Result<PublicationPlan, NativeError> {
+        let receive = funder.receive_script()?;
+        let mut known = self.coins();
+        let remembered = match &*known {
+            Known::Coins {
+                receive: held,
+                coins,
+            } if *held == receive => coins.clone(),
+            Known::Coins { .. } | Known::Nothing => Vec::new(),
+        };
+        if !remembered.is_empty() {
+            match plan::prepare_atomic_from(node, signer, funder, record, limits, remembered) {
+                Ok(plan) => return Ok(plan),
+                Err(error) => {
+                    tracing::warn!(error = %error, "remembered coins could not fund the plan; scanning the wallet")
+                }
+            }
+        }
+        let view = node.wallet(funder)?;
+        *known = Known::Coins {
+            receive,
+            coins: view.coins.clone(),
+        };
+        Ok(plan::prepare_atomic_from(
+            node, signer, funder, record, limits, view.coins,
+        )?)
     }
 
     pub fn status(&self) -> Result<Pending, NativeError> {
@@ -174,8 +231,29 @@ impl Service {
             if paused(&report.blocked_reason) {
                 return Err(NativeError::Paused(report.blocked_reason));
             }
-            observe(node, &plan, &directory)
+            if report.complete {
+                self.remember_change(&plan.records[0], &report);
+            }
+            let (confirmed, mempool) = counted(&report);
+            described(&plan, &directory, confirmed, mempool)
         })
+    }
+
+    fn remember_change(&self, pair: &PublicPlan, report: &PublishReport) {
+        let mut known = self.coins();
+        let Known::Coins { receive, coins } = &mut *known else {
+            return;
+        };
+        let (spent, change) = match change_coin(pair, report, receive) {
+            Ok(found) => found,
+            Err(error) => {
+                tracing::warn!(error = %error, "confirmed change is not remembered; the next quote scans the wallet");
+                coins.clear();
+                return;
+            }
+        };
+        coins.retain(|coin| !spent.contains(&coin.outpoint));
+        coins.push(change);
     }
 }
 
@@ -187,6 +265,84 @@ fn paused(reason: &str) -> bool {
     !reason.is_empty() && !reason.starts_with("awaiting")
 }
 
+fn counted(report: &PublishReport) -> (usize, usize) {
+    counted_in(&report.transactions)
+}
+
+fn counted_in(statuses: &[TransactionStatus]) -> (usize, usize) {
+    let mut confirmed = 0;
+    let mut mempool = 0;
+    for status in statuses {
+        match status.presence {
+            Presence::Confirmed { .. } => confirmed += 1,
+            Presence::Mempool => mempool += 1,
+            Presence::Missing => (),
+        }
+    }
+    (confirmed, mempool)
+}
+
+fn record_completion(
+    directory: &Path,
+    plan: &PublicationPlan,
+    transactions: Vec<TransactionStatus>,
+) -> Result<(), NativeError> {
+    let report = PublishReport {
+        plan_id: plan.id()?,
+        root_txid: plan.root_txid.clone(),
+        complete: true,
+        confirmed: true,
+        blocked_reason: String::new(),
+        transactions,
+    };
+    urma_io::write_replace(
+        &directory.join(Service::PROGRESS_FILE),
+        &serde_json::to_vec_pretty(&report)?,
+    )?;
+    Ok(())
+}
+
+fn change_coin(
+    pair: &PublicPlan,
+    report: &PublishReport,
+    receive: &ScriptBuf,
+) -> Result<(Vec<OutPoint>, Coin), NativeError> {
+    let commit: Transaction = deserialize(&hex::decode(&pair.commit)?)?;
+    let txid = commit.compute_txid();
+    let Some(status) = report
+        .transactions
+        .iter()
+        .find(|status| status.txid == txid.to_string())
+    else {
+        return Err(NativeError::Change("the commit is not in the journal"));
+    };
+    let Presence::Confirmed { height, .. } = &status.presence else {
+        return Err(NativeError::Change("the commit is not confirmed"));
+    };
+    let Some(change) = commit.output.get(1) else {
+        return Err(NativeError::Change("the commit has no change output"));
+    };
+    if change.script_pubkey != *receive {
+        return Err(NativeError::Change(
+            "the change does not return to the receive address",
+        ));
+    }
+    let spent = commit
+        .input
+        .iter()
+        .map(|input| input.previous_output)
+        .collect();
+    Ok((
+        spent,
+        Coin {
+            outpoint: OutPoint::new(txid, 1),
+            value: change.value.to_sat(),
+            height: *height,
+            path: KeyPath::RECEIVE,
+        },
+    ))
+}
+
 fn observe(
     node: &Node,
     plan: &PublicationPlan,
@@ -196,20 +352,34 @@ fn observe(
     let pair = &plan.records[0];
     let commit: Transaction = deserialize(&hex::decode(&pair.commit)?)?;
     let reveal: Transaction = deserialize(&hex::decode(&pair.reveal)?)?;
-    let signed = envelope::verify_reveal(&reveal, &commit)?;
-    let content = review(&signed.record)?;
-    let mut confirmed = 0;
-    let mut mempool = 0;
+    let mut statuses = Vec::new();
     for txid in [commit.compute_txid(), reveal.compute_txid()] {
-        match node.presence(txid)? {
-            Presence::Confirmed { .. } => confirmed += 1,
-            Presence::Mempool => mempool += 1,
-            Presence::Missing => (),
-        }
+        statuses.push(TransactionStatus {
+            txid: txid.to_string(),
+            presence: node.presence(txid)?,
+        });
     }
     if node.block_hash(anchor.0)?.to_string() != anchor.1 {
         return Err(NativeError::ChainChanged);
     }
+    let (confirmed, mempool) = counted_in(&statuses);
+    if confirmed == 2 {
+        record_completion(directory, plan, statuses)?;
+    }
+    described(plan, directory, confirmed, mempool)
+}
+
+fn described(
+    plan: &PublicationPlan,
+    directory: &Path,
+    confirmed: usize,
+    mempool: usize,
+) -> Result<Publication, NativeError> {
+    let pair = &plan.records[0];
+    let commit: Transaction = deserialize(&hex::decode(&pair.commit)?)?;
+    let reveal: Transaction = deserialize(&hex::decode(&pair.reveal)?)?;
+    let signed = envelope::verify_reveal(&reveal, &commit)?;
+    let content = review(&signed.record)?;
     let approved = directory.join(Service::APPROVAL_FILE).exists();
     let funding = selected_funding(pair)?;
     let Some(returned) = funding.checked_sub(plan.total_fee) else {
@@ -241,13 +411,38 @@ fn selected_funding(pair: &PublicPlan) -> Result<u64, NativeError> {
     Ok(total)
 }
 
-fn never_submitted(directory: &Path) -> Result<bool, NativeError> {
-    let journal = directory.join(Service::PROGRESS_FILE);
-    if !journal.try_exists()? {
-        return Ok(true);
+fn journal(directory: &Path) -> Result<Journal, NativeError> {
+    let path = directory.join(Service::PROGRESS_FILE);
+    if !path.try_exists()? {
+        return Ok(Journal::Absent);
     }
-    let report: PublishReport =
-        serde_json::from_slice(&urma_io::read_bounded(&journal, PROGRESS_FILE_BYTES)?)?;
+    Ok(Journal::Written(serde_json::from_slice(
+        &urma_io::read_bounded(&path, PROGRESS_FILE_BYTES)?,
+    )?))
+}
+
+fn journaled(directory: &Path) -> Result<Journaled, NativeError> {
+    let Journal::Written(report) = journal(directory)? else {
+        return Ok(Journaled::Unsent);
+    };
+    if report.complete {
+        return Ok(Journaled::Complete);
+    }
+    let submitted = report.transactions.len() == 2
+        && report
+            .transactions
+            .iter()
+            .all(|status| !matches!(status.presence, Presence::Missing));
+    Ok(match submitted {
+        true => Journaled::Submitted,
+        false => Journaled::Unsent,
+    })
+}
+
+fn never_submitted(directory: &Path) -> Result<bool, NativeError> {
+    let Journal::Written(report) = journal(directory)? else {
+        return Ok(true);
+    };
     Ok(report
         .transactions
         .iter()

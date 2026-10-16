@@ -143,7 +143,7 @@ The [guide](docs/GUIDE.md) records test commands, the execution scope and known
 limits. Existing evidence includes native tests, ordinary WASM/desktop builds,
 a disposable desktop IPC/navigation smoke, and browser/IndexedDB fixture checks.
 These do not certify live-provider availability or a hosted/browser release.
-Lawkeeper reports 29 inherited structural findings; this is not a clean
+Lawkeeper reports 23 inherited structural findings; this is not a clean
 Lawkeeper result.
 
 | Directory | Responsibility |

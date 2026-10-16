@@ -154,8 +154,12 @@ pub enum NativeError {
     SavedPlan(#[source] urma_runtime::error::Error),
     #[error("Active publication does not match its Litecoin Testnet plan")]
     ForeignPlan,
-    #[error("Finish the existing publication before preparing another: resume it from your publication panel, or abandon it there if it never reached the network.")]
+    #[error("A publication is still being sent. Wait for it, or abandon it from its panel if it never reached the network.")]
     Unfinished,
+    #[error("The previous publication is waiting for a Litecoin block. Publish again after it confirms.")]
+    Confirming,
+    #[error("Confirmed change could not be remembered: {0}")]
+    Change(&'static str),
     #[error("No prepared publication")]
     NoPublication,
     #[error("Approval does not match the current exact plan")]
@@ -226,6 +230,8 @@ impl NativeError {
             | Self::ForeignPlan
             | Self::SavedPlan(_)
             | Self::Unfinished
+            | Self::Confirming
+            | Self::Change(_)
             | Self::NoPublication
             | Self::PlanMismatch
             | Self::ApprovalRequired

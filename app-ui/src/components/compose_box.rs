@@ -88,9 +88,7 @@ pub fn ComposeBox(#[prop(default = Speaking::Freely)] speaking: Speaking) -> imp
     let photos = move || state.photos(&key.get_value());
     let max_bytes = addressed.max_bytes();
     let meant = move || read_topics(&text(), &wire.get(), &hashtags.get());
-    let blocked = move || {
-        busy.get() || state.following.get() || (text().trim().is_empty() && photos().is_empty())
-    };
+    let blocked = move || busy.get() || (text().trim().is_empty() && photos().is_empty());
     let submit = Callback::new(move |_asked: ()| {
         if blocked() {
             return;

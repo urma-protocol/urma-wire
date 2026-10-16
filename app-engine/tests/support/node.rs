@@ -232,9 +232,27 @@ fn respond(
         "scantxoutset" => Ok(
             json!({"success":true,"unspents":[{"txid":funding.compute_txid(),"vout":0,"amount":1,"height":1,"scriptPubKey":hex::encode(funding.output[0].script_pubkey.as_bytes())}]}),
         ),
-        "gettxout" => Ok(
-            json!({"value":1,"confirmations":100,"scriptPubKey":{"hex":hex::encode(funding.output[0].script_pubkey.as_bytes())}}),
-        ),
+        "gettxout" => {
+            let wanted = args[0].as_str().unwrap();
+            let vout = usize::try_from(args[1].as_u64().unwrap()).unwrap();
+            let (transaction, confirmations) = match wanted == funding.compute_txid().to_string() {
+                true => (funding.clone(), 100),
+                false => {
+                    let Some(raw) = state.submissions.iter().find(|raw| txid(raw) == wanted) else {
+                        return Ok(Value::Null);
+                    };
+                    let confirmed = state.transactions.get(wanted).copied().unwrap_or(false);
+                    (
+                        deserialize::<Transaction>(&hex::decode(raw).unwrap()).unwrap(),
+                        if confirmed { 1 } else { 0 },
+                    )
+                }
+            };
+            let output = &transaction.output[vout];
+            Ok(
+                json!({"value":output.value.to_btc(),"confirmations":confirmations,"scriptPubKey":{"hex":hex::encode(output.script_pubkey.as_bytes())}}),
+            )
+        }
         "getrawmempool" => Ok(json!(state
             .transactions
             .iter()
@@ -249,9 +267,11 @@ fn respond(
                 return Err((-28, "fixture source unavailable".into()));
             }
             if args[1] == false {
+                let wanted = args[0].as_str().unwrap();
                 return state
                     .raw_transactions
-                    .get(args[0].as_str().unwrap())
+                    .get(wanted)
+                    .or_else(|| state.submissions.iter().find(|raw| txid(raw) == wanted))
                     .map(|raw| json!(raw))
                     .ok_or((-5, "fixture raw transaction missing".into()));
             }

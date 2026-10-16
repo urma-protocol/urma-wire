@@ -11,22 +11,31 @@ use leptos::prelude::IntoView;
 use leptos::prelude::OnAttribute;
 use leptos::prelude::{component, view};
 use wire_app_core::model::Chain;
-use wire_app_core::publication::Publication;
+use wire_app_core::publication::{Kind, Publication};
 
 #[component]
-pub fn PublicationPanel() -> impl IntoView {
+pub fn PublicationPanel(kind: Kind) -> impl IntoView {
     let state = expect_context::<AppState>();
     view! {
         <div class="publication-panel">
-            {move || match stage(state) {
+            {move || match stage(state, kind) {
                 Stage::Quote(publication) => view! { <Quote publication=publication /> }.into_any(),
                 Stage::Sending => view! {
                     <p class="publish-sending" role="status">"Publishing…"</p>
                 }.into_any(),
+                Stage::Confirming => view! {
+                    <p class="publish-sending" role="status">"Sent. Waiting for a Litecoin block…"</p>
+                }.into_any(),
+                Stage::Published => view! {
+                    <p class="publish-done" role="status">"Published."</p>
+                }.into_any(),
                 Stage::Stalled(publication) => view! { <Stalled publication=publication /> }.into_any(),
                 Stage::Hidden => ().into_any(),
             }}
-            <Warning message=state.publication_error.into() />
+            {move || match concerns(state, kind) {
+                true => view! { <Warning message=state.publication_error.into() /> }.into_any(),
+                false => ().into_any(),
+            }}
         </div>
     }
 }
@@ -34,29 +43,43 @@ pub fn PublicationPanel() -> impl IntoView {
 pub enum Stage {
     Quote(Publication),
     Sending,
+    Confirming,
+    Published,
     Stalled(Publication),
     Hidden,
 }
 
 pub fn staged(publication: Publication, following: bool) -> Stage {
-    let submitted = publication.confirmed + publication.mempool >= 2;
-    if publication.complete || (publication.approved && submitted) {
-        return Stage::Hidden;
+    if publication.complete {
+        return Stage::Published;
     }
     if !publication.approved {
         return Stage::Quote(publication);
     }
-    match following {
-        true => Stage::Sending,
-        false => Stage::Stalled(publication),
+    if !following {
+        return Stage::Stalled(publication);
+    }
+    match publication.confirmed + publication.mempool >= 2 {
+        true => Stage::Confirming,
+        false => Stage::Sending,
     }
 }
 
-fn stage(state: AppState) -> Stage {
+fn stage(state: AppState, kind: Kind) -> Stage {
     let Some(publication) = state.publication.get() else {
         return Stage::Hidden;
     };
+    if publication.content.kind() != kind {
+        return Stage::Hidden;
+    }
     staged(publication, state.following.get())
+}
+
+fn concerns(state: AppState, kind: Kind) -> bool {
+    let Some(publication) = state.publication.get() else {
+        return kind == Kind::Post;
+    };
+    publication.content.kind() == kind
 }
 
 #[component]

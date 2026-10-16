@@ -45,7 +45,7 @@ use wire_app_core::avatar::{
     decode_avatar_pixels, encode_avatar_pixels, render_avatar_svg, AvatarPalette,
 };
 use wire_app_core::feed::PublicIdentity;
-use wire_app_core::publication::Content;
+use wire_app_core::publication::{Content, Kind};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
@@ -407,30 +407,37 @@ fn editing_text() -> bool {
 struct Review {
     state: AppState,
     busy: RwSignal<bool>,
-    trouble: RwSignal<Said>,
 }
 
 impl Review {
     fn disabled(&self) -> bool {
-        self.busy.get()
-            || self.state.following.get()
-            || matches!(signing_author(self.state), Signer::Locked)
+        self.busy.get() || matches!(signing_author(self.state), Signer::Locked)
     }
 
-    fn quote(&self, content: Content) {
-        if self.busy.get_untracked() || self.state.following.get_untracked() {
+    fn label(&self, idle: &'static str) -> &'static str {
+        match self.busy.get() {
+            true => "Quoting…",
+            false => idle,
+        }
+    }
+
+    fn quote(&self, content: Content, trouble: RwSignal<Said>) {
+        if self.busy.get_untracked() {
             return;
         }
         let review = *self;
         review.busy.set(true);
-        review.trouble.set(Said::Nothing);
+        trouble.set(Said::Nothing);
         let chain = review.state.active_chain.get_untracked();
         leptos::task::spawn_local(async move {
             match publication::quote(chain, content).await {
-                Ok(quote) => review.state.publication.set(Some(quote)),
+                Ok(quote) => {
+                    review.state.publication_error.set(Said::Nothing);
+                    review.state.publication.set(Some(quote));
+                }
                 Err(fault) => {
                     warn!(fault = %fault, "profile quote refused");
-                    review.trouble.set(Said::Something(fault.message));
+                    trouble.set(Said::Something(fault.message));
                 }
             }
             review.busy.set(false);
@@ -484,12 +491,11 @@ pub fn ProfileEditor() -> impl IntoView {
     let review = Review {
         state,
         busy: RwSignal::new(false),
-        trouble: RwSignal::new(Said::Nothing),
     };
     let nickname = RwSignal::new(String::new());
+    let trouble = RwSignal::new(Said::Nothing);
     window_event_listener(leptos::ev::keydown, move |event| studio.shortcut(&event));
     let disabled = Signal::derive(move || review.disabled());
-    let quote = Callback::new(move |content: Content| review.quote(content));
 
     view! {
         <div class="settings-group">
@@ -499,7 +505,7 @@ pub fn ProfileEditor() -> impl IntoView {
                 <button class="btn btn-secondary btn-sm" disabled=disabled
                     on:click=move |_clicked| load_confirmed(state, studio, nickname)>"Load confirmed profile"</button>
             </Actions>
-            <NicknameEditor nickname=nickname disabled=disabled quote=quote />
+            <NicknameEditor nickname=nickname review=review />
 
             <h3 class="group-title">"Draw your avatar"</h3>
             <p>"Create your 16 × 16 pixel identity. Choose tools, brush sizes, and 16 URMA colors. Full keyboard undo (Ctrl+Z) and redo (Ctrl+Y / Ctrl+Shift+Z) supported."</p>
@@ -514,27 +520,25 @@ pub fn ProfileEditor() -> impl IntoView {
             <Actions>
                 <button class="btn btn-primary" disabled=disabled
                     on:click=move |_clicked| match encode_avatar_pixels(&studio.pixels.get_untracked()) {
-                        Ok(bytes) => quote.run(Content::Avatar(bytes.to_vec())),
+                        Ok(bytes) => review.quote(Content::Avatar(bytes.to_vec()), trouble),
                         Err(error) => {
                             warn!(error = %error, "avatar review refused invalid palette index");
-                            review.trouble.set(Said::Something(error.to_string()));
+                            trouble.set(Said::Something(error.to_string()));
                         }
                     }>
-                    "Review avatar & fee"
+                    {move || review.label("Publish avatar")}
                 </button>
             </Actions>
-            <Warning message=review.trouble.into() />
+            <Warning message=trouble.into() />
+            <PublicationPanel kind=Kind::Avatar />
         </div>
-        <PublicationPanel />
     }
 }
 
 #[component]
-fn NicknameEditor(
-    nickname: RwSignal<String>,
-    disabled: Signal<bool>,
-    quote: Callback<Content>,
-) -> impl IntoView {
+fn NicknameEditor(nickname: RwSignal<String>, review: Review) -> impl IntoView {
+    let trouble = RwSignal::new(Said::Nothing);
+    let disabled = move || review.disabled();
     let too_long = move || nickname.read().len() > MAX_NICKNAME_BYTES;
     view! {
         <label class="field">"Nickname"
@@ -549,11 +553,13 @@ fn NicknameEditor(
             }}</span>
         </label>
         <Actions>
-            <button class="btn btn-primary" disabled=move || disabled.get() || too_long()
-                on:click=move |_clicked| quote.run(Content::Nickname(nickname.get_untracked()))>
-                "Review nickname & fee"
+            <button class="btn btn-primary" disabled=move || disabled() || too_long()
+                on:click=move |_clicked| review.quote(Content::Nickname(nickname.get_untracked()), trouble)>
+                {move || review.label("Publish nickname")}
             </button>
         </Actions>
+        <Warning message=trouble.into() />
+        <PublicationPanel kind=Kind::Nickname />
     }
 }
 

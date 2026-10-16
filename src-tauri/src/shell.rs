@@ -28,15 +28,16 @@ async fn engine(request: Request, state: State<'_, Engine>) -> Result<Response, 
 
 fn serve(service: &Service, request: Request) -> Result<Response, Fault> {
     let op = request.name();
+    let started = std::time::Instant::now();
     match answer(service, request) {
         Ok(response) => {
             if network_bound(op) {
-                tracing::info!(op, "request served");
+                tracing::info!(op, took = ?started.elapsed(), "request served");
             }
             Ok(response)
         }
         Err(fault) => {
-            tracing::warn!(op, kind = ?fault.kind, message = %fault.message, "request failed");
+            tracing::warn!(op, took = ?started.elapsed(), kind = ?fault.kind, message = %fault.message, "request failed");
             Err(fault)
         }
     }

@@ -7699,9 +7699,9 @@ dependencies = [
 
 [[package]]
 name = "urma-runtime"
-version = "0.3.5"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c3fbb31ca9098d337453dcf42905a52de35a827cd9f068759098d3a62210701"
+checksum = "3194318955f64057c517d183632c1c85d48bf3a489ccf464738ff3e2288caa88"
 dependencies = [
  "bitcoin",
  "bitcoincore-rpc",

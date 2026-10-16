@@ -29,6 +29,23 @@ pub enum Content {
     Avatar(Vec<u8>),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Post,
+    Nickname,
+    Avatar,
+}
+
+impl Content {
+    pub fn kind(&self) -> Kind {
+        match self {
+            Content::Post { .. } => Kind::Post,
+            Content::Nickname(_name) => Kind::Nickname,
+            Content::Avatar(_pixels) => Kind::Avatar,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Publication {
     pub content: Content,

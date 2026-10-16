@@ -20,6 +20,7 @@ use leptos::prelude::{component, view};
 use leptos_router::hooks::use_params_map;
 use tracing::warn;
 use wire_app_core::model::{AuthorId, Post};
+use wire_app_core::publication::Kind;
 
 #[component]
 pub fn ProfilePage() -> impl IntoView {
@@ -77,7 +78,7 @@ fn Dossier(author: AuthorId) -> impl IntoView {
                 </div>
             </div>
         </div>
-        <PublicationPanel />
+        <PublicationPanel kind=Kind::Post />
         <div class="author-stream-section">
             <h3 class="section-title">
                 {move || format!("Confirmed posts on {}", network())}

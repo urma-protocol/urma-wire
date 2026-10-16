@@ -169,13 +169,21 @@ those sizes with `cargo tauri icon assets/urma-wire-icon.png`.
    Testnet account (`m/84'/1'/0'`, Identity/Vault v2): confirmed coins found on
    its external and internal chains (gap limit 20) are spent largest first, up
    to 50 inputs, and the change and return output go to the designated address
-   `0/0`. The identity slot only signs as author and never funds.
+   `0/0`. The identity slot only signs as author and never funds. Wire remembers
+   the coins of its last wallet scan, plus the change of every publication it
+   saw confirm, and verifies those before a quote instead of walking the gap
+   again; a quote scans the wallet only when nothing remembered covers it.
+   Identity → **Publish nickname** and **Publish avatar** quote the same way,
+   each with its own line under its button.
 3. **Confirm** approves that exact plan and begins submission. The commit is
    submitted first; once observed in the mempool or confirmed, its reveal is
-   submitted in the same pass. The line disappears once both transactions are
-   sent; Wire keeps reconciling in the background until both confirm. A source
-   error or rejection stops with its reason and a **Retry** button (and
-   **Abandon** if nothing reached the network); no fee bump occurs.
+   submitted in the same pass. The line reads **Publishing…** while sending,
+   **Sent. Waiting for a Litecoin block…** once both transactions are out, and
+   **Published.** when both confirm; Wire keeps reconciling in the background,
+   also after a restart, and the other publish buttons stay usable, though a new
+   quote is refused with that reason until the block arrives. A source error or
+   rejection stops with its reason and a **Retry** button (and **Abandon** if
+   nothing reached the network); no fee bump occurs.
 4. Completion refreshes the confirmed feed. **Refresh confirmed feed** also
    advances the index explicitly. The confirmed index never stores mempool
    records; see [unconfirmed records](#unconfirmed-records).
@@ -199,9 +207,9 @@ servers, the P2P light client and URMA Node cannot list the mempool; when only
 those are reachable the setting shows the source error. At most 200 new
 transactions are inspected per poll.
 
-Pause stops after the in-flight request. Closing Wire stops following; reopen
-and resume the saved signed plan without unlocking again. Locking the identity
-prevents new signing but does not revoke an already approved signed plan.
+Closing Wire stops following; reopening resumes the saved signed plan on its
+own, without unlocking again. Locking the identity prevents new signing but does
+not revoke an already approved signed plan.
 The app admits one unfinished approved publication and one instance per data
 directory, preventing concurrent app plans from reusing funding.
 

@@ -17,6 +17,7 @@ use leptos::prelude::IntoView;
 use leptos::prelude::OnAttribute;
 use leptos::prelude::Signal;
 use leptos::prelude::{component, view};
+use wire_app_core::publication::Kind;
 
 #[component]
 pub fn FeedPage() -> impl IntoView {
@@ -26,7 +27,7 @@ pub fn FeedPage() -> impl IntoView {
     view! {
         <section class="page-container feed-page">
             <ComposeBox />
-            <PublicationPanel />
+            <PublicationPanel kind=Kind::Post />
             <div class="posts-stream">
                 <div class="stream-toolbar">
                     <h2>"Latest records"</h2>

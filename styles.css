@@ -306,6 +306,7 @@ input[type=radio],input[type=checkbox] { accent-color:var(--color-accent); margi
 .publish-quote { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border:1px solid #677a35; border-radius:var(--radius-control); background:var(--bg-inset); font-size:14px; }
 .publish-quote strong { font:15px var(--font-mono); color:var(--color-accent); }
 .publish-sending { margin:0; padding:8px 14px; color:var(--text-muted); font-size:13px; }
+.publish-done { margin:0; padding:8px 14px; color:var(--color-accent); font-size:13px; }
 
 /* Profile page. */
 .profile-header { display:flex; align-items:flex-start; gap:20px; }

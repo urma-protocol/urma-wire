@@ -14,6 +14,7 @@ use leptos::prelude::IntoAny;
 use leptos::prelude::IntoView;
 use leptos::prelude::Read;
 use leptos::prelude::{component, view};
+use wire_app_core::publication::Kind;
 
 #[component]
 pub fn PostDetailPage() -> impl IntoView {
@@ -22,7 +23,7 @@ pub fn PostDetailPage() -> impl IntoView {
         <section class="page-container post-detail-page">
             <BackToFeed />
             <Warning message=thread.trouble />
-            <PublicationPanel />
+            <PublicationPanel kind=Kind::Post />
             {move || match thread.showing.get() {
                 Showing::Loading => view! {
                     <p class="loading-state" role="status">"Reading the confirmed record…"</p>

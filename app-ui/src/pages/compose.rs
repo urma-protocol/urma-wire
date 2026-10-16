@@ -9,6 +9,7 @@ use leptos::prelude::ElementChild;
 use leptos::prelude::Get;
 use leptos::prelude::IntoView;
 use leptos::prelude::{component, view};
+use wire_app_core::publication::Kind;
 
 #[component]
 pub fn ComposePage() -> impl IntoView {
@@ -22,7 +23,7 @@ pub fn ComposePage() -> impl IntoView {
                 "Write, review the exact cost, then publish to " <strong>{chain_name}</strong> "."
             </PageHeader>
             <ComposeBox />
-            <PublicationPanel />
+            <PublicationPanel kind=Kind::Post />
             <div class="info-box">
                 <h4>"Before you publish"</h4>
                 <ul>

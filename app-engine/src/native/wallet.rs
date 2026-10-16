@@ -1,15 +1,22 @@
 use crate::errors::NativeError;
+use bitcoin::ScriptBuf;
 use urma_chain::observation::Chain as Network;
 use urma_identity::{
     error::IdentityError,
     identity::IdentityKey,
     vault::{EncryptedVault, UnlockCredential, UnlockedVault},
 };
+use urma_runtime::wallet::Coin;
 use urma_wallet::account::Account;
 use wire_app_core::model::{AuthorId, Chain, WalletSummary};
 
 pub struct WireWallet {
     vault: UnlockedVault,
+}
+
+pub enum Known {
+    Coins { receive: ScriptBuf, coins: Vec<Coin> },
+    Nothing,
 }
 
 pub struct Balance {

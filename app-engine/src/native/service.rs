@@ -3,7 +3,7 @@ use crate::errors::NativeError;
 use crate::native::archive::OperatorState;
 use crate::native::local_node::{LocalNode, LocalSource};
 use crate::native::mempool::Pool;
-use crate::native::wallet::{Balance, WireWallet};
+use crate::native::wallet::{Balance, Known, WireWallet};
 use fs2::FileExt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -50,6 +50,7 @@ pub struct Service {
     pub(super) scanning: Arc<AtomicBool>,
     pub(super) node_seen: Mutex<NodeHealth>,
     pub(super) mempool: Pool,
+    coins: Mutex<Known>,
     _lock: File,
 }
 
@@ -86,8 +87,19 @@ impl Service {
             scanning: Arc::new(AtomicBool::new(false)),
             node_seen: Mutex::new(NodeHealth::Unconfigured),
             mempool: Pool::empty(),
+            coins: Mutex::new(Known::Nothing),
             _lock: lock,
         })
+    }
+
+    pub(super) fn coins(&self) -> MutexGuard<'_, Known> {
+        match self.coins.lock() {
+            Ok(coins) => coins,
+            Err(poisoned) => {
+                tracing::error!("coin memory lock poisoned; reusing the held coins");
+                poisoned.into_inner()
+            }
+        }
     }
 
     pub(super) fn settings(&self) -> RwLockReadGuard<'_, Settings> {
@@ -323,8 +335,15 @@ impl Service {
     pub fn wallet(&self) -> Result<WalletSummary, NativeError> {
         let author = self.author()?;
         let funder = self.funder()?;
+        let receive = funder.receive_script()?;
+        let mut known = self.coins();
         let (view, tip_height) =
             self.with_node(|node| Ok((node.wallet(&funder)?, node.tip_height()?)))?;
+        *known = Known::Coins {
+            receive,
+            coins: view.coins.clone(),
+        };
+        drop(known);
         let mut confirmed: u64 = 0;
         for coin in &view.coins {
             confirmed = confirmed
