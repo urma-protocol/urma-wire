@@ -33,21 +33,29 @@ extern "C" {
 pub async fn handle(request: Request) -> Result<Response, BrowserError> {
     match request {
         Request::IdentityStatus => Ok(Response::Identity(session::status().await?)),
-        Request::ImportIdentity { vault, password } => {
-            Ok(Response::Identity(session::import(vault, password).await?))
+        Request::CreateIdentity { password, replace } => {
+            let created = session::create(password, replace).await?;
+            Ok(Response::Created {
+                status: created.status,
+                phrase: created.words.to_string(),
+            })
         }
-        Request::CreateIdentity { phrase, password } => {
-            let (status, phrase) = session::create(phrase, password).await?;
-            Ok(Response::Created { status, phrase })
-        }
-        Request::Unlock(credential) => {
-            session::unlock(credential).await?;
-            Ok(Response::Unlocked)
-        }
-        Request::Lock => {
-            session::lock();
-            Ok(Response::Locked)
-        }
+        Request::RecoverIdentity {
+            phrase,
+            password,
+            replace,
+        } => Ok(Response::Identity(
+            session::recover(phrase, password, replace).await?,
+        )),
+        Request::ImportIdentity {
+            vault,
+            password,
+            replace,
+        } => Ok(Response::Identity(
+            session::import(vault, password, replace).await?,
+        )),
+        Request::Unlock(credential) => Ok(Response::Identity(session::unlock(credential).await?)),
+        Request::Lock => Ok(Response::Identity(session::lock().await?)),
         unserved @ Request::FetchImage { .. } => Err(BrowserError::Unsupported(unserved.name())),
         chained => chain_request(chained).await,
     }

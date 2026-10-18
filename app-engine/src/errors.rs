@@ -138,8 +138,8 @@ pub enum NativeError {
     NoVault,
     #[error("Encrypted URMA vault exceeds the size limit")]
     VaultTooLarge,
-    #[error("An imported identity already exists. Unlock it; importing cannot overwrite it.")]
-    AlreadyImported,
+    #[error("An identity is already stored on this device. Confirm replacing it first.")]
+    LocalVaultExists,
     #[error("Cannot decrypt this URMA vault with the supplied password")]
     WrongPassword(#[source] urma_identity::error::IdentityError),
     #[error("Identity vault is locked. Unlock it in Identity.")]
@@ -219,7 +219,7 @@ impl NativeError {
             Self::NoUnlockFile
             | Self::NoVault
             | Self::VaultTooLarge
-            | Self::AlreadyImported
+            | Self::LocalVaultExists
             | Self::WrongPassword(_)
             | Self::Locked
             | Self::SignerLocked
@@ -288,8 +288,10 @@ pub enum BrowserError {
     NoVault,
     #[error("Vault unlock failed; check the password and URMA vault file")]
     Unlock(#[source] urma_identity::error::IdentityError),
-    #[error("Encrypted browser storage failed (an existing vault is never overwritten)")]
+    #[error("Encrypted browser storage failed; the previous vault stands")]
     VaultStorage(String),
+    #[error("An identity is already stored in this browser. Confirm replacing it first.")]
+    LocalVaultExists,
     #[error("Invalid stored vault")]
     StoredVault(#[source] serde_json::Error),
     #[error("Identity operation cancelled by a newer lock or unlock")]
@@ -418,6 +420,7 @@ impl BrowserError {
             Self::Unsupported(_) => FaultKind::Unsupported,
             Self::PasswordRequired
             | Self::NoVault
+            | Self::LocalVaultExists
             | Self::Unlock(_)
             | Self::Cancelled
             | Self::SignerChanged

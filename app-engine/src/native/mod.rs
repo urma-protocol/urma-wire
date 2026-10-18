@@ -1,5 +1,6 @@
 pub mod archive;
 pub mod dispatch;
+pub mod identity;
 pub mod local_node;
 pub mod media;
 pub mod mempool;

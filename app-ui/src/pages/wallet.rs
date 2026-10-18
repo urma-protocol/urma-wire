@@ -24,6 +24,7 @@ use leptos::prelude::RwSignal;
 use leptos::prelude::Set;
 use leptos::prelude::{component, view};
 use wire_app_core::model::WalletSummary;
+use wire_app_core::session::Session;
 
 #[component]
 pub fn WalletPage() -> impl IntoView {
@@ -85,12 +86,11 @@ fn Unfunded() -> impl IntoView {
 }
 
 fn unfunded(state: AppState) -> &'static str {
-    let Some(status) = state.identity.get() else {
-        return "Unlock your identity to query funding.";
-    };
-    match status.unlocked() {
-        true => "Balance unavailable. Your identity remains unlocked; refresh to query funding.",
-        false => "Unlock your identity to query funding.",
+    match state.session() {
+        Session::Unlocked(_author) => {
+            "Balance unavailable. Your identity remains unlocked; refresh to query funding."
+        }
+        Session::Locked => "Unlock your identity to query funding.",
     }
 }
 

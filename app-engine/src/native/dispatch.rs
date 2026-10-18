@@ -8,21 +8,29 @@ impl Service {
     pub fn handle(&self, request: Request) -> Result<Response, NativeError> {
         match request {
             Request::IdentityStatus => Ok(Response::Identity(self.identity_status()?)),
-            Request::ImportIdentity { vault, password } => {
-                Ok(Response::Identity(self.import_identity(vault, password)?))
+            Request::CreateIdentity { password, replace } => {
+                let created = self.create_identity(password, replace)?;
+                Ok(Response::Created {
+                    status: created.status,
+                    phrase: created.words.to_string(),
+                })
             }
-            Request::CreateIdentity { phrase, password } => {
-                let (status, phrase) = self.create_identity(phrase, password)?;
-                Ok(Response::Created { status, phrase })
-            }
-            Request::Unlock(credential) => {
-                self.unlock(credential)?;
-                Ok(Response::Unlocked)
-            }
-            Request::Lock => {
-                self.lock();
-                Ok(Response::Locked)
-            }
+            Request::RecoverIdentity {
+                phrase,
+                password,
+                replace,
+            } => Ok(Response::Identity(
+                self.recover_identity(phrase, password, replace)?,
+            )),
+            Request::ImportIdentity {
+                vault,
+                password,
+                replace,
+            } => Ok(Response::Identity(
+                self.import_identity(vault, password, replace)?,
+            )),
+            Request::Unlock(credential) => Ok(Response::Identity(self.unlock(credential)?)),
+            Request::Lock => Ok(Response::Identity(self.lock()?)),
             Request::Wallet { chain } => {
                 served(chain)?;
                 Ok(Response::Wallet(self.wallet()?))

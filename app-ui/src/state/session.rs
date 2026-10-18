@@ -44,8 +44,8 @@ pub struct AppState {
     pub media_inflight: RwSignal<usize>,
     pub media_bytes: RwSignal<usize>,
     pub wallet_summary: RwSignal<Option<WalletSummary>>,
-    pub identity: RwSignal<Option<IdentityStatus>>,
-    pub identity_error: RwSignal<Said>,
+    pub identity: RwSignal<Identity>,
+    pub identity_epoch: RwSignal<u64>,
     pub feed: RwSignal<Vec<Post>>,
     pub drafts: RwSignal<BTreeMap<String, String>>,
     pub draft_photos: RwSignal<BTreeMap<String, Vec<Photo>>>,
@@ -119,8 +119,8 @@ impl AppState {
             media_inflight: RwSignal::new(0),
             media_bytes: RwSignal::new(0),
             wallet_summary: RwSignal::new(None),
-            identity: RwSignal::new(None),
-            identity_error: RwSignal::new(Said::Nothing),
+            identity: RwSignal::new(Identity::Reading),
+            identity_epoch: RwSignal::new(0),
             feed: RwSignal::new(Vec::new()),
             drafts: RwSignal::new(BTreeMap::new()),
             draft_photos: RwSignal::new(BTreeMap::new()),
@@ -180,23 +180,49 @@ impl AppState {
 
     pub fn load_identity(&self) {
         let state = *self;
+        let epoch = self.identity_epoch.get_untracked();
         leptos::task::spawn_local(async move {
-            match identity::status().await {
-                Ok(status) => {
-                    let unlocked = status.unlocked();
-                    state.identity.set(Some(status));
-                    state.identity_error.set(Said::Nothing);
-                    match unlocked {
-                        true => state.load_wallet(),
-                        false => state.wallet_summary.set(None),
-                    }
-                }
-                Err(fault) => {
-                    warn!(fault = %fault, "identity status unavailable");
-                    state.identity_error.set(voiced(fault));
-                }
-            }
+            let answer = identity::status().await;
+            state.settle_identity(epoch, answer);
         });
+    }
+
+    pub fn settle_identity(
+        &self,
+        epoch: u64,
+        answer: Result<IdentityStatus, Fault>,
+    ) -> IdentityAnswer {
+        if self.identity_epoch.get_untracked() != epoch {
+            warn!("identity status answer predates a newer identity change; discarded");
+            return IdentityAnswer::Stale;
+        }
+        match answer {
+            Ok(status) => self.identity_is(status),
+            Err(fault) => {
+                warn!(fault = %fault, "identity status unavailable");
+                self.identity.set(Identity::Unavailable(fault.message));
+            }
+        }
+        IdentityAnswer::Shown
+    }
+
+    pub fn identity_is(&self, status: IdentityStatus) {
+        self.identity_epoch.update(|epoch| *epoch += 1);
+        let unlocked = status.unlocked();
+        self.identity.set(Identity::Known(status));
+        self.wallet_summary.set(None);
+        self.is_loading_wallet.set(false);
+        if unlocked {
+            self.load_wallet();
+        }
+    }
+
+    pub fn session(&self) -> Session {
+        self.identity.with(Identity::session)
+    }
+
+    pub fn session_untracked(&self) -> Session {
+        self.identity.with_untracked(Identity::session)
     }
 
     pub fn refresh_all(&self) {
@@ -585,13 +611,33 @@ pub enum Signer {
 }
 
 pub fn signing_author(state: AppState) -> Signer {
-    let Some(status) = state.identity.get() else {
-        return Signer::Locked;
-    };
-    match status.session {
+    match state.session() {
         Session::Unlocked(author) => Signer::Author(author),
         Session::Locked => Signer::Locked,
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Identity {
+    Reading,
+    Unavailable(String),
+    Known(IdentityStatus),
+}
+
+impl Identity {
+    pub fn session(&self) -> Session {
+        match self {
+            Identity::Known(status) => status.session,
+            Identity::Reading => Session::Locked,
+            Identity::Unavailable(_reason) => Session::Locked,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdentityAnswer {
+    Shown,
+    Stale,
 }
 
 fn carried(mut health: ConnectionHealth, state: AppState) -> ConnectionHealth {

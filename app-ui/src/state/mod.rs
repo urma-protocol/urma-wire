@@ -6,11 +6,13 @@ pub mod said;
 pub mod session;
 pub mod synced;
 pub mod thread;
-pub mod vault;
+pub mod onboarding;
 pub mod wallet;
 
 pub use publishing::Reviewed;
 pub use said::Said;
 pub use session::AppState;
+pub use session::Identity;
+pub use session::IdentityAnswer;
 pub use synced::Synced;
 pub use wallet::WalletAnswer;

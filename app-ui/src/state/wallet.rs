@@ -3,7 +3,6 @@ use crate::state::said::Said;
 use crate::state::session::{voiced, AppState};
 use leptos::prelude::GetUntracked;
 use leptos::prelude::Set;
-use leptos::prelude::Update;
 use tracing::warn;
 use wire_app_core::errors::Fault;
 use wire_app_core::model::WalletSummary;
@@ -62,20 +61,8 @@ impl AppState {
         WalletAnswer::Shown
     }
 
-    pub fn identity_locked(&self) {
-        self.identity.update(|status| {
-            for status in status.iter_mut() {
-                status.session = Session::Locked;
-            }
-        });
-        self.wallet_summary.set(None);
-        self.is_loading_wallet.set(false);
-    }
 }
 
 pub(crate) fn signed_by(state: AppState) -> Session {
-    let Some(status) = state.identity.get_untracked() else {
-        return Session::Locked;
-    };
-    status.session
+    state.session_untracked()
 }

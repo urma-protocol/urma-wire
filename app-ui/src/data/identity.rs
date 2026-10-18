@@ -5,44 +5,67 @@ use wire_app_core::contract::{Request, Response};
 use wire_app_core::errors::{Fault, FaultKind};
 use wire_app_core::session::{Credential, IdentityStatus};
 
-pub async fn status() -> Result<IdentityStatus, Fault> {
-    match ask(Request::IdentityStatus).await? {
-        Response::Identity(status) => Ok(status),
-        other => Err(other.unexpected("identity status")),
-    }
-}
-
-pub async fn import(vault: Vec<u8>, password: String) -> Result<IdentityStatus, Fault> {
-    match ask(Request::ImportIdentity { vault, password }).await? {
-        Response::Identity(status) => Ok(status),
-        other => Err(other.unexpected("identity import")),
-    }
-}
-
 pub struct Created {
     pub status: IdentityStatus,
     pub phrase: String,
 }
 
-pub async fn create(phrase: String, password: String) -> Result<Created, Fault> {
-    match ask(Request::CreateIdentity { phrase, password }).await? {
+async fn status_of(request: Request, asked: &str) -> Result<IdentityStatus, Fault> {
+    match ask(request).await? {
+        Response::Identity(status) => Ok(status),
+        other => Err(other.unexpected(asked)),
+    }
+}
+
+pub async fn status() -> Result<IdentityStatus, Fault> {
+    status_of(Request::IdentityStatus, "identity status").await
+}
+
+pub async fn create(password: String, replace: bool) -> Result<Created, Fault> {
+    match ask(Request::CreateIdentity { password, replace }).await? {
         Response::Created { status, phrase } => Ok(Created { status, phrase }),
         other => Err(other.unexpected("identity creation")),
     }
 }
 
-pub async fn unlock(credential: Credential) -> Result<(), Fault> {
-    match ask(Request::Unlock(credential)).await? {
-        Response::Unlocked => Ok(()),
-        other => Err(other.unexpected("unlock")),
-    }
+pub async fn recover(
+    phrase: String,
+    password: String,
+    replace: bool,
+) -> Result<IdentityStatus, Fault> {
+    status_of(
+        Request::RecoverIdentity {
+            phrase,
+            password,
+            replace,
+        },
+        "identity recovery",
+    )
+    .await
 }
 
-pub async fn lock() -> Result<(), Fault> {
-    match ask(Request::Lock).await? {
-        Response::Locked => Ok(()),
-        other => Err(other.unexpected("lock")),
-    }
+pub async fn import(
+    vault: Vec<u8>,
+    password: String,
+    replace: bool,
+) -> Result<IdentityStatus, Fault> {
+    status_of(
+        Request::ImportIdentity {
+            vault,
+            password,
+            replace,
+        },
+        "identity import",
+    )
+    .await
+}
+
+pub async fn unlock(credential: Credential) -> Result<IdentityStatus, Fault> {
+    status_of(Request::Unlock(credential), "unlock").await
+}
+
+pub async fn lock() -> Result<IdentityStatus, Fault> {
+    status_of(Request::Lock, "lock").await
 }
 
 #[cfg(target_arch = "wasm32")]

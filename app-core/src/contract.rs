@@ -10,8 +10,20 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub enum Request {
     IdentityStatus,
-    ImportIdentity { vault: Vec<u8>, password: String },
-    CreateIdentity { phrase: String, password: String },
+    CreateIdentity {
+        password: String,
+        replace: bool,
+    },
+    RecoverIdentity {
+        phrase: String,
+        password: String,
+        replace: bool,
+    },
+    ImportIdentity {
+        vault: Vec<u8>,
+        password: String,
+        replace: bool,
+    },
     Unlock(Credential),
     Lock,
     Wallet { chain: Chain },
@@ -36,8 +48,9 @@ impl Request {
     pub fn name(&self) -> &'static str {
         match self {
             Request::IdentityStatus => "identity status",
-            Request::ImportIdentity { .. } => "identity import",
             Request::CreateIdentity { .. } => "identity creation",
+            Request::RecoverIdentity { .. } => "identity recovery",
+            Request::ImportIdentity { .. } => "identity import",
             Request::Unlock(_credential) => "unlock",
             Request::Lock => "lock",
             Request::Wallet { .. } => "wallet",
@@ -64,8 +77,6 @@ impl Request {
 pub enum Response {
     Identity(IdentityStatus),
     Created { status: IdentityStatus, phrase: String },
-    Unlocked,
-    Locked,
     Wallet(WalletSummary),
     Feed(Feed),
     Sync(SyncStatus),
@@ -87,8 +98,6 @@ impl Response {
         match self {
             Response::Identity(_status) => "identity status",
             Response::Created { .. } => "created identity",
-            Response::Unlocked => "unlocked",
-            Response::Locked => "locked",
             Response::Wallet(_summary) => "wallet",
             Response::Feed(_feed) => "feed",
             Response::Sync(_status) => "history sync status",

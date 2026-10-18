@@ -5,16 +5,12 @@ use crate::native::local_node::{LocalNode, LocalSource};
 use crate::native::mempool::Pool;
 use crate::native::wallet::{Balance, Known, WireWallet};
 use fs2::FileExt;
-use rand::rngs::OsRng;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use urma_identity::identity::IdentityKey;
-use urma_identity::keyring::Keyring;
-use urma_identity::phrase::IdentityPhrase;
-use urma_identity::vault::{EncryptedVault, UnlockCredential, UnlockedVault};
 use urma_runtime::error::Error as RuntimeError;
 use urma_runtime::light::LightSync;
 use urma_runtime::node::Node;
@@ -23,13 +19,6 @@ use urma_wire::index::Index;
 use wire_app_core::connection::{ConnectionHealth, NodeHealth, SourceChoice, Trouble};
 use wire_app_core::feed::SyncStatus;
 use wire_app_core::model::{AuthorId, Chain, WalletSummary};
-use wire_app_core::session::{Credential, IdentityStatus, Session, VaultSource};
-use zeroize::Zeroizing;
-
-enum Vault {
-    At(PathBuf),
-    Unconfigured,
-}
 
 pub(super) enum Link {
     Closed,
@@ -45,7 +34,7 @@ pub struct Service {
     pub(super) local_node: LocalSource,
     pub(super) directory: PathBuf,
     settings: RwLock<Settings>,
-    identity: Mutex<Identity>,
+    pub(super) identity: Mutex<Identity>,
     pub(super) link: Arc<Mutex<Link>>,
     pub(super) archive_feed: Arc<Mutex<OperatorState>>,
     pub(super) sync: Arc<Mutex<SyncStatus>>,
@@ -125,7 +114,7 @@ impl Service {
         }
     }
 
-    fn identity(&self) -> MutexGuard<'_, Identity> {
+    pub(super) fn identity(&self) -> MutexGuard<'_, Identity> {
         match self.identity.lock() {
             Ok(identity) => identity,
             Err(poisoned) => {
@@ -208,17 +197,6 @@ impl Service {
         self.directory.join(Self::INDEX_FILE)
     }
 
-    fn vault(&self) -> Vault {
-        let imported = self.directory.join(Self::IDENTITY_FILE);
-        if imported.exists() {
-            return Vault::At(imported);
-        }
-        let Some(configured) = self.settings().vault.clone() else {
-            return Vault::Unconfigured;
-        };
-        Vault::At(configured)
-    }
-
     pub(super) fn signer(&self) -> Result<IdentityKey, NativeError> {
         match &*self.identity() {
             Identity::Unlocked(wallet) => Ok(wallet.signer()?),
@@ -238,130 +216,6 @@ impl Service {
             Identity::Unlocked(wallet) => Ok(wallet.author_id()?),
             Identity::Locked => Err(NativeError::Locked),
         }
-    }
-
-    pub fn unlock(&self, credential: Credential) -> Result<(), NativeError> {
-        let password = match credential {
-            Credential::Password(password) => Zeroizing::new(password),
-            Credential::ConfiguredFile => {
-                let Some(file) = self.settings().unlock_file.clone() else {
-                    return Err(NativeError::NoUnlockFile);
-                };
-                urma_workflows::vault::read_secret(&file)?
-            }
-        };
-        let Vault::At(path) = self.vault() else {
-            return Err(NativeError::NoVault);
-        };
-        let vault = urma_workflows::vault::load(&path, UnlockCredential::Password(&password))?;
-        let wallet = WireWallet::from_vault(vault);
-        wallet.author_id()?;
-        *self.identity() = Identity::Unlocked(wallet);
-        Ok(())
-    }
-
-    pub fn identity_status(&self) -> Result<IdentityStatus, NativeError> {
-        let imported = self.directory.join(Self::IDENTITY_FILE).exists();
-        let vault_available = self.vault_available();
-        let source = match (imported, vault_available) {
-            (true, _available) => VaultSource::Imported,
-            (false, true) => VaultSource::Configured,
-            (false, false) => VaultSource::Missing,
-        };
-        let configured_unlock_available = self.configured_unlock_available();
-        let configured_unlock_path = match configured_unlock_available {
-            true => self.configured_unlock_path(),
-            false => String::new(),
-        };
-        Ok(IdentityStatus {
-            session: self.session()?,
-            vault_available,
-            source,
-            configured_unlock_available,
-            configured_unlock_path,
-        })
-    }
-
-    fn configured_unlock_path(&self) -> String {
-        let Some(file) = self.settings().unlock_file.clone() else {
-            return String::new();
-        };
-        file.display().to_string()
-    }
-
-    fn session(&self) -> Result<Session, NativeError> {
-        match &*self.identity() {
-            Identity::Unlocked(wallet) => Ok(Session::Unlocked(wallet.author_id()?)),
-            Identity::Locked => Ok(Session::Locked),
-        }
-    }
-
-    fn vault_available(&self) -> bool {
-        match self.vault() {
-            Vault::At(path) => path.is_file(),
-            Vault::Unconfigured => false,
-        }
-    }
-
-    fn configured_unlock_available(&self) -> bool {
-        let Some(file) = self.settings().unlock_file.clone() else {
-            return false;
-        };
-        file.is_file()
-    }
-
-    pub fn import_identity(
-        &self,
-        bytes: Vec<u8>,
-        password: String,
-    ) -> Result<IdentityStatus, NativeError> {
-        let password = Zeroizing::new(password);
-        if bytes.len() > EncryptedVault::MAX_BYTES {
-            return Err(NativeError::VaultTooLarge);
-        }
-        let path = self.directory.join(Self::IDENTITY_FILE);
-        if path.try_exists()? {
-            return Err(NativeError::AlreadyImported);
-        }
-        let wallet = WireWallet::unlock(&bytes, UnlockCredential::Password(&password))
-            .map_err(NativeError::WrongPassword)?;
-        wallet.author_id()?;
-        urma_io::write_new(&path, &bytes)?;
-        *self.identity() = Identity::Unlocked(wallet);
-        self.identity_status()
-    }
-
-    pub fn create_identity(
-        &self,
-        phrase: String,
-        password: String,
-    ) -> Result<(IdentityStatus, String), NativeError> {
-        let password = Zeroizing::new(password);
-        let phrase = Zeroizing::new(phrase);
-        let path = self.directory.join(Self::IDENTITY_FILE);
-        if path.try_exists()? {
-            return Err(NativeError::AlreadyImported);
-        }
-        let recovered = match phrase.trim().is_empty() {
-            true => IdentityPhrase::generate(&mut OsRng)?,
-            false => IdentityPhrase::parse(phrase.trim())?,
-        };
-        let words = recovered.export_words()?;
-        let vault = UnlockedVault::create(
-            Keyring::create(&recovered, "wire")?,
-            &password,
-            &mut OsRng,
-        )?;
-        let sealed = vault.seal(&mut OsRng)?;
-        urma_io::write_new(&path, sealed.as_bytes())?;
-        let wallet = WireWallet::from_vault(vault);
-        wallet.author_id()?;
-        *self.identity() = Identity::Unlocked(wallet);
-        Ok((self.identity_status()?, words.to_string()))
-    }
-
-    pub fn lock(&self) {
-        *self.identity() = Identity::Locked;
     }
 
     pub fn wallet(&self) -> Result<WalletSummary, NativeError> {

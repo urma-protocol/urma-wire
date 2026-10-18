@@ -9,6 +9,7 @@ pub mod errors;
 pub mod identities;
 pub mod projection;
 pub mod record;
+pub mod vault;
 
 #[cfg(target_arch = "wasm32")]
 pub mod browser;

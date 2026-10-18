@@ -44,3 +44,6 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wire-app-engine = { path = "../app-engine" }
+
+[dev-dependencies]
+any_spawner = { version = "0.2", features = ["futures-executor"] }

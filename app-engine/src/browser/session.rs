@@ -1,17 +1,15 @@
 use crate::config::{NETWORK, VAULT_KEY};
 use crate::errors::BrowserError;
-use rand::rngs::OsRng;
+use crate::vault::{minted, Minted, Words};
 use std::cell::{Cell, RefCell};
 use std::num::Wrapping;
 use urma_identity::identity::IdentityKey;
-use urma_identity::keyring::Keyring;
-use urma_identity::phrase::IdentityPhrase;
 use urma_identity::vault::{EncryptedVault, UnlockCredential, UnlockedVault};
 use urma_wallet::account::Account;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use wire_app_core::model::AuthorId;
-use wire_app_core::session::{Credential, IdentityStatus, Session, VaultSource};
+use wire_app_core::session::{Credential, IdentityStatus, Session, Vault};
 use zeroize::Zeroizing;
 
 thread_local! { static SESSION: RefCell<Option<UnlockedVault>> = const { RefCell::new(None) }; }
@@ -37,14 +35,15 @@ export async function vault_read(key) {
         });
     } finally { db.close(); }
 }
-export async function vault_insert(key, bytes) {
+export async function vault_store(key, bytes, replace) {
     const db = await database();
     try {
         await new Promise((resolve, reject) => {
             const tx = db.transaction('private', 'readwrite');
-            tx.objectStore('private').add(bytes, key);
+            const store = tx.objectStore('private');
+            if (replace) store.put(bytes, key); else store.add(bytes, key);
             tx.oncomplete = resolve;
-            tx.onabort = tx.onerror = () => reject(new Error('Vault already exists or storage failed; existing vault was preserved'));
+            tx.onabort = tx.onerror = () => reject(new Error('Storing the vault failed; the previous vault stands'));
         });
     } finally { db.close(); }
 }
@@ -53,10 +52,10 @@ extern "C" {
     #[wasm_bindgen(catch)]
     async fn vault_read(key: &str) -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch)]
-    async fn vault_insert(key: &str, bytes: &str) -> Result<(), JsValue>;
+    async fn vault_store(key: &str, bytes: &str, replace: bool) -> Result<(), JsValue>;
 }
 
-enum Vault {
+enum Copy {
     Stored(Vec<u8>),
     Absent,
 }
@@ -66,37 +65,35 @@ pub enum Epoch {
     Exactly(u64),
 }
 
+pub struct Created {
+    pub status: IdentityStatus,
+    pub words: Zeroizing<String>,
+}
+
 fn vault_storage(thrown: JsValue) -> BrowserError {
     BrowserError::VaultStorage(BrowserError::from(thrown).to_string())
 }
 
-async fn stored() -> Result<Vault, BrowserError> {
+async fn stored() -> Result<Copy, BrowserError> {
     let held = vault_read(VAULT_KEY).await.map_err(vault_storage)?;
     let Some(text) = held.as_string() else {
-        return Ok(Vault::Absent);
+        return Ok(Copy::Absent);
     };
     let bytes = serde_json::from_str(&text).map_err(BrowserError::StoredVault)?;
-    Ok(Vault::Stored(bytes))
+    Ok(Copy::Stored(bytes))
 }
 
 pub async fn status() -> Result<IdentityStatus, BrowserError> {
-    let available = match stored().await? {
-        Vault::Stored(_bytes) => true,
-        Vault::Absent => false,
-    };
-    identity(available)
+    match stored().await? {
+        Copy::Stored(_bytes) => identity(Vault::Local),
+        Copy::Absent => identity(Vault::Missing),
+    }
 }
 
-fn identity(available: bool) -> Result<IdentityStatus, BrowserError> {
+fn identity(vault: Vault) -> Result<IdentityStatus, BrowserError> {
     Ok(IdentityStatus {
         session: current_session()?,
-        vault_available: available,
-        source: match available {
-            true => VaultSource::Imported,
-            false => VaultSource::Missing,
-        },
-        configured_unlock_available: false,
-        configured_unlock_path: String::new(),
+        vault,
     })
 }
 
@@ -115,8 +112,9 @@ pub fn session_epoch() -> u64 {
     EPOCH.with(|epoch| epoch.get().0)
 }
 
-fn bump_epoch() {
+fn bump_epoch() -> u64 {
     EPOCH.with(|epoch| epoch.set(epoch.get() + Wrapping(1)));
+    session_epoch()
 }
 
 fn with_vault<T>(
@@ -158,66 +156,85 @@ fn unlocked(bytes: &[u8], password: &str) -> Result<UnlockedVault, BrowserError>
         .map_err(BrowserError::Unlock)
 }
 
-fn adopt(epoch: u64, vault: UnlockedVault) -> Result<(), BrowserError> {
+fn adopt(epoch: u64, vault: UnlockedVault) -> Result<IdentityStatus, BrowserError> {
     if session_epoch() != epoch {
         return Err(BrowserError::Cancelled);
     }
     SESSION.with(|session| *session.borrow_mut() = Some(vault));
-    Ok(())
+    identity(Vault::Local)
 }
 
-pub async fn import(vault: Vec<u8>, password: String) -> Result<IdentityStatus, BrowserError> {
-    bump_epoch();
-    let epoch = session_epoch();
-    let password = Zeroizing::new(password);
-    let opened = unlocked(&vault, &password)?;
-    vault_insert(VAULT_KEY, &serde_json::to_string(&vault)?)
+async fn replaceable(replace: bool) -> Result<(), BrowserError> {
+    match stored().await? {
+        Copy::Stored(_bytes) if !replace => Err(BrowserError::LocalVaultExists),
+        Copy::Stored(_bytes) => Ok(()),
+        Copy::Absent => Ok(()),
+    }
+}
+
+async fn store(sealed: &[u8], replace: bool) -> Result<(), BrowserError> {
+    vault_store(VAULT_KEY, &serde_json::to_string(sealed)?, replace)
         .await
-        .map_err(vault_storage)?;
-    adopt(epoch, opened)?;
-    identity(true)
+        .map_err(vault_storage)
 }
 
-pub async fn create(
+pub async fn import(
+    bytes: Vec<u8>,
+    password: String,
+    replace: bool,
+) -> Result<IdentityStatus, BrowserError> {
+    let epoch = bump_epoch();
+    let password = Zeroizing::new(password);
+    replaceable(replace).await?;
+    let opened = unlocked(&bytes, &password)?;
+    store(&bytes, replace).await?;
+    adopt(epoch, opened)
+}
+
+pub async fn create(password: String, replace: bool) -> Result<Created, BrowserError> {
+    let epoch = bump_epoch();
+    let password = Zeroizing::new(password);
+    replaceable(replace).await?;
+    let Minted {
+        vault,
+        sealed,
+        words,
+    } = minted(Words::Fresh, &password)?;
+    store(&sealed, replace).await?;
+    Ok(Created {
+        status: adopt(epoch, vault)?,
+        words,
+    })
+}
+
+pub async fn recover(
     phrase: String,
     password: String,
-) -> Result<(IdentityStatus, String), BrowserError> {
-    bump_epoch();
-    let epoch = session_epoch();
+    replace: bool,
+) -> Result<IdentityStatus, BrowserError> {
+    let epoch = bump_epoch();
     let password = Zeroizing::new(password);
     let phrase = Zeroizing::new(phrase);
-    let recovered = match phrase.trim().is_empty() {
-        true => IdentityPhrase::generate(&mut OsRng)?,
-        false => IdentityPhrase::parse(phrase.trim())?,
-    };
-    let words = recovered.export_words()?;
-    let vault = UnlockedVault::create(
-        Keyring::create(&recovered, "wire")?,
-        &password,
-        &mut OsRng,
-    )?;
-    let sealed = vault.seal(&mut OsRng)?;
-    vault_insert(VAULT_KEY, &serde_json::to_string(sealed.as_bytes())?)
-        .await
-        .map_err(vault_storage)?;
-    adopt(epoch, vault)?;
-    Ok((identity(true)?, words.to_string()))
+    replaceable(replace).await?;
+    let Minted { vault, sealed, .. } = minted(Words::Given(phrase), &password)?;
+    store(&sealed, replace).await?;
+    adopt(epoch, vault)
 }
 
-pub async fn unlock(credential: Credential) -> Result<(), BrowserError> {
-    bump_epoch();
-    let epoch = session_epoch();
+pub async fn unlock(credential: Credential) -> Result<IdentityStatus, BrowserError> {
+    let epoch = bump_epoch();
     let Credential::Password(password) = credential else {
         return Err(BrowserError::PasswordRequired);
     };
     let password = Zeroizing::new(password);
-    let Vault::Stored(bytes) = stored().await? else {
+    let Copy::Stored(bytes) = stored().await? else {
         return Err(BrowserError::NoVault);
     };
     adopt(epoch, unlocked(&bytes, &password)?)
 }
 
-pub fn lock() {
+pub async fn lock() -> Result<IdentityStatus, BrowserError> {
     bump_epoch();
     SESSION.with(|session| *session.borrow_mut() = None);
+    status().await
 }

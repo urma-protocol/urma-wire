@@ -1,12 +1,11 @@
 use crate::model::AuthorId;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum VaultSource {
-    Imported,
-    Configured,
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Vault {
     Missing,
+    Local,
+    Configured { path: String, unlock_file: Option<String> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,10 +17,7 @@ pub enum Session {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdentityStatus {
     pub session: Session,
-    pub vault_available: bool,
-    pub source: VaultSource,
-    pub configured_unlock_available: bool,
-    pub configured_unlock_path: String,
+    pub vault: Vault,
 }
 
 impl IdentityStatus {
@@ -30,6 +26,10 @@ impl IdentityStatus {
             Session::Locked => false,
             Session::Unlocked(_author) => true,
         }
+    }
+
+    pub fn has_local_copy(&self) -> bool {
+        self.vault == Vault::Local
     }
 }
 

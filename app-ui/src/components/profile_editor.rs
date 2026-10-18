@@ -21,6 +21,7 @@ use leptos::prelude::Callback;
 use leptos::prelude::ClassAttribute;
 use leptos::prelude::CollectView;
 use leptos::prelude::CustomAttribute;
+use leptos::prelude::Effect;
 use leptos::prelude::ElementChild;
 use leptos::prelude::Get;
 use leptos::prelude::GetUntracked;
@@ -216,6 +217,7 @@ struct Studio {
     brush: RwSignal<BrushShape>,
     history: RwSignal<Vec<[u8; Urma::AVATAR_PIXELS]>>,
     future: RwSignal<Vec<[u8; Urma::AVATAR_PIXELS]>>,
+    baseline: RwSignal<[u8; Urma::AVATAR_PIXELS]>,
     notice: RwSignal<Said>,
 }
 
@@ -230,6 +232,7 @@ impl Studio {
             brush: RwSignal::new(BrushShape::Single),
             history: RwSignal::new(Vec::new()),
             future: RwSignal::new(Vec::new()),
+            baseline: RwSignal::new(avatar_when_unset()),
             notice: RwSignal::new(Said::Nothing),
         }
     }
@@ -272,9 +275,15 @@ impl Studio {
         self.pixels.set([color; Urma::AVATAR_PIXELS]);
     }
 
-    fn load(&self, pixels: [u8; Urma::AVATAR_PIXELS]) {
-        self.remember();
+    fn adopt(&self, pixels: [u8; Urma::AVATAR_PIXELS]) {
+        self.history.set(Vec::new());
+        self.future.set(Vec::new());
+        self.baseline.set(pixels);
         self.pixels.set(pixels);
+    }
+
+    fn untouched(&self) -> bool {
+        self.pixels.get_untracked() == self.baseline.get_untracked()
     }
 
     fn stroke(&self, index: usize, color: u8) {
@@ -445,16 +454,60 @@ impl Review {
     }
 }
 
-fn load_confirmed(state: AppState, studio: Studio, nickname: RwSignal<String>) {
+pub enum Confirmed {
+    Profile(PublicIdentity),
+    Unknown,
+}
+
+pub fn confirmed_profile(state: AppState) -> Confirmed {
     let Signer::Author(author) = signing_author(state) else {
+        return Confirmed::Unknown;
+    };
+    state.public_identities.with(|identities| {
+        let Some(identity) = identities.get(&author.to_hex()) else {
+            return Confirmed::Unknown;
+        };
+        Confirmed::Profile(identity.clone())
+    })
+}
+
+#[derive(Clone, Copy)]
+struct Names {
+    shown: RwSignal<String>,
+    baseline: RwSignal<String>,
+}
+
+impl Names {
+    fn untouched(&self) -> bool {
+        self.shown.get_untracked() == self.baseline.get_untracked()
+    }
+
+    fn adopt(&self, name: String) {
+        self.baseline.set(name.clone());
+        self.shown.set(name);
+    }
+}
+
+fn follow_confirmed(state: AppState, studio: Studio, names: Names) {
+    let Confirmed::Profile(identity) = confirmed_profile(state) else {
         return;
     };
-    let identities = state.public_identities.get_untracked();
-    let Some(identity) = identities.get(&author.to_hex()) else {
+    if names.untouched() {
+        names.adopt(confirmed_nickname(&identity));
+    }
+    if studio.untouched() {
+        studio.adopt(confirmed_pixels(&identity, studio.notice));
+    }
+}
+
+fn reset_to_confirmed(state: AppState, studio: Studio, names: Names) {
+    let Confirmed::Profile(identity) = confirmed_profile(state) else {
+        names.adopt(nickname_when_unset());
+        studio.adopt(avatar_when_unset());
         return;
     };
-    nickname.set(confirmed_nickname(identity));
-    studio.load(confirmed_pixels(identity, studio.notice));
+    names.adopt(confirmed_nickname(&identity));
+    studio.adopt(confirmed_pixels(&identity, studio.notice));
 }
 
 pub fn confirmed_nickname(identity: &PublicIdentity) -> String {
@@ -492,23 +545,27 @@ pub fn ProfileEditor() -> impl IntoView {
         state,
         busy: RwSignal::new(false),
     };
-    let nickname = RwSignal::new(String::new());
+    let names = Names {
+        shown: RwSignal::new(nickname_when_unset()),
+        baseline: RwSignal::new(nickname_when_unset()),
+    };
     let trouble = RwSignal::new(Said::Nothing);
     window_event_listener(leptos::ev::keydown, move |event| studio.shortcut(&event));
+    Effect::new(move |_run: Option<()>| follow_confirmed(state, studio, names));
     let disabled = Signal::derive(move || review.disabled());
 
     view! {
         <div class="settings-group">
             <h3 class="group-title">"Public profile"</h3>
-            <p>"Your nickname and drawing are public, separate transactions signed by your active identity. Names are not unique. Confirmed updates appear after indexing."</p>
+            <p>"Your nickname and avatar are public records signed by this identity. They show up once the chain confirms them. The editor starts from what is confirmed."</p>
             <Actions>
                 <button class="btn btn-secondary btn-sm" disabled=disabled
-                    on:click=move |_clicked| load_confirmed(state, studio, nickname)>"Load confirmed profile"</button>
+                    on:click=move |_clicked| reset_to_confirmed(state, studio, names)>"Reset to confirmed"</button>
             </Actions>
-            <NicknameEditor nickname=nickname review=review />
+            <NicknameEditor nickname=names.shown review=review />
 
-            <h3 class="group-title">"Draw your avatar"</h3>
-            <p>"Create your 16 × 16 pixel identity. Choose tools, brush sizes, and 16 URMA colors. Full keyboard undo (Ctrl+Z) and redo (Ctrl+Y / Ctrl+Shift+Z) supported."</p>
+            <h3 class="group-title">"Avatar"</h3>
+            <p>"16 × 16 pixels, 16 colors. Ctrl+Z undoes, Ctrl+Y redoes."</p>
             <Warning message=studio.notice.into() />
             <Toolbar studio=studio />
             <Palette studio=studio />
@@ -516,7 +573,6 @@ pub fn ProfileEditor() -> impl IntoView {
                 <Canvas studio=studio />
                 <Previews studio=studio />
             </div>
-            <p class="action-desc">"128 packed pixel bytes · 136-byte URMA record (transaction overhead extra). Pixel data is encoded high-nibble first and signed atomically on-chain."</p>
             <Actions>
                 <button class="btn btn-primary" disabled=disabled
                     on:click=move |_clicked| match encode_avatar_pixels(&studio.pixels.get_untracked()) {

@@ -109,8 +109,9 @@ contract = ["connection", "errors", "feed", "markdown", "model", "publication", 
 identities = ["errors"]
 projection = ["config", "errors", "identities", "record"]
 record = ["errors"]
-native = ["config", "errors", "projection", "record"]
-browser = ["config", "errors", "projection", "record"]
+vault = []
+native = ["config", "errors", "projection", "record", "vault"]
+browser = ["config", "errors", "projection", "record", "vault"]
 client = ["browser", "errors"]
 # app-ui: pages compose components; components read state; state drives data; data asks the engine.
 data = ["config"]

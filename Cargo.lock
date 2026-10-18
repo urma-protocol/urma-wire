@@ -8623,6 +8623,7 @@ dependencies = [
 name = "wire-app-ui"
 version = "0.1.0"
 dependencies = [
+ "any_spawner",
  "console_error_panic_hook",
  "gloo-timers",
  "leptos",
